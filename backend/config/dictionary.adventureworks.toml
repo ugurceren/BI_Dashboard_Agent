@@ -1,0 +1,26 @@
+# Veri sözlüğü: SQL Server'daki BI_Meta veritabanı (scripts/seed_adventureworks_dictionary.py oluşturur).
+# Veri (AdventureWorksDW2025) ile sözlük ayrı veritabanlarında: kurumdaki yapının aynısı.
+
+source = "odbc"
+odbc = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=BI_Meta;Trusted_Connection=yes;TrustServerCertificate=yes;"
+
+[queries]
+tables = """
+SELECT table_name, business_name, description, subject_area, grain, row_count
+FROM meta.dd_tables
+"""
+
+columns = """
+SELECT table_name, column_name, business_name, description, data_type, column_role,
+       default_aggregation, synonyms, is_pii, sample_values
+FROM meta.dd_columns
+"""
+
+relationships = """
+SELECT from_table, from_column, to_table, to_column FROM meta.dd_relationships
+"""
+
+metrics = """
+SELECT metric_name, business_name, description, expression_sql, base_table, value_format, synonyms
+FROM meta.dd_metrics
+"""

@@ -1,0 +1,255 @@
+"""Modelden bağımsız LLM gateway (OpenAI uyumlu API: vLLM, Ollama, LM Studio, LiteLLM, TGI ...).
+
+İki araç çağırma modu:
+  * native — sunucunun `tools` desteği (vLLM: --enable-auto-tool-choice --tool-call-parser hermes)
+  * prompt — araç şemaları sistem mesajına yazılır, model <tool_call>{...}</tool_call> üretir.
+    Sunucu tools'u desteklemiyorsa `auto` modunda otomatik olarak buna düşülür.
+Her iki modda da harness'in iç mesaj formatı OpenAI formatıdır.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+import openai
+from openai import OpenAI
+
+from app.config import Settings
+
+log = logging.getLogger(__name__)
+
+_THINK = re.compile(r"<think>.*?</think>\s*", re.S)
+_TOOL_CALL = re.compile(r"<tool_call>\s*(.*?)\s*(?:</tool_call>|$)", re.S)
+_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.S)
+
+
+class LLMError(Exception):
+    pass
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+    parse_error: str | None = None
+
+
+@dataclass
+class AssistantTurn:
+    content: str
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: dict[str, int] = field(default_factory=dict)
+
+    def to_message(self) -> dict[str, Any]:
+        msg: dict[str, Any] = {"role": "assistant", "content": self.content or ""}
+        if self.tool_calls:
+            msg["tool_calls"] = [
+                {"id": c.id, "type": "function",
+                 "function": {"name": c.name, "arguments": json.dumps(c.arguments, ensure_ascii=False)}}
+                for c in self.tool_calls
+            ]
+        return msg
+
+
+def parse_json_loose(text: str) -> Any:
+    """Model çıktısındaki JSON'u toleranslı ayrıştırır (kod bloğu, baştaki/sondaki metin, sondaki virgül)."""
+    t = text.strip()
+    m = _FENCE.match(t)
+    if m:
+        t = m.group(1)
+    try:
+        return json.loads(t)
+    except json.JSONDecodeError:
+        pass
+    start = min([i for i in (t.find("{"), t.find("[")) if i >= 0], default=-1)
+    if start < 0:
+        raise ValueError("JSON bulunamadı")
+    end = max(t.rfind("}"), t.rfind("]"))
+    chunk = re.sub(r",\s*([}\]])", r"\1", t[start:end + 1])
+    return json.loads(chunk)
+
+
+def _parse_arguments(raw: Any) -> tuple[dict[str, Any], str | None]:
+    if isinstance(raw, dict):
+        return raw, None
+    if raw is None or raw == "":
+        return {}, None
+    try:
+        val = parse_json_loose(str(raw))
+        return (val if isinstance(val, dict) else {"value": val}), None
+    except (ValueError, json.JSONDecodeError) as e:
+        return {}, f"Araç argümanları geçerli JSON değil: {e}"
+
+
+def _extract_prompt_tool_calls(content: str) -> tuple[str, list[ToolCall]]:
+    calls: list[ToolCall] = []
+    for m in _TOOL_CALL.finditer(content):
+        body = m.group(1).strip()
+        if not body:
+            continue
+        try:
+            obj = parse_json_loose(body)
+        except (ValueError, json.JSONDecodeError) as e:
+            calls.append(ToolCall(f"call_{uuid.uuid4().hex[:8]}", "_invalid", {}, f"<tool_call> JSON'u okunamadı: {e}"))
+            continue
+        name = obj.get("name") or obj.get("tool") or ""
+        args, err = _parse_arguments(obj.get("arguments", obj.get("parameters", {})))
+        calls.append(ToolCall(f"call_{uuid.uuid4().hex[:8]}", name, args, err))
+    text = _TOOL_CALL.sub("", content).strip() if calls else content
+    return text, calls
+
+
+def _prompt_tools_block(tools: list[dict[str, Any]]) -> str:
+    lines = [
+        "# Araçlar",
+        "Aşağıdaki araçları kullanabilirsin. Bir araç çağırmak için yanıtına TAM OLARAK şu biçimde bir blok yaz",
+        "(birden fazla blok yazabilirsin; araç çağırırken başka açıklama yazma):",
+        '<tool_call>{"name": "<araç_adı>", "arguments": {<JSON argümanlar>}}</tool_call>',
+        "Araç sonucu sana <tool_response> içinde dönecek. Araç gerekmiyorsa normal metinle yanıt ver.",
+        "",
+        "<tools>",
+    ]
+    for t in tools:
+        f = t["function"]
+        lines.append(json.dumps({"name": f["name"], "description": f["description"], "parameters": f["parameters"]},
+                                ensure_ascii=False))
+    lines.append("</tools>")
+    return "\n".join(lines)
+
+
+def _to_prompt_mode(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        role = m["role"]
+        if role == "system" and tools:
+            out.append({"role": "system", "content": f"{m['content']}\n\n{_prompt_tools_block(tools)}"})
+        elif role == "assistant" and m.get("tool_calls"):
+            blocks = [f'<tool_call>{json.dumps({"name": c["function"]["name"], "arguments": json.loads(c["function"]["arguments"] or "{}")}, ensure_ascii=False)}</tool_call>'
+                      for c in m["tool_calls"]]
+            out.append({"role": "assistant", "content": ((m.get("content") or "") + "\n" + "\n".join(blocks)).strip()})
+        elif role == "tool":
+            item = f"<tool_response>\n{m['content']}\n</tool_response>"
+            if out and out[-1]["role"] == "user" and out[-1]["content"].startswith("<tool_response>"):
+                out[-1]["content"] += "\n" + item
+            else:
+                out.append({"role": "user", "content": item})
+        else:
+            out.append({k: v for k, v in m.items() if k in ("role", "content")})
+    return out
+
+
+class LLMGateway:
+    def __init__(self, settings: Settings):
+        self.s = settings
+        self.client = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key or "EMPTY",
+                             timeout=settings.llm_timeout_s, max_retries=1)
+        self.tool_mode = settings.llm_tool_mode  # auto → ilk hatada prompt'a düşebilir
+        vision_url = settings.vision_base_url or settings.llm_base_url
+        self.vision_client = OpenAI(base_url=vision_url, api_key=settings.vision_api_key or settings.llm_api_key or "EMPTY",
+                                    timeout=settings.llm_timeout_s, max_retries=1)
+
+    # ------------------------------------------------------------------ sohbet
+    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> AssistantTurn:
+        use_native = bool(tools) and self.tool_mode in ("auto", "native")
+        try:
+            if use_native:
+                resp = self._create(messages, tools)
+            else:
+                resp = self._create(_to_prompt_mode(messages, tools), None)
+        except openai.BadRequestError as e:
+            if use_native and self.tool_mode == "auto" and _looks_like_tool_unsupported(e):
+                log.warning("Sunucu native tool calling desteklemiyor, prompt moduna geçiliyor: %s", e)
+                self.tool_mode = "prompt"
+                return self.chat(messages, tools)
+            raise LLMError(f"LLM isteği reddedildi: {_err_text(e)}") from e
+        except openai.APIConnectionError as e:
+            raise LLMError(f"LLM sunucusuna bağlanılamadı ({self.s.llm_base_url}). Sunucu açık mı?") from e
+        except openai.APIStatusError as e:
+            raise LLMError(f"LLM hatası ({e.status_code}): {_err_text(e)}") from e
+        except openai.APITimeoutError as e:
+            raise LLMError("LLM yanıtı zaman aşımına uğradı.") from e
+
+        choice = resp.choices[0]
+        msg = choice.message
+        content = msg.content or ""
+        if self.s.llm_strip_thinking:
+            content = _THINK.sub("", content)
+            if "<think>" in content and "</think>" not in content:  # kesilmiş düşünce
+                content = content.split("<think>")[0]
+        calls: list[ToolCall] = []
+        for tc in msg.tool_calls or []:
+            args, err = _parse_arguments(tc.function.arguments)
+            calls.append(ToolCall(tc.id or f"call_{uuid.uuid4().hex[:8]}", tc.function.name, args, err))
+        if not calls and "<tool_call>" in content:
+            content, calls = _extract_prompt_tool_calls(content)
+        usage = {}
+        if resp.usage:
+            usage = {"prompt": resp.usage.prompt_tokens or 0, "completion": resp.usage.completion_tokens or 0}
+        if choice.finish_reason == "length" and not calls:
+            content += "\n\n_(Yanıt uzunluk sınırında kesildi.)_"
+        return AssistantTurn(content.strip(), calls, usage)
+
+    def _create(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None):
+        kwargs: dict[str, Any] = dict(model=self.s.llm_model, messages=messages,
+                                      temperature=self.s.llm_temperature, max_tokens=self.s.llm_max_tokens)
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        if self.s.llm_extra_body:
+            kwargs["extra_body"] = self.s.llm_extra_body
+        return self.client.chat.completions.create(**kwargs)
+
+    # ------------------------------------------------------------------ görsel
+    @property
+    def vision_enabled(self) -> bool:
+        return bool(self.s.vision_model)
+
+    def vision(self, prompt: str, image_data_urls: list[str]) -> str:
+        if not self.s.vision_model:
+            raise LLMError("VISION_MODEL tanımlı değil.")
+        parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        parts += [{"type": "image_url", "image_url": {"url": u}} for u in image_data_urls]
+        try:
+            resp = self.vision_client.chat.completions.create(
+                model=self.s.vision_model, messages=[{"role": "user", "content": parts}],
+                temperature=0.1, max_tokens=1500)
+        except openai.APIConnectionError as e:
+            raise LLMError("Görsel model sunucusuna bağlanılamadı.") from e
+        except openai.APIError as e:
+            raise LLMError(f"Görsel model hatası: {_err_text(e)}") from e
+        return _THINK.sub("", resp.choices[0].message.content or "").strip()
+
+    # ------------------------------------------------------------------ sağlık
+    def health(self) -> dict[str, Any]:
+        info: dict[str, Any] = {"reachable": False, "model": self.s.llm_model, "base_url": self.s.llm_base_url,
+                                "tool_mode": self.tool_mode}
+        try:
+            models = [m.id for m in self.client.with_options(timeout=5, max_retries=0).models.list().data]
+            info["reachable"] = True
+            info["available_models"] = models[:20]
+            if models and self.s.llm_model not in models:
+                info["error"] = f"'{self.s.llm_model}' sunucuda yok. Mevcut: {', '.join(models[:5])}"
+        except Exception as e:  # noqa: BLE001
+            info["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+        return info
+
+
+def _err_text(e: openai.APIError) -> str:
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        m = err.get("message") if isinstance(err, dict) else (body.get("message") or err)
+        if m:
+            return str(m)[:300]
+    return str(e)[:300]
+
+
+def _looks_like_tool_unsupported(e: openai.BadRequestError) -> bool:
+    t = _err_text(e).lower()
+    return any(k in t for k in ("tool", "function", "auto-tool-choice", "tool_choice"))

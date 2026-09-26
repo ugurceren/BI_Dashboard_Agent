@@ -1,0 +1,11 @@
+backend/.venv/
+backend/.env
+backend/data/*.duckdb
+backend/data/*.wal
+backend/sessions/
+backend/logs/
+__pycache__/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-viewer/

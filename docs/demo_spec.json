@@ -1,0 +1,456 @@
+{
+  "version": 1,
+  "title": "Kredi Kartı Satış Performansı",
+  "subtitle": "2026 Ocak–Ağustos · geçen yılın aynı dönemiyle karşılaştırmalı",
+  "requirements": {
+    "business_goal": "Kredi kartı satış performansının yönetime sunulması",
+    "audience": "Üst yönetim",
+    "kpis": [
+      "Satış tutarı",
+      "İşlem adedi",
+      "Ortalama sepet",
+      "Aktif müşteri"
+    ],
+    "dimensions": [
+      "Ay",
+      "Bölge",
+      "Kategori",
+      "Kanal",
+      "Şube"
+    ],
+    "time_range": "2026 Ocak–Ağustos, geçen yılla karşılaştırmalı"
+  },
+  "theme": {
+    "mode": "light",
+    "palette": [
+      "#2563eb",
+      "#0ea5e9",
+      "#14b8a6",
+      "#f59e0b",
+      "#ef4444",
+      "#8b5cf6",
+      "#64748b"
+    ],
+    "background": "#f4f6fb",
+    "surface": "#ffffff",
+    "text": "#0f172a",
+    "mutedText": "#64748b",
+    "accent": "#2563eb",
+    "border": "#e2e8f0",
+    "fontFamily": "Inter, 'Segoe UI', system-ui, sans-serif",
+    "radius": 14,
+    "cardStyle": "elevated",
+    "density": "comfortable",
+    "headerStyle": "banner"
+  },
+  "layout": {
+    "columns": 12,
+    "rowHeight": 90
+  },
+  "filters": [
+    {
+      "id": "f_region",
+      "label": "Bölge",
+      "field": "region",
+      "type": "multiselect"
+    }
+  ],
+  "datasets": [
+    {
+      "id": "kpi_summary",
+      "description": "2026 YTD ana göstergeler ve geçen yılın aynı dönemine göre değişim",
+      "sql": "WITH p AS (\n  SELECT d.year, SUM(f.amount_try) AS sales, COUNT(*) AS tx, COUNT(DISTINCT f.customer_id) AS customers\n  FROM dwh.fact_card_transaction f JOIN dwh.dim_date d ON d.date_key = f.date_key\n  WHERE d.year IN (2025, 2026) AND d.month <= 8\n  GROUP BY d.year\n)\nSELECT c.sales AS sales_amount, (c.sales - p.sales) / p.sales AS sales_growth,\n       c.tx AS tx_count, (c.tx - p.tx) * 1.0 / p.tx AS tx_growth,\n       c.sales / c.tx AS avg_ticket, (c.sales / c.tx - p.sales / p.tx) / (p.sales / p.tx) AS avg_ticket_growth,\n       c.customers AS active_customers, (c.customers - p.customers) * 1.0 / p.customers AS customer_growth\nFROM p c JOIN p p ON c.year = 2026 AND p.year = 2025",
+      "fields": [
+        {
+          "name": "sales_amount",
+          "label": "Satış Tutarı",
+          "type": "number",
+          "format": "currency"
+        },
+        {
+          "name": "sales_growth",
+          "label": "Satış Büyümesi",
+          "type": "number",
+          "format": "percent"
+        },
+        {
+          "name": "tx_count",
+          "label": "İşlem Adedi",
+          "type": "number",
+          "format": "number"
+        },
+        {
+          "name": "tx_growth",
+          "label": "İşlem Büyümesi",
+          "type": "number",
+          "format": "percent"
+        },
+        {
+          "name": "avg_ticket",
+          "label": "Ortalama Sepet",
+          "type": "number",
+          "format": "currency"
+        },
+        {
+          "name": "avg_ticket_growth",
+          "label": "Sepet Büyümesi",
+          "type": "number",
+          "format": "percent"
+        },
+        {
+          "name": "active_customers",
+          "label": "Aktif Müşteri",
+          "type": "number",
+          "format": "number"
+        },
+        {
+          "name": "customer_growth",
+          "label": "Müşteri Büyümesi",
+          "type": "number",
+          "format": "percent"
+        }
+      ]
+    },
+    {
+      "id": "monthly_trend",
+      "description": "Aylık satış tutarı ve işlem adedi (son 20 ay)",
+      "sql": "SELECT d.year_month, SUM(f.amount_try) AS sales_amount, COUNT(*) AS tx_count\nFROM dwh.fact_card_transaction f JOIN dwh.dim_date d ON d.date_key = f.date_key\nWHERE d.full_date >= DATE '2025-01-01'\nGROUP BY d.year_month ORDER BY d.year_month",
+      "fields": [
+        {
+          "name": "year_month",
+          "label": "Ay",
+          "type": "string"
+        },
+        {
+          "name": "sales_amount",
+          "label": "Satış Tutarı",
+          "type": "number",
+          "format": "currency"
+        },
+        {
+          "name": "tx_count",
+          "label": "İşlem Adedi",
+          "type": "number",
+          "format": "number"
+        }
+      ]
+    },
+    {
+      "id": "region_sales",
+      "description": "Bölge bazında 2026 YTD satış",
+      "sql": "SELECT b.region, SUM(f.amount_try) AS sales_amount, COUNT(*) AS tx_count\nFROM dwh.fact_card_transaction f\nJOIN dwh.dim_date d ON d.date_key = f.date_key\nJOIN dwh.dim_branch b ON b.branch_id = f.branch_id\nWHERE d.year = 2026\nGROUP BY b.region ORDER BY sales_amount DESC",
+      "fields": [
+        {
+          "name": "region",
+          "label": "Bölge",
+          "type": "string"
+        },
+        {
+          "name": "sales_amount",
+          "label": "Satış Tutarı",
+          "type": "number",
+          "format": "currency"
+        },
+        {
+          "name": "tx_count",
+          "label": "İşlem Adedi",
+          "type": "number",
+          "format": "number"
+        }
+      ]
+    },
+    {
+      "id": "category_share",
+      "description": "İşyeri kategorisine göre 2026 YTD satış dağılımı",
+      "sql": "SELECT m.category_name, b.region, SUM(f.amount_try) AS sales_amount\nFROM dwh.fact_card_transaction f\nJOIN dwh.dim_date d ON d.date_key = f.date_key\nJOIN dwh.dim_merchant_category m ON m.mcc_id = f.mcc_id\nJOIN dwh.dim_branch b ON b.branch_id = f.branch_id\nWHERE d.year = 2026\nGROUP BY m.category_name, b.region",
+      "fields": [
+        {
+          "name": "category_name",
+          "label": "Kategori",
+          "type": "string"
+        },
+        {
+          "name": "region",
+          "label": "Bölge",
+          "type": "string"
+        },
+        {
+          "name": "sales_amount",
+          "label": "Satış Tutarı",
+          "type": "number",
+          "format": "currency"
+        }
+      ]
+    },
+    {
+      "id": "channel_monthly",
+      "description": "Kanal bazında aylık satış (2026)",
+      "sql": "SELECT d.year_month, c.channel_name, SUM(f.amount_try) AS sales_amount\nFROM dwh.fact_card_transaction f\nJOIN dwh.dim_date d ON d.date_key = f.date_key\nJOIN dwh.dim_channel c ON c.channel_id = f.channel_id\nWHERE d.year = 2026\nGROUP BY d.year_month, c.channel_name ORDER BY d.year_month",
+      "fields": [
+        {
+          "name": "year_month",
+          "label": "Ay",
+          "type": "string"
+        },
+        {
+          "name": "channel_name",
+          "label": "Kanal",
+          "type": "string"
+        },
+        {
+          "name": "sales_amount",
+          "label": "Satış Tutarı",
+          "type": "number",
+          "format": "currency"
+        }
+      ]
+    },
+    {
+      "id": "top_branches",
+      "description": "2026 YTD en yüksek satışlı 10 şube",
+      "sql": "SELECT b.branch_name, b.city, b.region, SUM(f.amount_try) AS sales_amount, COUNT(*) AS tx_count,\n       SUM(f.amount_try) / COUNT(*) AS avg_ticket\nFROM dwh.fact_card_transaction f\nJOIN dwh.dim_date d ON d.date_key = f.date_key\nJOIN dwh.dim_branch b ON b.branch_id = f.branch_id\nWHERE d.year = 2026\nGROUP BY b.branch_name, b.city, b.region ORDER BY sales_amount DESC LIMIT 10",
+      "fields": [
+        {
+          "name": "branch_name",
+          "label": "Şube",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "label": "İl",
+          "type": "string"
+        },
+        {
+          "name": "region",
+          "label": "Bölge",
+          "type": "string"
+        },
+        {
+          "name": "sales_amount",
+          "label": "Satış Tutarı",
+          "type": "number",
+          "format": "currency"
+        },
+        {
+          "name": "tx_count",
+          "label": "İşlem Adedi",
+          "type": "number",
+          "format": "number"
+        },
+        {
+          "name": "avg_ticket",
+          "label": "Ortalama Sepet",
+          "type": "number",
+          "format": "currency"
+        }
+      ]
+    }
+  ],
+  "visuals": [
+    {
+      "id": "kpi_sales",
+      "type": "kpi",
+      "title": "Satış Tutarı",
+      "datasetId": "kpi_summary",
+      "encoding": {
+        "value": "sales_amount"
+      },
+      "options": {
+        "format": "compact",
+        "currency": "TRY",
+        "deltaField": "sales_growth",
+        "deltaLabel": "geçen yıla göre",
+        "sparklineDatasetId": "monthly_trend",
+        "sparklineField": "sales_amount"
+      },
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 3,
+        "h": 2
+      }
+    },
+    {
+      "id": "kpi_tx",
+      "type": "kpi",
+      "title": "İşlem Adedi",
+      "datasetId": "kpi_summary",
+      "encoding": {
+        "value": "tx_count"
+      },
+      "options": {
+        "format": "number",
+        "deltaField": "tx_growth",
+        "deltaLabel": "geçen yıla göre",
+        "sparklineDatasetId": "monthly_trend",
+        "sparklineField": "tx_count"
+      },
+      "position": {
+        "x": 3,
+        "y": 0,
+        "w": 3,
+        "h": 2
+      }
+    },
+    {
+      "id": "kpi_ticket",
+      "type": "kpi",
+      "title": "Ortalama Sepet",
+      "datasetId": "kpi_summary",
+      "encoding": {
+        "value": "avg_ticket"
+      },
+      "options": {
+        "format": "currency",
+        "decimals": 0,
+        "deltaField": "avg_ticket_growth",
+        "deltaLabel": "geçen yıla göre"
+      },
+      "position": {
+        "x": 6,
+        "y": 0,
+        "w": 3,
+        "h": 2
+      }
+    },
+    {
+      "id": "kpi_customers",
+      "type": "kpi",
+      "title": "Aktif Müşteri",
+      "datasetId": "kpi_summary",
+      "encoding": {
+        "value": "active_customers"
+      },
+      "options": {
+        "format": "number",
+        "deltaField": "customer_growth",
+        "deltaLabel": "geçen yıla göre"
+      },
+      "position": {
+        "x": 9,
+        "y": 0,
+        "w": 3,
+        "h": 2
+      }
+    },
+    {
+      "id": "trend",
+      "type": "combo",
+      "title": "Aylık Satış Trendi",
+      "subtitle": "Tutar (bar) ve işlem adedi (çizgi)",
+      "datasetId": "monthly_trend",
+      "encoding": {
+        "x": "year_month",
+        "y": [
+          "sales_amount",
+          "tx_count"
+        ]
+      },
+      "options": {
+        "format": "compact",
+        "showLegend": true,
+        "smooth": true
+      },
+      "position": {
+        "x": 0,
+        "y": 2,
+        "w": 8,
+        "h": 4
+      }
+    },
+    {
+      "id": "region_bar",
+      "type": "bar",
+      "title": "Bölge Bazında Satış",
+      "datasetId": "region_sales",
+      "encoding": {
+        "x": "region",
+        "y": [
+          "sales_amount"
+        ]
+      },
+      "options": {
+        "horizontal": true,
+        "sort": "desc",
+        "format": "compact",
+        "showLabels": true
+      },
+      "position": {
+        "x": 8,
+        "y": 2,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": "category_donut",
+      "type": "donut",
+      "title": "Kategori Dağılımı",
+      "datasetId": "category_share",
+      "encoding": {
+        "category": "category_name",
+        "value": "sales_amount"
+      },
+      "options": {
+        "format": "compact",
+        "showLegend": true
+      },
+      "position": {
+        "x": 0,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": "channel_area",
+      "type": "area",
+      "title": "Kanal Bazında Aylık Satış",
+      "datasetId": "channel_monthly",
+      "encoding": {
+        "x": "year_month",
+        "y": [
+          "sales_amount"
+        ],
+        "series": "channel_name"
+      },
+      "options": {
+        "stacked": true,
+        "smooth": true,
+        "format": "compact",
+        "showLegend": true
+      },
+      "position": {
+        "x": 4,
+        "y": 6,
+        "w": 8,
+        "h": 4
+      }
+    },
+    {
+      "id": "branch_table",
+      "type": "table",
+      "title": "En Yüksek Satışlı 10 Şube",
+      "datasetId": "top_branches",
+      "encoding": {
+        "columns": [
+          "branch_name",
+          "city",
+          "region",
+          "sales_amount",
+          "tx_count",
+          "avg_ticket"
+        ]
+      },
+      "options": {
+        "format": "currency"
+      },
+      "position": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 4
+      }
+    }
+  ]
+}

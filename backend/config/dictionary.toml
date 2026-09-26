@@ -1,0 +1,46 @@
+# Veri sözlüğü kaynağı.
+#
+# Sözlük hangi veritabanında ve hangi tablolarda olursa olsun, aşağıdaki sorguların
+# mantıksal kolon adlarıyla (AS ...) sonuç döndürmesi yeterli. Kendi SQL Server sözlüğünüze
+# bağlarken sadece bu sorguları kendi tablo/kolon adlarınıza göre yeniden yazın.
+#
+# source = "data"   -> veri kaynağıyla aynı bağlantı (geliştirmede DuckDB)
+# source = "odbc"   -> ayrı bir SQL Server bağlantısı (odbc = "...")
+
+source = "data"
+# odbc = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlsrv01;DATABASE=MetaDB;Trusted_Connection=yes;"
+
+[queries]
+# Zorunlu kolonlar: table_name (şema.tablo), business_name, description, subject_area, grain, row_count
+tables = """
+SELECT table_name, business_name, description, subject_area, grain, row_count
+FROM meta.dd_tables
+"""
+
+# Zorunlu: table_name, column_name, business_name, description, data_type,
+#          column_role (measure|dimension|date|key|attribute), default_aggregation,
+#          synonyms (virgülle ayrılmış), is_pii, sample_values
+columns = """
+SELECT table_name, column_name, business_name, description, data_type, column_role,
+       default_aggregation, synonyms, is_pii, sample_values
+FROM meta.dd_columns
+"""
+
+# Zorunlu: from_table, from_column, to_table, to_column
+relationships = """
+SELECT from_table, from_column, to_table, to_column FROM meta.dd_relationships
+"""
+
+# İsteğe bağlı (yoksa boş bırakın): metric_name, business_name, description,
+#          expression_sql, base_table, value_format, synonyms
+metrics = """
+SELECT metric_name, business_name, description, expression_sql, base_table, value_format, synonyms
+FROM meta.dd_metrics
+"""
+
+# SQL Server örneği (kendi sözlük tablolarınıza göre uyarlayın):
+# tables = """
+# SELECT s.SemaAdi + '.' + s.TabloAdi AS table_name, s.IsAdi AS business_name, s.Aciklama AS description,
+#        s.KonuAlani AS subject_area, s.Granularite AS grain, NULL AS row_count
+# FROM dbo.VS_Tablo s WHERE s.Aktif = 1
+# """

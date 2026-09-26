@@ -1,0 +1,5 @@
+html, body { margin: 0; padding: 0; min-height: 100%; }
+body { font-family: Inter, "Segoe UI", system-ui, sans-serif; }
+#root { min-height: 100vh; }
+#root > .db-root { min-height: 100vh; }
+.viewer-error { padding: 40px; color: #b91c1c; font-size: 14px; }

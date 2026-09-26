@@ -1,0 +1,125 @@
+# BI Rapor Agent
+
+Kurum içinde (on-prem) çalışan, modelden bağımsız bir "Claude Code for BI" harness'i.
+
+1. **İhtiyaç** — rapordan ne beklediğinizi anlatırsınız; agent netleştirici sorular sorar.
+2. **Veri** — agent veri sözlüğünde tabloları bulur, SQL yazar, doğrulatır, çalıştırır ve dashboard dataset'lerini hazırlar.
+3. **Tasarım** — tasarımı tarif edersiniz ya da örnek bir dashboard görseli yüklersiniz; agent bir Report Spec (JSON) üretir,
+   arayüz bunu modern bir dashboard olarak çizer. "Bölge grafiğini donut yap" gibi isteklerle iterasyon yaparsınız.
+
+LLM hiçbir zaman HTML/JS ya da doğrudan veritabanı erişimi üretmez: yalnızca araç çağırır ve JSON spec yazar.
+Her şeyi harness doğrular.
+
+```
+ React UI ──SSE──► FastAPI ──► Agent döngüsü (faz bazlı) ──► LLM Gateway ──► vLLM / Ollama (Qwen, Llama …)
+                                   │
+                                   ├─ araçlar: search_dictionary · get_table_details · find_metrics · run_sql
+                                   │           save_requirements · save_datasets · create_report_spec · update_visual …
+                                   ├─ SQL validator (sqlglot): yalnız SELECT, izinli şema, sözlükte olan tablo, PII engeli
+                                   ├─ Spec validator (pydantic + anlamsal kontrol, otomatik yerleşim düzeltme)
+                                   ├─ Vision: piksel renk analizi + (varsa) VL model → tasarım özeti
+                                   └─ audit log (logs/audit.jsonl)
+```
+
+## Kurulum
+
+```bash
+# backend
+cd backend
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt        # Linux: .venv/bin/pip
+.venv/Scripts/python scripts/seed_synthetic.py        # sentetik banka verisi + sözlük (data/demo.duckdb)
+copy .env.example .env                                 # LLM_BASE_URL / LLM_MODEL'i kurum sunucunuza göre düzenleyin
+.venv/Scripts/python scripts/check_llm.py             # sunucu tool calling destekliyor mu?
+.venv/Scripts/python -m uvicorn app.main:app --port 8000
+
+# frontend (ayrı terminal)
+cd frontend
+npm install
+npm run dev              # http://localhost:5173
+npm run build:viewer     # "HTML indir" için tek dosyalık viewer
+```
+
+LLM olmadan denemek için arayüzde **Demo dashboard yükle** butonunu kullanın (spec + gerçek sentetik veri).
+
+## Model sunucusu
+
+OpenAI uyumlu her endpoint çalışır. Önerilen (GPU sunucusunda):
+
+```bash
+# vLLM — native tool calling
+python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3-32B \
+  --enable-auto-tool-choice --tool-call-parser hermes --max-model-len 32768
+# görsel model (ayrı port)
+python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-VL-7B-Instruct --port 8002
+```
+
+- `LLM_TOOL_MODE=auto`: native tool calling dener, sunucu desteklemiyorsa `<tool_call>` prompt moduna düşer.
+- Model araç çağırmada ne kadar iyiyse agent o kadar iyi çalışır. 7-8B modeller basit akışlarda iş görür;
+  güvenilir sonuç için 30B+ (Qwen3-32B, Qwen2.5-72B, Llama-3.3-70B) önerilir.
+- `VISION_MODEL` boşsa örnek görsellerden yalnızca renkler (piksel analizi) çıkarılır.
+
+## Ortamlar: AdventureWorks (SQL Server) ve DuckDB demo
+
+`backend/.env` hangi ortamın aktif olduğunu belirler; iki blok arasında yorum satırıyla geçiş yapılır.
+
+| | AdventureWorks (varsayılan) | DuckDB demo |
+|---|---|---|
+| Veri | `localhost` / `AdventureWorksDW2025` | `backend/data/demo.duckdb` |
+| Sözlük | `localhost` / `BI_Meta.meta.dd_*` | `demo.duckdb` / `meta.dd_*` |
+| Sözlük ayarı | `config/dictionary.adventureworks.toml` | `config/dictionary.toml` |
+| Politika | `config/policy.adventureworks.toml` (şema `dbo`) | `config/policy.toml` (şema `dwh`) |
+| Demo | `docs/demo_spec_adventureworks.json` | `docs/demo_spec.json` |
+
+AdventureWorks sözlüğünü (yeniden) oluşturmak — AdventureWorks'e dokunmaz, ayrı `BI_Meta` veritabanına yazar:
+
+```bash
+backend/.venv/Scripts/python backend/scripts/seed_adventureworks_dictionary.py --server localhost --source-db AdventureWorksDW2025
+```
+
+Script tabloları/kolonları ve foreign key'leri otomatik okur; Türkçe iş adları, eş anlamlılar ve PII işaretleri
+scriptin içindeki `TABLES` / `COLUMNS` sözlüklerinde. Müşteri kimlik/iletişim bilgileri ile çalışan kimlik, doğum tarihi,
+iletişim ve ücret bilgileri PII olarak işaretli (analyst rolü sorgulayamaz); satış temsilcisi ad-soyadı raporlanabilir.
+
+## Kendi SQL Server sözlüğünüze bağlamak
+
+1. `backend/config/dictionary.toml` → sorguları kendi sözlük tablolarınıza göre yazın (mantıksal kolon adlarıyla `AS ...`).
+   Sözlük ayrı bir veritabanındaysa `source = "odbc"` + `odbc = "..."`.
+2. `.env` → `DATA_DIALECT=tsql`, `SQLSERVER_ODBC=...` (salt-okunur kullanıcı!). `pip install pyodbc`.
+3. `backend/config/policy.toml` → rol başına izinli şemalar, yasak tablolar, PII izni, satır limiti.
+4. `POST /api/dictionary/reload` ile sözlüğü yeniden yükleyin.
+
+## Güvenlik katmanları
+
+| Katman | Ne yapar |
+|---|---|
+| Faz bazlı araçlar | Her fazda yalnızca o faza ait araçlar açık; model başka işe kalkışamaz |
+| SQL validator | Tek ifade; yalnız SELECT/WITH/UNION; DML/DDL/INTO/COPY/ATTACH/PRAGMA yasak; tablo fonksiyonları yasak; sadece sözlükteki + izinli şemadaki tablolar |
+| PII | Sözlükte `is_pii` olan kolonlar ve PII içeren tablolarda `SELECT *` engellenir (rol izni yoksa) |
+| Bağlantı | DuckDB salt-okunur + dış erişim kapalı; SQL Server için salt-okunur kullanıcı, zaman aşımı, satır limiti |
+| Spec | Pydantic şema + dataset/alan referans kontrolü; model hiçbir zaman kod üretmez |
+| Denetim | Her LLM çağrısı ve araç çalıştırması `logs/audit.jsonl`'a yazılır |
+
+## Testler
+
+```bash
+cd backend && .venv/Scripts/python -m pytest -q
+```
+
+Harness uçtan uca, senaryolu sahte bir modelle test edilir (`tests/test_harness.py`): faz geçişleri, bağlam sıfırlama,
+PII reddi, hatalı araç çağrısından toparlanma, adım sınırı, prompt-modu tool calling.
+
+## Klasörler
+
+```
+backend/app/llm/gateway.py        modelden bağımsız LLM katmanı (native / prompt tool calling, <think> temizleme)
+backend/app/harness/agent.py      agent döngüsü, olay akışı, audit
+backend/app/harness/phases.py     faz prompt'ları ve durum aktarımı
+backend/app/harness/tools.py      araçlar ve doğrulamalar
+backend/app/harness/vision.py     örnek görselden tasarım özeti
+backend/app/data/validator.py     SQL güvenlik doğrulayıcı
+backend/app/dictionary/           veri sözlüğü yükleme + Türkçe arama
+backend/app/spec/models.py        Report Spec şeması
+frontend/src/dashboard/           Report Spec → dashboard renderer (ECharts)
+docs/CONTRACT.md                  API + Report Spec sözleşmesi
+```

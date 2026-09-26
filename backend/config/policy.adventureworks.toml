@@ -1,0 +1,19 @@
+# AdventureWorksDW erişim politikası. Sözlükte olmayan tablolar zaten sorgulanamaz.
+
+[roles.analyst]
+allowed_schemas = ["dbo"]
+denied_tables = []                  # ör. ["dbo.factfinance"]
+allow_pii = false
+max_rows = 5000
+
+[roles.admin]
+allowed_schemas = ["dbo"]
+denied_tables = []
+allow_pii = true
+max_rows = 20000
+
+[sql]
+denied_functions = [
+  "openrowset", "opendatasource", "openquery", "openxml", "xp_cmdshell", "sp_executesql",
+  "bulk", "db_name", "suser_sname", "system_user", "host_name",
+]

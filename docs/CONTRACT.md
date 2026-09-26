@@ -1,0 +1,173 @@
+# Backend ↔ Frontend Sözleşmesi
+
+Backend: FastAPI, `http://localhost:8000`. Tüm uç noktalar `/api` altında. Frontend (Vite, `http://localhost:5173`) `/api` isteklerini backend'e proxy'ler.
+
+## 1. Report Spec (dashboard tanımı)
+
+Agent'ın ürettiği tek çıktı budur. Frontend bu JSON'u render eder; LLM hiçbir zaman HTML/JS üretmez.
+
+```ts
+type FieldType = "number" | "string" | "date";
+type ValueFormat = "number" | "currency" | "percent" | "compact"; // tr-TR locale
+
+interface DatasetField { name: string; label?: string; type: FieldType; format?: ValueFormat }
+
+interface Dataset {
+  id: string;              // snake_case, benzersiz
+  description: string;
+  sql: string;             // backend doğrular + çalıştırır; frontend sadece gösterir
+  fields: DatasetField[];  // backend çalıştırınca doldurur
+}
+
+type VisualType =
+  | "kpi" | "line" | "area" | "bar" | "pie" | "donut" | "table"
+  | "scatter" | "heatmap" | "funnel" | "gauge" | "treemap" | "combo" | "text";
+
+interface Visual {
+  id: string;
+  type: VisualType;
+  title: string;
+  subtitle?: string;
+  datasetId?: string;      // "text" dışında zorunlu
+  encoding: {
+    x?: string;            // kategori/zaman ekseni (line/area/bar/scatter/heatmap/combo)
+    y?: string[];          // bir veya birden çok ölçü
+    series?: string;       // uzun formatta seri ayırıcı alan (y tek eleman olmalı)
+    category?: string;     // pie/donut/funnel/treemap etiket alanı; heatmap'te y ekseni
+    value?: string;        // kpi/pie/donut/funnel/gauge/treemap/heatmap değer alanı
+    columns?: string[];    // table: gösterilecek kolonlar (yoksa hepsi)
+  };
+  options?: {
+    stacked?: boolean;
+    horizontal?: boolean;  // bar
+    smooth?: boolean;      // line/area
+    showLabels?: boolean;
+    showLegend?: boolean;
+    format?: ValueFormat;  // değer formatı
+    currency?: string;     // varsayılan "TRY"
+    decimals?: number;
+    sort?: "asc" | "desc"; // değer alanına göre
+    limit?: number;        // ilk N satır
+    // kpi
+    aggregate?: "sum" | "avg" | "first" | "last" | "min" | "max"; // çok satır varsa, varsayılan "sum"
+    deltaField?: string;   // karşılaştırma (ör. büyüme oranı, yüzde olarak 0.12 = %12)
+    deltaLabel?: string;   // "geçen yıla göre"
+    sparklineDatasetId?: string;
+    sparklineField?: string;
+    target?: number;       // gauge/kpi hedef
+    // combo: y[0] bar, geri kalanı line (ikinci eksen)
+    // text
+    text?: string;         // markdown değil, düz metin (\n satır sonu)
+    color?: string;        // tek seri rengi (hex) — yoksa theme.palette
+  };
+  position: { x: number; y: number; w: number; h: number }; // 12 kolon ızgara, h satır birimi
+}
+
+interface Filter {
+  id: string;
+  label: string;
+  field: string;           // bu alanı içeren tüm dataset'lere istemci tarafında uygulanır
+  type: "select" | "multiselect";
+}
+
+interface Theme {
+  mode: "light" | "dark";
+  palette: string[];       // seri renkleri (hex), en az 3
+  background: string;      // sayfa arka planı
+  surface: string;         // kart arka planı
+  text: string;
+  mutedText: string;
+  accent: string;
+  border: string;
+  fontFamily: string;      // ör. "Inter, system-ui, sans-serif"
+  radius: number;          // kart köşe yarıçapı px
+  cardStyle: "flat" | "outlined" | "elevated";
+  density: "compact" | "comfortable";
+  headerStyle: "plain" | "banner"; // banner: başlık alanı accent renkli şerit
+}
+
+interface ReportSpec {
+  version: 1;
+  title: string;
+  subtitle?: string;
+  theme: Theme;
+  layout: { columns: 12; rowHeight: number };  // rowHeight px (ör. 90)
+  filters: Filter[];
+  datasets: Dataset[];
+  visuals: Visual[];
+}
+```
+
+Örnek: `docs/demo_spec.json`.
+
+## 2. Session durumu
+
+```ts
+type Phase = "requirements" | "data" | "design";
+
+interface TranscriptItem {
+  id: string;
+  role: "user" | "assistant" | "tool" | "system";
+  content: string;             // user/assistant metni; tool için kısa özet
+  images?: string[];           // user: yüklenen görsellerin data URL'leri (küçültülmüş)
+  tool?: { name: string; arguments: any; ok: boolean; summary: string; durationMs: number };
+  phase: Phase;
+  createdAt: string;           // ISO
+}
+
+interface Requirements {
+  report_title: string; business_goal: string; audience: string;
+  kpis: string[]; dimensions: string[]; time_range: string; filters: string[]; notes?: string;
+}
+
+interface DesignBrief {         // örnek görselden / tarif edilen tasarımdan çıkarılır
+  summary: string;
+  mode?: "light" | "dark";
+  palette?: string[]; background?: string; accent?: string;
+  layout?: string; chart_types?: string[]; style_notes?: string[];
+}
+
+interface SessionState {
+  id: string;
+  title: string;
+  phase: Phase;
+  transcript: TranscriptItem[];
+  requirements: Requirements | null;
+  datasets: Dataset[];          // data fazında kaydedilen
+  design_brief: DesignBrief | null;
+  spec: ReportSpec | null;
+  spec_version: number;         // spec her değiştiğinde +1
+  busy: boolean;
+}
+```
+
+## 3. Uç noktalar
+
+| Metot | Yol | Gövde | Yanıt |
+|---|---|---|---|
+| GET | `/api/health` | – | `{ ok, llm: { reachable, model, base_url, error? }, vision: { configured, model }, data: { ok, dialect } }` |
+| GET | `/api/sessions` | – | `[{ id, title, phase, updatedAt }]` |
+| POST | `/api/sessions` | `{}` | `SessionState` |
+| GET | `/api/sessions/{id}` | – | `SessionState` |
+| DELETE | `/api/sessions/{id}` | – | `{ ok }` |
+| POST | `/api/sessions/{id}/messages` | `{ content: string, images?: string[] }` (data URL) | **SSE akışı** (aşağıda) |
+| POST | `/api/sessions/{id}/phase` | `{ phase }` | `SessionState` (geri dönmek için) |
+| PUT | `/api/sessions/{id}/spec` | `ReportSpec` | `SessionState` veya `422 { detail: string[] }` |
+| POST | `/api/sessions/{id}/demo` | – | Demo spec + dataset'leri yükler, `SessionState` |
+| GET | `/api/sessions/{id}/dashboard-data` | – | `{ datasets: { [id]: { columns: string[], rows: any[][], error?: string } } }` |
+| GET | `/api/dictionary/search?q=...` | – | `[{ table, business_name, description, score, columns: [{ name, business_name, role }] }]` |
+| GET | `/api/sessions/{id}/export/html` | – | Tek dosyalık, bağımsız HTML dashboard (indir) |
+
+### SSE (`POST /messages`)
+
+`fetch` + `ReadableStream` ile okunur (EventSource POST desteklemez). Her olay `event: <tip>\ndata: <json>\n\n`.
+
+| event | data |
+|---|---|
+| `transcript` | `TranscriptItem` — yeni bir satır (user, tool adımı, assistant) |
+| `status` | `{ text: string }` — "Veri sözlüğü aranıyor…" gibi geçici durum |
+| `state` | `SessionState` — faz/spec/dataset değişince tam durum |
+| `error` | `{ message: string }` |
+| `done` | `{}` |
+
+`rows` değerleri: sayılar number, tarihler ISO string (`"2026-01-01"`), null olabilir.
