@@ -1,6 +1,6 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
 import type {
-  DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Selection, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent,
+  DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent,
 } from "../types";
 
 export class ApiError extends Error {
@@ -31,6 +31,8 @@ export interface Api {
   loadDemo(id: string): Promise<SessionState>;
   dashboardData(id: string, selections?: Selection[]): Promise<DashboardData>;
   filters(id: string): Promise<FiltersResponse>;
+  viewScript(id: string, datasetId: string, name: string): Promise<ViewScriptResult>;
+  useView(id: string, datasetId: string, name: string): Promise<UseViewResult>;
   searchDictionary(q: string): Promise<DictionaryHit[]>;
   dataModel(sessionId?: string): Promise<DataModel>;
   exportUrl(id: string): string;
@@ -164,6 +166,8 @@ export const httpApi: Api = {
       ? req<DashboardData>(`/api/sessions/${encodeURIComponent(id)}/dashboard-data`, { method: "POST", body: JSON.stringify({ selections }) })
       : req<DashboardData>(`/api/sessions/${encodeURIComponent(id)}/dashboard-data`),
   filters: (id) => req<FiltersResponse>(`/api/sessions/${encodeURIComponent(id)}/filters`),
+  viewScript: (id, did, name) => req<ViewScriptResult>(`/api/sessions/${encodeURIComponent(id)}/datasets/${encodeURIComponent(did)}/view-script`, { method: "POST", body: JSON.stringify({ name }) }),
+  useView: (id, did, name) => req<UseViewResult>(`/api/sessions/${encodeURIComponent(id)}/datasets/${encodeURIComponent(did)}/use-view`, { method: "POST", body: JSON.stringify({ name }) }),
   searchDictionary: (q) => req<DictionaryHit[]>(`/api/dictionary/search?q=${encodeURIComponent(q)}`),
   dataModel: (sid) => req<DataModel>(`/api/dictionary/model${sid ? `?session=${encodeURIComponent(sid)}` : ""}`),
   exportUrl: (id) => `/api/sessions/${encodeURIComponent(id)}/export/html`,

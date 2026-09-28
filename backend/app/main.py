@@ -20,10 +20,11 @@ from sqlglot import exp
 from app.config import BACKEND_DIR, get_settings, load_toml
 from app.data.connector import QueryError, create_connector
 from app.data.model_filters import ModelFilter, ModelFilterEngine
+from app.data.views import ViewRegistry, build_view_script, safe_view_name, select_from_view, view_columns
 from app.data.validator import RolePolicy, SqlValidator
 from app.dictionary.repository import DataDictionary
 from app.harness.agent import Agent, Event
-from app.harness.session import PHASES, Requirements, SessionStore, TranscriptItem
+from app.harness.session import PHASES, Requirements, SessionStore, TranscriptItem, now_iso
 from app.harness.tools import Services, ToolContext, _build_dataset, _validate_spec
 from app.llm.gateway import LLMGateway
 from app.spec.models import DatasetField, ReportSpec
@@ -363,6 +364,89 @@ def export_html(sid: str) -> HTMLResponse:
 
 
 # --------------------------------------------------------------------------- sözlük
+# --------------------------------------------------------------------------- dataset → onaylı view
+class ViewIn(BaseModel):
+    name: str | None = None      # view adı (şemasız); boşsa v_<dataset_id>
+
+
+def _find_dataset(s, did: str):
+    ds = next((d for d in s.datasets if d.id == did), None) or (next((d for d in s.spec.datasets if d.id == did), None) if s.spec else None)
+    if not ds:
+        raise HTTPException(404, f"Dataset bulunamadı: {did}")
+    return ds
+
+
+@app.post("/api/sessions/{sid}/datasets/{did}/view-script")
+def dataset_view_script(sid: str, did: str, body: ViewIn) -> dict[str, Any]:
+    """Dataset için inceleme amaçlı CREATE OR ALTER VIEW scripti üretir (çalıştırmaz)."""
+    s = _session(sid)
+    ds = _find_dataset(s, did)
+    settings = get_settings()
+    name = (body.name or safe_view_name(did)).strip()
+    source_sql = ds.original_sql or ds.sql
+    v = state.services.validator.validate(source_sql, state.services.policy(s.user_role))
+    if not v.ok:
+        raise HTTPException(422, "; ".join(v.errors))
+    vs = build_view_script(schema=settings.view_schema, name=name, dataset_id=did, description=ds.description,
+                           validated_sql=v.sql, columns=[f.name for f in ds.fields], session_title=s.title)
+    if vs.errors:
+        return JSONResponse({"detail": vs.errors}, status_code=422)
+    settings.view_scripts_dir.mkdir(parents=True, exist_ok=True)
+    path = settings.view_scripts_dir / f"{settings.view_schema}.{name}.sql"
+    path.write_text(vs.script, encoding="utf-8")
+    exists = view_columns(state.services.connector, settings.view_schema, name) is not None
+    return {"view": vs.name, "script": vs.script, "file": str(path), "exists": exists}
+
+
+@app.post("/api/sessions/{sid}/datasets/{did}/use-view")
+def dataset_use_view(sid: str, did: str, body: ViewIn) -> Any:
+    """View oluşturulduysa: doğrular, sözlüğe ekler, dataset'i view'dan okuyacak şekilde değiştirir."""
+    settings = get_settings()
+    name = (body.name or safe_view_name(did)).strip()
+    with state.store.lock(sid):
+        s = _session(sid)
+        ds = _find_dataset(s, did)
+        cols = view_columns(state.services.connector, settings.view_schema, name)
+        if cols is None:
+            raise HTTPException(409, f"{settings.view_schema}.{name} veritabanında bulunamadı. Scripti çalıştırdınız mı?")
+        want = [f.name for f in ds.fields]
+        missing = [c for c in want if c.lower() not in {x.lower() for x in cols}]
+        if missing:
+            raise HTTPException(409, f"View kolonları dataset ile uyuşmuyor; eksik: {missing}. Scripti yeniden üretip çalıştırın.")
+        original = ds.original_sql or ds.sql
+        eng = _engine()
+        lineage = eng.lineage(original)
+        entry = {"name": f"{settings.view_schema}.{name}", "business_name": ds.description or did,
+                 "description": f"'{s.title}' raporunun '{did}' dataset'i (onaylı view).", "dataset_id": did,
+                 "session_id": sid, "original_sql": original, "created_at": now_iso(),
+                 "columns": [{"name": f.name, "label": f.label, "type": f.type, "format": f.format,
+                              "lineage": lineage.get(f.name)} for f in ds.fields]}
+        ViewRegistry(settings.views_registry).upsert(entry)
+        state.services.dictionary.add_view(entry)
+        # hangi filtreler view'a geçince artık uygulanamıyor?
+        filters = [f for f in _filter_defs(s) if f["key"]]
+        new_sql = select_from_view(settings.view_schema, name, want)
+        def applied(sql: str) -> set[str]:
+            try:
+                return set(eng.apply(sql, [ModelFilter(*f["key"].rsplit(".", 1), ["__probe__"]) for f in filters])[1])
+            except Exception:  # noqa: BLE001
+                return set()
+        lost = [f["label"] for f in filters if f["key"] in applied(original) - applied(new_sql)]
+        for d in [*s.datasets, *(s.spec.datasets if s.spec else [])]:
+            if d.id == did:
+                d.original_sql, d.sql, d.view = original, new_sql, entry["name"]
+        s.spec_version += 1
+        s.add(TranscriptItem(role="system", content=f"'{did}' dataset'i artık onaylı view'dan okunuyor: {entry['name']}"
+                             + (f" (bu görsele artık uygulanamayan filtreler: {', '.join(lost)})" if lost else "")))
+        state.store.save(s)
+        return {"session": s.public(), "view": entry["name"], "lost_filters": lost}
+
+
+@app.get("/api/views")
+def list_views() -> list[dict[str, Any]]:
+    return ViewRegistry(get_settings().views_registry).all()
+
+
 @app.get("/api/dictionary/search")
 def dictionary_search(q: str = "") -> list[dict[str, Any]]:
     return state.services.dictionary.search(q, 10) if q.strip() else []

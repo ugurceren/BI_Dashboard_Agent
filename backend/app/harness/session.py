@@ -84,10 +84,12 @@ class Session(BaseModel):
     # --- yalnızca harness içi
     llm_messages: list[dict[str, Any]] = Field(default_factory=list)
     dataset_profiles: dict[str, Any] = Field(default_factory=dict)  # faz geçişinde bulgular kaybolmasın
+    # faz içi çalışma hafızası: doğrulanan sorgular + tekrar eden araç çağrılarının önbelleği (faz değişince sıfırlanır)
+    phase_memory: dict[str, Any] = Field(default_factory=dict)
     user_role: str = "analyst"
 
     def public(self) -> dict[str, Any]:
-        return self.model_dump(exclude={"llm_messages", "user_role", "dataset_profiles"})
+        return self.model_dump(exclude={"llm_messages", "user_role", "dataset_profiles", "phase_memory"})
 
     def add(self, item: TranscriptItem) -> TranscriptItem:
         item.phase = self.phase
@@ -98,6 +100,7 @@ class Session(BaseModel):
         if phase != self.phase:
             self.phase = phase
             self.llm_messages = []
+            self.phase_memory = {}
 
     def set_spec(self, spec: ReportSpec) -> None:
         self.spec = spec

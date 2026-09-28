@@ -2,13 +2,13 @@
 # Sözlükte olmayan tablolar zaten sorgulanamaz. Gerçek ortamda rol AD/Entra ID grubundan eşlenir.
 
 [roles.analyst]
-allowed_schemas = ["dbo"]
+allowed_schemas = ["dbo", "rpt"]   # rpt: onaylı rapor view'ları
 denied_tables = []                  # ör. ["dbo.factfinance"]
 allow_pii = false
 max_rows = 5000
 
 [roles.admin]
-allowed_schemas = ["dbo"]
+allowed_schemas = ["dbo", "rpt"]   # rpt: onaylı rapor view'ları
 denied_tables = []
 allow_pii = true
 max_rows = 20000

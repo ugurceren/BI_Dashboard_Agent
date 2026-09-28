@@ -279,6 +279,13 @@ export const mockApi: Api = {
     const ql = q.toLocaleLowerCase("tr");
     return all.filter((h) => JSON.stringify(h).toLocaleLowerCase("tr").includes(ql) || ql.length < 3);
   },
+  async viewScript(_id, did, name) {
+    await sleep(150);
+    return { view: `rpt.${name}`, script: `-- mock: CREATE OR ALTER VIEW [rpt].[${name}] AS ... (${did})`, file: `view_scripts/rpt.${name}.sql`, exists: false };
+  },
+  async useView() {
+    throw new ApiError(409, "Mock modunda veritabanı yok; view kullanılamaz.");
+  },
   async dataModel(): Promise<DataModel> {
     await sleep(150);
     return clone(demoModelJson as unknown as DataModel);

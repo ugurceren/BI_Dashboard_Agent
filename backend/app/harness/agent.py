@@ -26,9 +26,11 @@ from app.llm.gateway import AssistantTurn, LLMError, LLMGateway, ToolCall
 
 log = logging.getLogger(__name__)
 
-KEEP_MESSAGES = 40        # modele gönderilen son mesaj sayısı (faz içinde)
-FULL_TOOL_RESULTS = 8     # son N araç sonucu tam, daha eskiler kısaltılır
-OLD_TOOL_RESULT_CHARS = 600
+FULL_TOOL_RESULTS = 12    # son N araç sonucu tam, daha eskiler kısaltılır
+OLD_TOOL_RESULT_CHARS = 700
+CACHEABLE_TOOLS = {"search_dictionary", "get_table_details", "find_metrics", "run_sql"}
+MAX_REPEATS = 3           # üst üste bu kadar tekrarlanan çağrıda tur durdurulur
+MAX_FAIL_STREAK = 6       # aynı araç üst üste bu kadar başarısız olursa tur durdurulur
 
 
 @dataclass
@@ -48,19 +50,66 @@ class Audit:
             f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
 
 
-def _trim(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    msgs = messages[-KEEP_MESSAGES:]
-    # baştaki yetim araç sonuçlarını / sonuçları kesilmiş araç çağrılarını at
-    while msgs and (msgs[0]["role"] == "tool" or (msgs[0]["role"] == "assistant" and msgs[0].get("tool_calls"))):
-        msgs = msgs[1:]
-    tool_idx = [i for i, m in enumerate(msgs) if m["role"] == "tool"]
+def _size(m: dict[str, Any]) -> int:
+    return len(m.get("content") or "") + sum(len(c["function"]["arguments"]) for c in m.get("tool_calls") or [])
+
+
+def _trim(messages: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+    """Karakter bütçesine sığan son mesajlar + fazın ilk mesajı (görev çapası) her zaman korunur.
+    Eski araç sonuçları kısaltılır; başta yetim kalan araç mesajları atılır."""
+    if not messages:
+        return []
+    anchor, rest = messages[0], messages[1:]
+    tool_idx = [i for i, m in enumerate(rest) if m["role"] == "tool"]
     old = set(tool_idx[:-FULL_TOOL_RESULTS]) if len(tool_idx) > FULL_TOOL_RESULTS else set()
-    out = []
-    for i, m in enumerate(msgs):
-        if i in old and len(m["content"]) > OLD_TOOL_RESULT_CHARS:
-            m = {**m, "content": m["content"][:OLD_TOOL_RESULT_CHARS] + "…(eski sonuç kısaltıldı)"}
-        out.append(m)
-    return out
+    rest = [({**m, "content": m["content"][:OLD_TOOL_RESULT_CHARS] + "…(eski sonuç kısaltıldı)"}
+             if i in old and len(m["content"]) > OLD_TOOL_RESULT_CHARS else m) for i, m in enumerate(rest)]
+    kept: list[dict[str, Any]] = []
+    used = _size(anchor)
+    for m in reversed(rest):
+        used += _size(m)
+        if used > budget and kept:
+            break
+        kept.append(m)
+    kept.reverse()
+    dropped = len(kept) < len(rest)
+    while dropped and kept and kept[0]["role"] == "tool":  # çağrısı kesilmiş yetim araç sonuçları
+        kept = kept[1:]
+    if dropped:
+        kept = [{"role": "user", "content": "[HARNESS] (Daha eski adımlar bağlamdan çıkarıldı; önemli sonuçlar sistem mesajındaki "
+                                             "çalışma hafızasında.)"}] + kept
+    return [anchor] + kept
+
+
+_CLAIM_WORDS = ("oluşturdum", "oluşturuldu", "oluşturuluyor", "hazırladım", "hazırlandı", "tamamlandı", "tamamladım",
+                "eklendi", "ekledim", "güncellendi", "güncelledim", "değiştirdim", "değiştirildi", "kaydedildi", "kaydettim",
+                "dashboard hazır", "rapor hazır")
+
+
+def _unfulfilled_claim(s: Session, text: str, start_version: int, start_datasets: int) -> str | None:
+    """Model bir eylemi yaptığını söylüyor ama bu turda ilgili araç hiç çalışmadıysa düzeltme talimatı döndürür."""
+    t = (text or "").lower()
+    if not any(w in t for w in _CLAIM_WORDS):
+        return None
+    if s.phase == "design" and s.spec_version == start_version and s.datasets:
+        return ("[HARNESS] Dashboard'u oluşturduğunu/güncellediğini yazdın ama hiçbir araç çağırmadın; dashboard değişmedi. "
+                "Metin yazma: ŞİMDİ " + ("create_report_spec" if not s.spec else "update_visual / add_visual / update_report")
+                + " aracını çağır.")
+    if s.phase == "data" and len(s.datasets) == start_datasets:
+        return "[HARNESS] Dataset'leri kaydettiğini yazdın ama save_datasets çağırmadın. ŞİMDİ save_datasets aracını çağır."
+    return None
+
+
+def _remember_sql(s: Session, args: dict[str, Any], content: Any) -> None:
+    """Başarılı run_sql'leri çalışma hafızasına yazar (sistem mesajında gösterilir)."""
+    sql = str(args.get("sql") or "").strip()
+    if not sql:
+        return
+    prof = content.get("profile", {}) if isinstance(content, dict) else {}
+    mem = [m for m in s.phase_memory.get("verified_sql", []) if m["sql"] != sql]
+    mem.append({"purpose": str(args.get("purpose") or "")[:160], "sql": sql,
+                "columns": list(prof.get("columns", {}).keys()), "rows": prof.get("row_count")})
+    s.phase_memory["verified_sql"] = mem[-12:]
 
 
 class Agent:
@@ -126,10 +175,15 @@ class Agent:
         self.store.save(s)
 
         empty_retries = 0
+        claim_nudges = 0
+        loop_nudged = False
+        start_version, start_datasets = s.spec_version, len(s.datasets)
         for step in range(self.services.settings.max_agent_steps):
             yield Event("status", {"text": "Düşünüyor…" if step == 0 else "Devam ediyor…"})
             tools = tools_for(s.phase)
-            messages = [{"role": "system", "content": system_prompt(s, self.services.connector.dialect)}] + _trim(s.llm_messages)
+            remaining = self.services.settings.max_agent_steps - step
+            sys_prompt = system_prompt(s, self.services.connector.dialect, steps_left=remaining)
+            messages = [{"role": "system", "content": sys_prompt}] + _trim(s.llm_messages, self.services.settings.llm_context_chars)
             t0 = time.perf_counter()
             turn: AssistantTurn = self.llm.chat(messages, [t.schema() for t in tools])
             self.audit.write(session=s.id, event="llm", phase=s.phase, ms=int((time.perf_counter() - t0) * 1000),
@@ -139,6 +193,14 @@ class Agent:
                 if not turn.content and empty_retries == 0:
                     empty_retries += 1
                     s.llm_messages.append({"role": "user", "content": "[HARNESS] Boş yanıt verdin. Kullanıcıya yanıt yaz ya da bir araç çağır."})
+                    continue
+                nudge = _unfulfilled_claim(s, turn.content, start_version, start_datasets)
+                if nudge and claim_nudges < 2:
+                    # model eylemi yaptığını söylüyor ama araç çağırmadı: metni kullanıcıya göstermeden düzelt
+                    claim_nudges += 1
+                    s.llm_messages.append(turn.to_message())
+                    s.llm_messages.append({"role": "user", "content": nudge})
+                    self.audit.write(session=s.id, event="claim_nudge", phase=s.phase)
                     continue
                 s.llm_messages.append(turn.to_message())
                 yield self._emit(s, TranscriptItem(role="assistant", content=turn.content or "(yanıt yok)"))
@@ -156,11 +218,35 @@ class Agent:
                     next_phase, kickoff = result.next_phase, result.kickoff
             self.store.save(s)
 
+            stuck_tool = next((n for n, c in s.phase_memory.get("fail_streak", {}).items() if c >= MAX_FAIL_STREAK), None)
+            if (s.phase_memory.get("repeats", 0) >= MAX_REPEATS or stuck_tool) and not next_phase:
+                s.phase_memory["fail_streak"] = {}
+                if s.phase == "data" and len(s.phase_memory.get("verified_sql", [])) >= 3 and not loop_nudged:
+                    # önce ileri it: doğrulanmış sorgular yeterli, kaydetmesini söyle
+                    loop_nudged = True
+                    s.phase_memory["repeats"] = 0
+                    s.llm_messages.append({"role": "user", "content": (
+                        "[HARNESS] Aynı sorguları tekrarlıyorsun. Yeterli doğrulanmış sorgu var: ŞİMDİ save_datasets çağır ve "
+                        "çalışma hafızasındaki sorguları numarayla kaydet (ör. {\"id\": \"monthly_trend\", \"verified\": 3}).")})
+                    continue
+                # döngü kırıcı: model aynı çağrıyı üst üste tekrarlıyor → turu bitir, kullanıcıya açıkla
+                s.phase_memory["repeats"] = 0
+                verified = len(s.phase_memory.get("verified_sql", []))
+                msg = ("Aynı adımı tekrar tekrar denediğimi fark ettim ve durdum." +
+                       (f" Bu fazda {verified} sorgu doğrulandı; \"doğrulanmış sorgularla devam et\" yazarsanız bunlarla ilerlerim"
+                        " ya da takıldığım kırılımı farklı tarif edebilirsiniz." if verified else
+                        " İsteği biraz farklı ifade eder misiniz?"))
+                s.llm_messages.append({"role": "assistant", "content": msg})
+                yield self._emit(s, TranscriptItem(role="assistant", content=msg))
+                self.store.save(s)
+                return
+
             if next_phase:
                 s.set_phase(next_phase)
                 yield self._emit(s, TranscriptItem(role="system", content={
                     "data": "Veri keşfi fazına geçildi", "design": "Tasarım fazına geçildi"}.get(next_phase, next_phase)))
-                s.llm_messages.append({"role": "user", "content": f"[HARNESS] {kickoff}"})
+                carry = f"\n\nKullanıcının bu turdaki mesajı (hâlâ geçerli, dikkate al): «{text}»" if text else ""
+                s.llm_messages.append({"role": "user", "content": f"[HARNESS] {kickoff}{carry}"})
                 yield Event("state", s.public())
                 self.store.save(s)
 
@@ -181,14 +267,32 @@ class Agent:
             result = ToolResult(False, {"error": f"'{call.name}' bu fazda ({s.phase}) kullanılamaz. Kullanılabilir: {[t.name for t in tools_for(s.phase)]}"},
                                 "Araç bu fazda kapalı")
         else:
-            if tool.status:
-                yield Event("status", {"text": tool.status})
-            try:
-                result = tool.handler(ToolContext(s, self.services), call.arguments)
-            except Exception as e:  # noqa: BLE001
-                log.exception("Araç hatası: %s", call.name)
-                result = ToolResult(False, {"error": f"Araç çalışırken hata: {type(e).__name__}: {e}"}, "Araç hatası")
+            cache = s.phase_memory.setdefault("calls", {})
+            key = f"{call.name}:{json.dumps(call.arguments, sort_keys=True, ensure_ascii=False)}"
+            if call.name in CACHEABLE_TOOLS and key in cache:
+                # tekrar koruması: aynı okuma çağrısı — sonucu yeniden ver ama modeli ilerlemeye it
+                prev = cache[key]
+                s.phase_memory["repeats"] = s.phase_memory.get("repeats", 0) + 1
+                advice = ("Bu çağrıyı bu fazda zaten yaptın; sonuç aşağıda. TEKRARLAMA." +
+                          (" Sorgu hatalıydı: hata ve İPUCU'ya göre FARKLI bir sorgu yaz ya da bu kırılımı atlayıp doğrulanmış "
+                           "sorgularla devam et." if not prev["ok"] else " Bir sonraki adıma geç."))
+                result = ToolResult(prev["ok"], {"note": advice, "previous_result": prev["content"]}, "Tekrarlanan çağrı (önbellekten)")
+            else:
+                s.phase_memory["repeats"] = 0
+                if tool.status:
+                    yield Event("status", {"text": tool.status})
+                try:
+                    result = tool.handler(ToolContext(s, self.services), call.arguments)
+                except Exception as e:  # noqa: BLE001
+                    log.exception("Araç hatası: %s", call.name)
+                    result = ToolResult(False, {"error": f"Araç çalışırken hata: {type(e).__name__}: {e}"}, "Araç hatası")
+                if call.name in CACHEABLE_TOOLS:
+                    cache[key] = {"ok": result.ok, "content": result.content}
+                if call.name == "run_sql" and result.ok:
+                    _remember_sql(s, call.arguments, result.content)
         ms = int((time.perf_counter() - t0) * 1000)
+        fails = s.phase_memory.setdefault("fail_streak", {})
+        fails[call.name] = 0 if result.ok else fails.get(call.name, 0) + 1
 
         s.llm_messages.append({"role": "tool", "tool_call_id": call.id, "name": call.name,
                                "content": to_llm_content(result.content, self.services.settings.tool_result_char_limit)})

@@ -5,6 +5,7 @@ import { DashboardRenderer } from "../dashboard/DashboardRenderer";
 import { formatValue } from "../dashboard/format";
 import { ApiError, type Api } from "../api/client";
 import { ModelTab } from "./ModelTab";
+import { ViewPersist } from "./ViewPersist";
 import type { ModelFiltering } from "../dashboard/DashboardRenderer";
 
 export type Tab = "dashboard" | "data" | "model" | "spec";
@@ -55,7 +56,7 @@ export function RightPanel({ api, state, data, dataLoading, dataError, tab, setT
         {tab === "dashboard" ? (
           <DashboardTab spec={spec} data={data} loading={dataLoading} error={dataError} phase={state?.phase} model={model} />
         ) : tab === "data" ? (
-          <DataTab api={api} state={state} data={data} />
+          <DataTab api={api} state={state} data={data} onSession={onSpecApplied} />
         ) : tab === "model" ? (
           <ModelTab api={api} state={state} />
         ) : (
@@ -118,7 +119,7 @@ function DashboardTab({ spec, data, loading, error, phase, model }: {
 
 // ---------- Veri ----------
 
-function DataTab({ api, state, data }: { api: Api; state: SessionState | null; data: DashboardData | null }) {
+function DataTab({ api, state, data, onSession }: { api: Api; state: SessionState | null; data: DashboardData | null; onSession: (s: SessionState) => void }) {
   const datasets = useMemo(() => mergeDatasets(state), [state]);
   return (
     <div className="data-tab">
@@ -129,13 +130,16 @@ function DataTab({ api, state, data }: { api: Api; state: SessionState | null; d
           <p>Veri fazında agent veri sözlüğünü arayıp SQL yazdıkça veri kümeleri burada listelenir.</p>
         </div>
       ) : (
-        datasets.map((d) => <DatasetCard key={d.id} ds={d} data={data} usedInSpec={!!state?.spec?.datasets?.some((x) => x.id === d.id)} />)
+        datasets.map((d) => (
+          <DatasetCard key={d.id} ds={d} data={data} usedInSpec={!!state?.spec?.datasets?.some((x) => x.id === d.id)}
+            persist={state ? <ViewPersist api={api} state={state} ds={d} onSession={onSession} /> : null} />
+        ))
       )}
     </div>
   );
 }
 
-function DatasetCard({ ds, data, usedInSpec }: { ds: Dataset; data: DashboardData | null; usedInSpec: boolean }) {
+function DatasetCard({ ds, data, usedInSpec, persist }: { ds: Dataset; data: DashboardData | null; usedInSpec: boolean; persist?: React.ReactNode }) {
   const [showSql, setShowSql] = useState(false);
   const d = data?.datasets?.[ds.id];
   const rows = d?.rows?.slice(0, 50) ?? [];
@@ -166,6 +170,7 @@ function DatasetCard({ ds, data, usedInSpec }: { ds: Dataset; data: DashboardDat
         SQL
       </button>
       {showSql ? <pre className="code-block sql">{ds.sql}</pre> : null}
+      {persist}
       {d?.error ? <div className="banner-error">Sorgu hatası: {d.error}</div> : null}
       {d && !d.error ? (
         rows.length ? (

@@ -964,7 +964,7 @@ export function buildChartOption(ctx: ChartCtx): EOption {
 /** Görselin kullandığı alanlar (tablo görünümü için). */
 export function usedFields(v: Visual, columns: string[]): string[] {
   const e = enc(v);
-  const list = [e.x, e.category, e.series, ...(e.y ?? []), e.value, ...(e.columns ?? []), v.options?.deltaField]
+  const list = [e.x, e.category, e.series, ...(e.y ?? []), e.value, ...(e.columns ?? []), v.options?.deltaField, v.options?.compareField]
     .filter((f): f is string => !!f && columns.includes(f));
   const uniq = [...new Set(list)];
   return uniq.length ? uniq : columns;

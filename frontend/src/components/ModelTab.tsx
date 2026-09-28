@@ -12,7 +12,7 @@ import "./model.css";
 import type { DataModel, ModelRelationship, ModelTable, SessionState, TableKind } from "../types";
 import type { Api } from "../api/client";
 
-const KIND_LABEL: Record<TableKind, string> = { fact: "Fact", dimension: "Boyut", bridge: "Köprü" };
+const KIND_LABEL: Record<TableKind, string> = { fact: "Fact", dimension: "Boyut", bridge: "Köprü", view: "View" };
 const NODE_W = 250;
 const HEAD_H = 58;
 const ROW_H = 24;
@@ -58,7 +58,7 @@ const TableNode = memo(function TableNode({ data }: NodeProps<Node<TableNodeData
       <div className="er-head">
         <div className="er-title-row">
           <span className="er-title" title={table.name}>{table.short_name}</span>
-          <span className={`er-kind kind-${table.kind}`}>{KIND_LABEL[table.kind]}</span>
+          <span className={`er-kind kind-${table.kind}`} lang="en">{KIND_LABEL[table.kind]}</span>
         </div>
         <div className="er-sub">
           <span className="er-bn" title={table.business_name}>{table.business_name}</span>
@@ -314,6 +314,7 @@ function ModelInner({ api, state }: { api: Api; state: SessionState | null }) {
           <span><i className="sw kind-fact" />Fact</span>
           <span><i className="sw kind-dimension" />Boyut</span>
           <span><i className="sw kind-bridge" />Köprü</span>
+          <span><i className="sw kind-view" />Onaylı view</span>
           <span className="muted">* çok · 1 tek</span>
         </div>
       </div>
@@ -357,7 +358,7 @@ function Details({ model, table, onClose, onGo }: { model: DataModel; table: Mod
         <button type="button" className="icon-btn" onClick={onClose} aria-label="Kapat">✕</button>
       </div>
       <div className="er-d-meta">
-        <span className={`er-kind kind-${table.kind}`}>{KIND_LABEL[table.kind]}</span>
+        <span className={`er-kind kind-${table.kind}`} lang="en">{KIND_LABEL[table.kind]}</span>
         {table.subject_area ? <span className="pill pill-muted">{table.subject_area}</span> : null}
         {table.row_count != null ? <span className="pill pill-muted">{new Intl.NumberFormat("tr-TR").format(table.row_count)} satır</span> : null}
       </div>

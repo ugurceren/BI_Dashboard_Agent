@@ -50,17 +50,25 @@ class Settings(BaseSettings):
     dictionary_config: Path = BACKEND_DIR / "config" / "dictionary.toml"
     policy_config: Path = BACKEND_DIR / "config" / "policy.toml"
     user_role: str = "analyst"  # ileride AD/Entra ID'den gelecek
+    default_currency: str = "TRY"  # tutar görsellerinde para birimi belirtilmemişse (AdventureWorks: USD)
 
     # --- Harness
-    max_agent_steps: int = 24      # tek kullanıcı mesajında en fazla LLM çağrısı
+    max_agent_steps: int = 40      # tek kullanıcı mesajında en fazla LLM çağrısı
     tool_result_char_limit: int = 6000
+    llm_context_chars: int = 120_000  # modele gönderilen faz geçmişinin karakter bütçesi (~30K token)
     sessions_dir: Path = BACKEND_DIR / "sessions"
     audit_log: Path = BACKEND_DIR / "logs" / "audit.jsonl"
+    cache_dir: Path = BACKEND_DIR / "cache"   # çıkarılan kardinaliteler vb. (her açılışta veritabanını yormamak için)
+    # onaylı view'lar: dataset'ler bu şemaya kalıcılaştırılır; kayıtları yerel dosyada tutulur
+    view_schema: str = "rpt"
+    views_registry: Path = BACKEND_DIR / "config" / "views.json"
+    view_scripts_dir: Path = BACKEND_DIR / "view_scripts"
     viewer_html: Path = BACKEND_DIR.parent / "frontend" / "dist-viewer" / "viewer.html"
     demo_spec: Path = BACKEND_DIR.parent / "docs" / "demo_spec.json"  # "Demo dashboard yükle" butonu
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-    @field_validator("dictionary_config", "policy_config", "sessions_dir", "audit_log",
+    @field_validator("dictionary_config", "policy_config", "sessions_dir", "audit_log", "cache_dir", "views_registry",
+                     "view_scripts_dir",
                      "viewer_html", "demo_spec", mode="after")
     @classmethod
     def _relative_to_backend(cls, v: Path) -> Path:

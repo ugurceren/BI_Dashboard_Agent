@@ -88,6 +88,22 @@ Script tabloları/kolonları ve foreign key'leri otomatik okur; Türkçe iş adl
 scriptin içindeki `TABLES` / `COLUMNS` sözlüklerinde. Müşteri kimlik/iletişim bilgileri ile çalışan kimlik, doğum tarihi,
 iletişim ve ücret bilgileri PII olarak işaretli (analyst rolü sorgulayamaz); satış temsilcisi ad-soyadı raporlanabilir.
 
+## Dataset'leri onaylı view'a dönüştürmek
+
+Agent dataset'leri keşif sırasında anında üretilen SQL ile hazırlar. Beğenilen bir rapor için **Veri** sekmesinde her dataset'te
+**"View olarak kalıcılaştır"** vardır:
+
+1. **Script oluştur** — dataset SQL'inden (doğrulayıcının düzelttiği hâliyle, ORDER BY'sız) `CREATE OR ALTER VIEW [rpt].[v_...]`
+   scripti üretilir ve `backend/view_scripts/` altına yazılır. Agent scripti **çalıştırmaz**; veritabanına yazma yetkisi yoktur.
+2. Scripti inceleyip SSMS'te / DBA onayıyla çalıştırın.
+3. **View'ı kullan** — view'ın varlığı ve kolonları doğrulanır, view veri sözlüğüne eklenir (`backend/config/views.json`) ve
+   dataset `SELECT ... FROM [rpt].[v_...]` ile okunmaya başlar. View kolonlarının kaynak model kolonları bilindiği için
+   boyut tablolarına ilişki kurulur; Power BI tarzı filtreler view'da da çalışır. View'da bulunmayan bir boyutla ilgili
+   filtreler (ör. özet bölge view'ında ürün kategorisi) artık uygulanamaz — arayüz bunu geçişte söyler.
+
+Sonraki raporlarda agent, ihtiyacı karşılıyorsa önce `rpt` şemasındaki onaylı view'ları kullanır.
+Stored procedure kullanılmaz: sonucu filtrelenemez/birleştirilemez. Parametre gerekiyorsa inline table-valued function tercih edin.
+
 ## Kendi SQL Server sözlüğünüze bağlamak
 
 1. `backend/config/dictionary.toml` → sorguları kendi sözlük tablolarınıza göre yazın (mantıksal kolon adlarıyla `AS ...`).

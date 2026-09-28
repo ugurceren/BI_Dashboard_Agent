@@ -69,3 +69,26 @@ def test_live_sql_server_validator(sql_services):
     v = sql_services.validator.validate("SELECT TOP 3 SalesTerritoryGroup FROM dbo.DimSalesTerritory", ANALYST)
     assert v.ok
     assert len(sql_services.connector.execute(v.sql, 10).rows) == 3
+
+
+def test_tsql_integer_division_becomes_float(services):
+    v = services.validator.validate(
+        "SELECT COUNT(DISTINCT SalesOrderNumber) * 1.0 / 7 AS a, (COUNT(*) - 3) / NULLIF(COUNT(*), 0) AS b FROM dbo.FactInternetSales", ANALYST)
+    assert v.ok
+    assert "CAST((COUNT(*) - 3) AS FLOAT)" in v.sql, v.sql       # tamsayı payı ondalığa çevrildi
+    assert "COUNT(DISTINCT SalesOrderNumber) * 1.0 / 7" in v.sql  # zaten ondalık olan dokunulmadı
+
+
+def test_live_growth_not_truncated(sql_services):
+    v = sql_services.validator.validate(
+        "SELECT (COUNT(DISTINCT CASE WHEN YEAR(OrderDate) = 2013 THEN SalesOrderNumber END) - COUNT(DISTINCT CASE WHEN YEAR(OrderDate) = 2012 THEN SalesOrderNumber END))"
+        " / NULLIF(COUNT(DISTINCT CASE WHEN YEAR(OrderDate) = 2012 THEN SalesOrderNumber END), 0) AS g FROM dbo.FactResellerSales", ANALYST)
+    assert v.ok
+    assert abs(sql_services.connector.execute(v.sql, 1).rows[0][0] - 0.3375) < 0.001
+
+
+def test_count_of_order_number_becomes_distinct(services):
+    v = services.validator.validate(
+        "SELECT COUNT(CASE WHEN YEAR(OrderDate) = 2013 THEN SalesOrderNumber END) AS orders, COUNT(*) AS n FROM dbo.FactResellerSales", ANALYST)
+    assert v.ok and "COUNT(DISTINCT CASE WHEN" in v.sql and "COUNT(*)" in v.sql
+    assert any("tekil sayım" in w for w in v.warnings)

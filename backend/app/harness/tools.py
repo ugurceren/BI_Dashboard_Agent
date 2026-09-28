@@ -68,6 +68,7 @@ class Tool:
 # --------------------------------------------------------------------------- yardımcılar
 _CURRENCY_HINT = re.compile(r"(amount|tutar|sales|revenue|ciro|try|tl|fee|limit|ticket|sepet|balance|bakiye)", re.I)
 _PERCENT_HINT = re.compile(r"(growth|rate|share|pct|percent|ratio|oran|pay|buyume|yoy|mom)", re.I)
+_RATIO_HINT = re.compile(r"(margin|marj|change|degisim|diff|fark|delta)", re.I)
 
 
 def _infer_format(name: str, ftype: str) -> str | None:
@@ -131,21 +132,119 @@ def _run_validated(ctx: ToolContext, sql: str, max_rows: int) -> tuple[QueryResu
     try:
         res = ctx.services.connector.execute(v.sql, min(max_rows, pol.max_rows))
     except QueryError as e:
-        return None, [f"Veritabanı hatası: {str(e)[:500]}"], v.tables, v.warnings
+        return None, [f"Veritabanı hatası: {_short_db_error(str(e))}"] + _error_hints(ctx, str(e), v.tables, v.sql), v.tables, v.warnings
     return res, [], v.tables, v.warnings
+
+
+_SQLSERVER_MSG = re.compile(r"\[SQL Server\]([^\[;]+)")
+
+
+def _short_db_error(msg: str) -> str:
+    """ODBC gürültüsünü atıp SQL Server'ın asıl mesajını bırakır."""
+    found = [re.sub(r"\s*\(\d+\).*$", "", m).strip().rstrip(".") for m in _SQLSERVER_MSG.findall(msg)]
+    return "; ".join(dict.fromkeys(f for f in found if f)) if found else msg[:400]
+
+
+def _alias_misuse(ctx: ToolContext, sql: str, col: str) -> list[str]:
+    """alias.kolon kullanımında alias'ın tablosunda o kolon yoksa: doğru tabloya giden eksik JOIN'leri alias'larla yazar."""
+    import sqlglot
+    from sqlglot import exp
+
+    dd = ctx.services.dictionary
+    try:
+        tree = sqlglot.parse_one(sql, read=ctx.services.connector.dialect)
+    except Exception:  # noqa: BLE001
+        return []
+    aliases = {t.alias_or_name.lower(): f"{t.db}.{t.name}".lower() for t in tree.find_all(exp.Table) if t.db}
+    out = []
+    for c in tree.find_all(exp.Column):
+        if c.name.lower() != col.lower() or not c.table or c.table.lower() not in aliases:
+            continue
+        a, table = c.table.lower(), aliases[c.table.lower()]
+        if col.lower() in {x.name for x in dd.tables[table].columns} if table in dd.tables else True:
+            continue
+        owners = [o for o in dd.tables_with_column(col) if o != table]
+        best = None
+        for o in owners:
+            p = dd.join_path([table], o)
+            if p is not None and (best is None or len(p) < len(best[1])):
+                best = (o, p)
+        if not best:
+            out.append(f"İPUCU: {a}.{col} hatalı: {table} tablosunda '{col}' yok (bulunduğu tablolar: {', '.join(owners)}).")
+            continue
+        owner, path = best
+        lines, cur_alias, cur = [], a, table
+        for i, r in enumerate(path):
+            nxt = r.to_table if r.from_table == cur else r.from_table
+            na = f"j{i + 1}"
+            conds = " AND ".join(f"{na}.{(b if r.from_table == cur else x)} = {cur_alias}.{(x if r.from_table == cur else b)}"
+                                 for x, b in r.pairs)
+            lines.append(f"JOIN {dd.tables[nxt].display_name or nxt} AS {na} ON {conds}")
+            cur_alias, cur = na, nxt
+        out.append(f"İPUCU: {a}.{col} hatalı — {table} tablosunda '{col}' kolonu yok; bu kolon {owner} tablosunda. "
+                   f"{table} ({a}) ile {owner} arasında ara tablo(lar) gerekiyor. Şu JOIN'leri ekleyip {col} yerine "
+                   f"{cur_alias}.{col} kullanın (takma adları değiştirebilirsiniz):\n" + "\n".join(lines))
+    return out
+
+
+def _error_hints(ctx: ToolContext, msg: str, query_tables: list[str], sql: str = "") -> list[str]:
+    """Sık SQL Server hataları için sözlükten somut düzeltme önerisi üretir."""
+    dd = ctx.services.dictionary
+    hints: list[str] = []
+    for col in dict.fromkeys(re.findall(r"Invalid column name '([^']+)'", msg)):
+        owners = dd.tables_with_column(col)
+        if not owners:
+            hints.append(f"İPUCU: '{col}' hiçbir tabloda yok. get_table_details ile doğru kolon adını bulun.")
+            continue
+        misuse = _alias_misuse(ctx, sql, col) if sql else []
+        if misuse:
+            hints += misuse
+            continue
+        if any(o in [t.lower() for t in query_tables] for o in owners):
+            hints.append(f"İPUCU: '{col}' kolonu {', '.join(owners)} tablosunda; takma adı (alias) doğru tabloya ait mi kontrol edin.")
+            continue
+        for owner in owners[:2]:
+            path = dd.join_path(query_tables, owner)
+            if path:
+                joins = "\n".join(f"JOIN ... ON {r.join_sql()}" for r in path)
+                hints.append(f"İPUCU: '{col}' kolonu {owner} tablosunda. Sorgudaki tablolardan oraya {len(path)} adımlık JOIN zinciriyle ulaşılır "
+                             f"(her adımı ekleyin, takma adları kendiniz verin):\n{joins}")
+                break
+        else:
+            hints.append(f"İPUCU: '{col}' kolonu {', '.join(owners)} tablosunda; bu tabloyu JOIN ile ekleyin (get_table_details ile ilişkilere bakın).")
+    for obj in dict.fromkeys(re.findall(r"Invalid object name '([^']+)'", msg)):
+        hints.append(f"İPUCU: '{obj}' tablosu yok. search_dictionary ile doğru tabloyu bulun ve şemasıyla yazın.")
+    for col in dict.fromkeys(re.findall(r"Ambiguous column name '([^']+)'", msg)):
+        hints.append(f"İPUCU: '{col}' birden çok tabloda var; kolonu tablo takma adıyla yazın (ör. f.{col}).")
+    if "is invalid in the select list because it is not contained in either an aggregate function or the GROUP BY" in msg:
+        hints.append("İPUCU: SELECT'teki toplanmayan her ifadeyi GROUP BY'a aynen ekleyin (takma ad değil, ifadenin kendisi).")
+    if re.search(r"near 'LIMIT'|Incorrect syntax near 'LIMIT'", msg):
+        hints.append("İPUCU: SQL Server'da LIMIT yok; SELECT TOP 10 ... ORDER BY ... kullanın.")
+    return hints
 
 
 def _build_dataset(ctx: ToolContext, raw: dict[str, Any]) -> tuple[Dataset | None, dict[str, Any] | None, list[str]]:
     """SQL'i doğrular, çalıştırır, alan tiplerini/etiketlerini çıkarır."""
     did = str(raw.get("id") or "").strip()
     sql = str(raw.get("sql") or "").strip()
+    if not sql and raw.get("verified") is not None:
+        # çalışma hafızasındaki doğrulanmış sorguya numarayla referans (küçük modeller SQL'i yeniden yazmasın)
+        mem = ctx.session.phase_memory.get("verified_sql", [])
+        try:
+            sql = mem[int(raw["verified"]) - 1]["sql"]
+        except (ValueError, IndexError, TypeError):
+            return None, None, [f"[{did}] verified={raw.get('verified')} geçersiz; 1..{len(mem)} arası bir numara verin."]
     if not did or not sql:
-        return None, None, ["Her dataset için 'id' ve 'sql' zorunlu."]
+        return None, None, ["Her dataset için 'id' ve 'sql' (ya da 'verified' numarası) zorunlu."]
     res, errors, tables, warnings = _run_validated(ctx, sql, ctx.services.settings.max_rows)
     if errors or res is None:
         return None, None, [f"[{did}] {e}" for e in errors]
     if not res.rows:
         return None, None, [f"[{did}] Sorgu hiç satır döndürmedi; filtreleri/tarih aralığını kontrol edin."]
+    if did.lower().startswith("kpi") and len(res.rows) > 1:
+        return None, None, [f"[{did}] KPI dataset'i TEK satır olmalı ama {len(res.rows)} satır döndü (ör. yıl başına bir satır). "
+                            "Dönemleri kolonlara çevirin: bu dönemin değeri (sales_amount) + değişim oranı "
+                            "(sales_growth = (bu - önceki) / önceki), CASE WHEN YEAR(...) = ... ile tek SELECT'te."]
     overrides = {f.get("name"): f for f in raw.get("fields") or [] if isinstance(f, dict)}
     fields = []
     for name, typ in zip(res.columns, res.types):
@@ -160,6 +259,12 @@ def _build_dataset(ctx: ToolContext, raw: dict[str, Any]) -> tuple[Dataset | Non
     except ValidationError as e:
         return None, None, [f"[{did}] {err['msg']}" for err in e.errors()]
     prof = profile(res)
+    # adı marj/değişim/fark çağrıştıran ve değerleri -1.5..1.5 aralığında olan sayı kolonları orandır
+    for f in ds.fields:
+        info = prof["columns"].get(f.name, {})
+        if (f.type == "number" and f.format == "number" and _RATIO_HINT.search(f.name) and f.name not in overrides
+                and info.get("min") is not None and -1.5 <= info["min"] and info["max"] <= 1.5):
+            f.format = "percent"
     prof["sample_rows"] = _rows_preview(res, 5)
     if warnings:
         prof["join_warnings"] = warnings
@@ -262,7 +367,17 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
         for k, v in {"background": "#0b1220", "surface": "#111a2e", "text": "#e5e7eb", "mutedText": "#94a3b8",
                      "border": "#1f2a44"}.items():
             raw["theme"].setdefault(k, v)
-    notes = _layout_visuals([v for v in raw.get("visuals") or [] if isinstance(v, dict)])
+    notes = _layout_visuals([v for v in raw.get("visuals") or [] if isinstance(v, dict)]) + _resolve_filters(ctx, raw)         + _fix_axes(raw)
+    # para birimi belirtilmemiş tutar görsellerine kurum varsayılanını ver
+    currency_fields = {f["name"] for d in raw["datasets"] for f in d.get("fields") or [] if f.get("format") == "currency"}
+    for v in raw.get("visuals") or []:
+        if not isinstance(v, dict):
+            continue
+        opts = v.setdefault("options", {}) if isinstance(v.get("options"), dict) or v.get("options") is None else {}
+        enc = v.get("encoding") or {}
+        used = {enc.get("value"), *(enc.get("y") or []), *(enc.get("columns") or [])}
+        if isinstance(opts, dict) and not opts.get("currency") and (opts.get("format") in ("currency", "compact") or used & currency_fields):
+            opts["currency"] = ctx.services.settings.default_currency
     try:
         spec = ReportSpec.model_validate(raw)
     except ValidationError as e:
@@ -271,6 +386,44 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
     if errs:
         return None, errs[:15], notes
     return spec, [], notes
+
+
+def _filter_candidates(ctx: ToolContext, text: str) -> list[tuple[float, str, str, str]]:
+    """Filtre etiketine/kolon adına en uygun BOYUT kolonları: (skor, tablo, kolon, iş adı)."""
+    from app.dictionary.repository import _score, tokens
+
+    dd, pol = ctx.services.dictionary, ctx.services.policy(ctx.session.user_role)
+    qt = tokens(re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text))
+    kinds = dd._table_kinds()
+    out = []
+    for t in dd.tables.values():
+        for c in t.columns:
+            if c.role != "dimension" or (c.is_pii and not pol.allow_pii):
+                continue
+            sc = _score(qt, [(c.business_name, 3), (c.name, 2), (" ".join(c.synonyms), 2.5), (t.business_name, 1)])
+            if sc <= 0:
+                continue
+            extra = len([w for w in tokens(c.business_name) if not any(w.startswith(q[:4]) or q.startswith(w[:4]) for q in qt)])
+            sc = sc / (1 + 0.3 * extra) * (1.5 if kinds.get(t.name) == "dimension" else 0.5)  # filtre boyut tablosunda olmalı
+            out.append((round(sc, 2), t.display_name or t.name, c.display_name or c.name, c.business_name))
+    return sorted(out, reverse=True)[:4]
+
+
+def _resolve_filters(ctx: ToolContext, raw: dict[str, Any]) -> list[str]:
+    """Sözlükte olmayan filtre kolonlarını, etikete tek ve açık bir eşleşme varsa otomatik düzeltir."""
+    dd, notes = ctx.services.dictionary, []
+    for f in raw.get("filters") or []:
+        if not isinstance(f, dict) or not f.get("table") or not f.get("column"):
+            continue
+        t = dd.tables.get(str(f["table"]).lower())
+        if t and any(c.name == str(f["column"]).lower() for c in t.columns):
+            continue
+        cands = _filter_candidates(ctx, f"{f.get('label', '')} {f['column']}")
+        if cands and (len(cands) == 1 or cands[0][0] >= cands[1][0] * 1.25):
+            _, tb, col, bn = cands[0]
+            notes.append(f"Filtre '{f.get('id')}': {f['table']}.{f['column']} sözlükte yoktu; {tb}.{col} ({bn}) olarak düzeltildi.")
+            f["table"], f["column"] = tb, col
+    return notes
 
 
 def _filter_errors(ctx: ToolContext, spec: ReportSpec) -> list[str]:
@@ -282,10 +435,45 @@ def _filter_errors(ctx: ToolContext, spec: ReportSpec) -> list[str]:
         t = dd.tables.get(f.table.lower())
         col = next((c for c in t.columns if c.name == f.column.lower()), None) if t else None
         if not t or not col:
-            errs.append(f"Filtre '{f.id}': {f.table}.{f.column} sözlükte yok. get_table_details ile doğru boyut kolonunu bulun.")
+            cands = _filter_candidates(ctx, f"{f.label} {f.column}")
+            sug = "; ".join(f"{tb}.{c} ({bn})" for _, tb, c, bn in cands) or "get_table_details ile bakın"
+            errs.append(f"Filtre '{f.id}': {f.table}.{f.column} sözlükte yok. Uygun boyut kolonları: {sug}")
         elif col.is_pii and not pol.allow_pii:
             errs.append(f"Filtre '{f.id}': {f.table}.{f.column} kişisel veri; filtre olarak kullanılamaz.")
     return errs
+
+
+def _fix_axes(raw: dict[str, Any]) -> list[str]:
+    """Ters verilmiş eksenleri ve anlamsız alan eşleşmelerini düzeltir (küçük modellerin tipik hataları)."""
+    types = {d.get("id"): {f.get("name"): f.get("type") for f in d.get("fields") or []} for d in raw.get("datasets") or []}
+    notes = []
+    for v in raw.get("visuals") or []:
+        if not isinstance(v, dict):
+            continue
+        t, enc = types.get(v.get("datasetId"), {}), v.get("encoding") or {}
+        ys = enc.get("y") if isinstance(enc.get("y"), list) else ([enc["y"]] if enc.get("y") else [])
+        opts = v.get("options") if isinstance(v.get("options"), dict) else {}
+        if enc.get("series") and (enc["series"] in ys or t.get(enc["series"]) == "number"):
+            notes.append(f"'{v.get('id')}': series='{enc['series']}' bir ölçü alanı; seri ayrımı kaldırıldı.")
+            enc["series"] = None
+        if v.get("type") == "kpi" and not opts.get("deltaField") and not opts.get("compareField")                 and enc.get("category") and t.get(enc["category"]) == "number" and enc["category"] != enc.get("value"):
+            # model önceki dönem değerini category'ye koymuş: karşılaştırma alanı olarak kullan
+            opts["compareField"] = enc["category"]
+            v["options"] = opts
+            notes.append(f"'{v.get('id')}': {enc['category']} önceki dönem değeri olarak compareField'a taşındı.")
+            enc["category"] = None
+        if opts.get("deltaField") and opts["deltaField"] in (enc.get("value"), *ys):
+            notes.append(f"'{v.get('id')}': deltaField değerin kendisiydi ({opts['deltaField']}); kaldırıldı. "
+                         "Değişim için *_growth gibi ayrı bir kolon kullanın.")
+            opts["deltaField"] = None
+        if v.get("type") in ("bar", "line", "area", "combo") and enc.get("x") and len(ys) == 1                 and t.get(enc["x"]) == "number" and t.get(ys[0]) in ("string", "date"):
+            enc["x"], enc["y"] = ys[0], [enc["x"]]
+            notes.append(f"'{v.get('id')}': x ve y eksenleri ters verilmişti, düzeltildi (x={enc['x']}).")
+        if v.get("type") in ("pie", "donut", "funnel", "treemap") and enc.get("category") and enc.get("value")                 and t.get(enc["category"]) == "number" and t.get(enc["value"]) == "string":
+            enc["category"], enc["value"] = enc["value"], enc["category"]
+            notes.append(f"'{v.get('id')}': category ve value ters verilmişti, düzeltildi.")
+        v["encoding"] = enc
+    return notes
 
 
 def _spec_ok(ctx: ToolContext, spec: ReportSpec, notes: list[str], what: str) -> ToolResult:
@@ -360,27 +548,46 @@ def h_save_datasets(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     ids = [str(d.get("id")) for d in items if isinstance(d, dict)]
     if len(set(ids)) != len(ids):
         return ToolResult(False, {"errors": ["Dataset id'leri benzersiz olmalı."]}, "Tekrarlanan id")
-    built, profiles, errors = [], {}, []
+    s = ctx.session
+    built, profiles, errors, failed = [], {}, [], []
     for raw in items:
         ds, prof, errs = _build_dataset(ctx, raw if isinstance(raw, dict) else {})
         if errs:
             errors += errs
+            failed.append(str((raw or {}).get("id")))
         else:
             built.append(ds)
             profiles[ds.id] = prof
+    # kısmi kayıt: geçerli olanlar hemen kaydedilir, model yalnız hatalıları yeniden gönderir
+    saved = {d.id: d for d in s.datasets}
+    for d in built:
+        saved[d.id] = d
+        s.dataset_profiles[d.id] = profiles[d.id]
+    s.datasets = list(saved.values())
     if errors:
-        return ToolResult(False, {"ok": False, "errors": errors,
-                                  "valid": list(profiles), "hint": "Hatalı dataset'leri düzeltip hepsini tekrar gönderin."},
-                          f"{len(errors)} dataset hatalı")
-    s = ctx.session
-    s.datasets = built
-    s.dataset_profiles = profiles
-    return ToolResult(True, {"ok": True, "profiles": profiles}, f"{len(built)} dataset kaydedildi: {', '.join(d.id for d in built)}",
-                      state_changed=True, next_phase="design",
-                      kickoff="Dataset'ler kaydedildi ve tasarım fazına geçildi. Kullanıcıya (1) veriden öne çıkan 3-5 bulguyu "
-                              "sayılarla kısaca özetle, (2) hangi dataset'lerin hazır olduğunu söyle, (3) nasıl bir tasarım "
-                              "istediğini sor: tarif edebilir, örnek bir dashboard görseli yükleyebilir ya da 'varsayılan "
-                              "tasarımla başla' diyebilir. Henüz spec oluşturma.")
+        fails = s.phase_memory.get("save_failures", 0) + 1
+        s.phase_memory["save_failures"] = fails
+        if fails >= 3 and len(s.datasets) >= 3:
+            # ilerleme garantisi: yeterli dataset var, inatçı hatalı kırılımı atla
+            s.phase_memory["skipped"] = failed
+            return ToolResult(True, {"ok": True, "saved": list(saved), "skipped": failed,
+                                     "note": "Hatalı dataset'ler atlandı; kaydedilenlerle tasarım fazına geçiliyor."},
+                              f"{len(s.datasets)} dataset kaydedildi, {len(failed)} hatalı atlandı ({', '.join(failed)})",
+                              state_changed=True, next_phase="design", kickoff=_DESIGN_KICKOFF +
+                              f" Not: şu dataset'ler hata nedeniyle atlandı: {', '.join(failed)} — kullanıcıya bunu da söyle.")
+        return ToolResult(False, {"ok": False, "errors": errors, "saved": list(saved),
+                                  "hint": "Geçerli dataset'ler KAYDEDİLDİ. Yalnızca hatalı olanları düzeltip tekrar gönderin "
+                                          "(ya da gerekli değilse atlayın ve kalanları göndermeden bırakın)."},
+                          f"{len(built)} kaydedildi, {len(failed)} hatalı ({', '.join(failed)})", state_changed=bool(built))
+    return ToolResult(True, {"ok": True, "profiles": profiles, "saved": list(saved)},
+                      f"{len(built)} dataset kaydedildi: {', '.join(d.id for d in built)}",
+                      state_changed=True, next_phase="design", kickoff=_DESIGN_KICKOFF)
+
+
+_DESIGN_KICKOFF = ("Dataset'ler kaydedildi ve tasarım fazına geçildi. Kullanıcıya (1) veriden öne çıkan 3-5 bulguyu "
+                   "sayılarla kısaca özetle, (2) hangi dataset'lerin hazır olduğunu söyle, (3) nasıl bir tasarım "
+                   "istediğini sor: tarif edebilir, örnek bir dashboard görseli yükleyebilir ya da 'varsayılan "
+                   "tasarımla başla' diyebilir. Kullanıcı tasarımı zaten tarif ettiyse doğrudan create_report_spec ile oluştur.")
 
 
 def h_add_dataset(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
@@ -488,7 +695,8 @@ _VISUAL = {
         "encoding": {"type": "object", "description": "Alan adları dataset kolon adlarıyla birebir aynı olmalı.",
                      "properties": {"x": _STR, "y": _STRS, "series": _STR, "category": _STR, "value": _STR, "columns": _STRS}},
         "options": {"type": "object", "description": "stacked, horizontal, smooth, showLabels, showLegend, format(number|currency|percent|compact), "
-                                                     "decimals, sort(asc|desc), limit, aggregate, deltaField, deltaLabel, "
+                                                     "decimals, sort(asc|desc), limit, aggregate, deltaField (hazır değişim oranı kolonu), "
+                                                     "compareField (kpi: önceki dönem değeri kolonu), deltaLabel, "
                                                      "sparklineDatasetId, sparklineField, target, text, color"},
         "position": _POSITION,
     },
@@ -500,8 +708,10 @@ _FILTERS = {"type": "array", "description": "Dilimleyiciler. table+column bir BO
             "items": {"type": "object", "required": ["id", "label", "table", "column"],
                       "properties": {"id": _STR, "label": _STR, "table": _STR, "column": _STR,
                                      "type": {"type": "string", "enum": ["select", "multiselect"]}}}}
-_DATASET = {"type": "object", "required": ["id", "sql"],
-            "properties": {"id": {"type": "string", "description": "snake_case"}, "description": _STR, "sql": _STR,
+_DATASET = {"type": "object", "required": ["id"],
+            "properties": {"id": {"type": "string", "description": "snake_case"}, "description": _STR,
+                           "sql": {"type": "string", "description": "SELECT sorgusu (ya da sql yerine verified kullanın)"},
+                           "verified": {"type": "integer", "description": "Çalışma hafızasındaki doğrulanmış sorgunun numarası (sql yazmadan)"},
                            "fields": {"type": "array", "description": "İsteğe bağlı etiket/format: [{name,label,format}]",
                                       "items": {"type": "object", "properties": {"name": _STR, "label": _STR, "format": _STR}}}}}
 

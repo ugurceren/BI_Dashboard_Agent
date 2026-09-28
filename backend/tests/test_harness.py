@@ -86,6 +86,8 @@ def test_full_flow(settings, services):
     s = store.get(s.id)
     assert s.spec is not None and s.spec_version == 1
     assert s.spec.theme.mode == "dark" and s.spec.theme.background == "#0b1220"
+    k1 = next(v for v in s.spec.visuals if v.id == "k1")
+    assert k1.options.currency == settings.default_currency, "para birimi belirtilmemiş tutar KPI'sına varsayılan verilmeli"
     pos = {v.id: (v.position.x, v.position.y) for v in s.spec.visuals}
     assert len(set(pos.values())) == 4, "çakışmalar çözülmeli"
     assert {d.id for d in s.spec.datasets} == {"kpi_summary", "region_sales", "monthly_trend"}
@@ -139,3 +141,147 @@ def test_prompt_mode_roundtrip():
 def test_parse_json_loose():
     assert parse_json_loose('```json\n{"a": 1,}\n```') == {"a": 1}
     assert parse_json_loose('İşte: {"a": [1, 2,]} bitti') == {"a": [1, 2]}
+
+
+def test_repeat_guard_and_working_memory(settings, services):
+    from app.harness.phases import system_prompt
+
+    sql = "SELECT TOP 5 SalesTerritoryGroup AS grp FROM dbo.DimSalesTerritory"
+    llm = FakeLLM([
+        AssistantTurn("", [call("save_requirements", report_title="R", business_goal="g", kpis=["Satış"], dimensions=["Bölge"])]),
+        AssistantTurn("", [call("run_sql", sql=sql, purpose="bölgeler")]),
+        AssistantTurn("", [call("run_sql", sql=sql, purpose="bölgeler")]),   # aynı çağrı → önbellek
+        AssistantTurn("tamam"),
+    ], settings)
+    store = SessionStore(settings.sessions_dir)
+    agent = Agent(llm, services, store)
+    s = store.create("analyst")
+    _run(agent, s.id, "rapor")
+    s = store.get(s.id)
+    runs = [t.tool for t in s.transcript if t.role == "tool" and t.tool.name == "run_sql"]
+    assert runs[1].summary.startswith("Tekrarlanan çağrı")
+    assert len(services.connector.executed) == 1, "tekrar eden sorgu veritabanına gitmemeli"
+    prompt = system_prompt(s, "tsql")
+    assert "Çalışma hafızası" in prompt and sql in prompt
+
+
+def test_trim_keeps_phase_anchor_within_budget():
+    from app.harness.agent import _trim
+
+    msgs = [{"role": "user", "content": "[HARNESS] görev"}]
+    for i in range(50):
+        msgs.append({"role": "assistant", "content": "", "tool_calls": [{"id": str(i), "type": "function",
+                     "function": {"name": "x", "arguments": "{}"}}]})
+        msgs.append({"role": "tool", "tool_call_id": str(i), "content": "r" * 1000})
+    out = _trim(msgs, 10_000)
+    assert out[0]["content"] == "[HARNESS] görev"
+    assert "bağlamdan çıkarıldı" in out[1]["content"]
+    assert out[2]["role"] == "assistant" and sum(len(m.get("content") or "") for m in out) < 14_000
+    assert _trim(msgs[:3], 10_000) == msgs[:3], "bütçe aşılmıyorsa hiçbir şey atılmamalı"
+
+
+def test_error_hint_suggests_join_path(settings, services):
+    from app.harness.session import Session
+    from app.harness.tools import ToolContext, _error_hints
+
+    msg = "[SQL Server]Invalid column name 'EnglishProductCategoryName'. (207)"
+    hints = _error_hints(ToolContext(Session(), services), msg, ["dbo.factresellersales", "dbo.dimproduct"])
+    assert "dbo.dimproductcategory" in hints[0] and "dbo.dimproductsubcategory.productcategorykey" in hints[0]
+
+
+def test_save_dataset_by_verified_number_and_loop_breaker(settings, services):
+    sql = "SELECT TOP 5 SalesTerritoryGroup AS grp, SUM(1) AS n FROM dbo.DimSalesTerritory GROUP BY SalesTerritoryGroup"
+    bad = "SELECT nope FROM dbo.DimSalesTerritory"
+    llm = FakeLLM([
+        AssistantTurn("", [call("save_requirements", report_title="R", business_goal="g", kpis=["Satış"], dimensions=["Bölge"])]),
+        AssistantTurn("", [call("run_sql", sql=sql)]),
+        AssistantTurn("", [call("save_datasets", datasets=[{"id": "groups", "verified": 1}])]),
+        AssistantTurn("hazır"),
+    ], settings)
+    store = SessionStore(settings.sessions_dir)
+    s = store.create("analyst")
+    list(Agent(llm, services, store).run_turn(s.id, "rapor"))
+    s = store.get(s.id)
+    assert s.phase == "design" and s.datasets[0].sql == sql
+
+    # döngü kırıcı: aynı çağrı üst üste tekrarlanınca tur biter
+    llm2 = FakeLLM([AssistantTurn("", [call("run_sql", sql=bad)])] * 10, settings)
+    s2 = store.create("analyst")
+    s2.set_phase("data")
+    s2.requirements = s.requirements
+    store.save(s2)
+    list(Agent(llm2, services, store).run_turn(s2.id, "devam"))
+    s2 = store.get(s2.id)
+    assert len(llm2.calls) == 4 and "tekrar tekrar" in s2.transcript[-1].content
+
+
+def test_unfulfilled_claim_is_nudged(settings, services):
+    sql = "SELECT SalesTerritoryGroup AS grp, SUM(1) AS n FROM dbo.DimSalesTerritory GROUP BY SalesTerritoryGroup"
+    spec = {"title": "T", "visuals": [{"id": "b", "type": "bar", "title": "B", "datasetId": "g", "encoding": {"x": "grp", "y": ["n"]}}]}
+    llm = FakeLLM([
+        AssistantTurn("", [call("save_requirements", report_title="R", business_goal="g", kpis=["Satış"], dimensions=["Bölge"])]),
+        AssistantTurn("", [call("save_datasets", datasets=[{"id": "g", "sql": sql}])]),
+        AssistantTurn("Nasıl bir tasarım?"),
+        AssistantTurn("Tasarım tamamlandı, dashboard oluşturuldu."),   # yalan: araç çağrısı yok
+        AssistantTurn("", [call("create_report_spec", spec=spec)]),
+        AssistantTurn("Hazır."),
+    ], settings)
+    store = SessionStore(settings.sessions_dir)
+    agent = Agent(llm, services, store)
+    s = store.create("analyst")
+    _run(agent, s.id, "rapor")
+    _run(agent, s.id, "koyu tema")
+    s = store.get(s.id)
+    assert s.spec is not None and s.spec_version == 1
+    shown = [t.content for t in s.transcript if t.role == "assistant"]
+    assert "Tasarım tamamlandı, dashboard oluşturuldu." not in shown and shown[-1] == "Hazır."
+
+
+def test_wrong_filter_column_is_resolved(settings, services):
+    from app.harness.session import Session
+    from app.harness.tools import ToolContext, _resolve_filters
+
+    raw = {"filters": [{"id": "f", "label": "Ürün Kategorisi", "table": "dbo.DimProduct", "column": "ProductCategory"}]}
+    notes = _resolve_filters(ToolContext(Session(), services), raw)
+    assert raw["filters"][0]["table"] == "dbo.DimProductCategory" and notes
+
+
+def test_swapped_axes_are_fixed():
+    from app.harness.tools import _fix_axes
+
+    raw = {"datasets": [{"id": "r", "fields": [{"name": "region", "type": "string"}, {"name": "sales", "type": "number"}]}],
+           "visuals": [{"id": "b", "type": "bar", "datasetId": "r", "encoding": {"x": "sales", "y": ["region"]}}]}
+    assert _fix_axes(raw) and raw["visuals"][0]["encoding"] == {"x": "region", "y": ["sales"]}
+
+
+def test_spec_sanitizes_series_and_delta():
+    from app.harness.tools import _fix_axes
+
+    raw = {"datasets": [{"id": "k", "fields": [{"name": "sales", "type": "number"}, {"name": "m", "type": "string"}]}],
+           "visuals": [{"id": "a", "type": "kpi", "datasetId": "k", "encoding": {"value": "sales"}, "options": {"deltaField": "sales"}},
+                       {"id": "b", "type": "line", "datasetId": "k", "encoding": {"x": "m", "y": ["sales"], "series": "sales"}}]}
+    notes = _fix_axes(raw)
+    assert raw["visuals"][0]["options"]["deltaField"] is None and raw["visuals"][1]["encoding"]["series"] is None and len(notes) == 2
+
+
+def test_user_message_carried_into_next_phase(settings, services):
+    sql = "SELECT SalesTerritoryGroup AS grp, SUM(1) AS n FROM dbo.DimSalesTerritory GROUP BY SalesTerritoryGroup"
+    llm = FakeLLM([
+        AssistantTurn("", [call("save_requirements", report_title="R", business_goal="g", kpis=["Satış"], dimensions=["Bölge"])]),
+        AssistantTurn("", [call("save_datasets", datasets=[{"id": "g", "sql": sql}])]),
+        AssistantTurn("tamam"),
+    ], settings)
+    store = SessionStore(settings.sessions_dir)
+    s = store.create("analyst")
+    list(Agent(llm, services, store).run_turn(s.id, "Koyu tema olsun"))
+    design_call = next(c for c in llm.calls if "create_report_spec" in c["tools"])
+    assert "Koyu tema olsun" in design_call["messages"][1]["content"]
+
+
+def test_kpi_category_becomes_compare_field():
+    from app.harness.tools import _fix_axes
+
+    raw = {"datasets": [{"id": "k", "fields": [{"name": "s13", "type": "number"}, {"name": "s12", "type": "number"}]}],
+           "visuals": [{"id": "a", "type": "kpi", "datasetId": "k", "encoding": {"value": "s13", "category": "s12"}, "options": {}}]}
+    _fix_axes(raw)
+    assert raw["visuals"][0]["options"]["compareField"] == "s12" and raw["visuals"][0]["encoding"]["category"] is None

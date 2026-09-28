@@ -206,12 +206,20 @@ export function KpiVisual(p: VisualProps) {
   const ctx = { visual, dataset: p.dataset, rows: table.rows };
   const value = kpiValue(ctx, e.value!);
   const fmt = fmtFor(ctx, e.value);
-  const delta = o.deltaField ? kpiValue(ctx, o.deltaField, "first") : null;
+  // değişim: deltaField (hazır oran) ya da compareField (önceki dönem değeri)
+  const compare = !o.deltaField && o.compareField ? kpiValue(ctx, o.compareField, "first") : null;
+  const valueIsRate = fmt.format === "percent";
+  const delta = o.deltaField ? kpiValue(ctx, o.deltaField, "first")
+    : compare !== null && value !== null ? (valueIsRate ? value - compare : compare !== 0 ? (value - compare) / Math.abs(compare) : null)
+    : null;
   const deltaDef = fieldDef(p.dataset, o.deltaField);
   const deltaFmt = resolveFormat(deltaDef, { decimals: 1 }, true);
   const deltaIsPct = !deltaDef?.format || deltaDef.format === "percent";
+  const sign = delta === null ? "" : delta > 0 ? "+" : delta < 0 ? "−" : "";
   const deltaText =
-    delta === null ? null : `${delta > 0 ? "+" : delta < 0 ? "−" : ""}${formatValue(Math.abs(delta), deltaIsPct ? { format: "percent", decimals: 1 } : deltaFmt)}`;
+    delta === null ? null
+      : compare !== null && valueIsRate ? `${sign}${formatValue(Math.abs(delta) * 100, { format: "number", decimals: 1 })} puan`
+      : `${sign}${formatValue(Math.abs(delta), deltaIsPct ? { format: "percent", decimals: 1 } : deltaFmt)}`;
   const target = o.target;
   const ratio = target && value !== null ? value / target : null;
 

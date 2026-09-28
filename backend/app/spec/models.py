@@ -36,6 +36,8 @@ class Dataset(_Base):
     description: str = ""
     sql: str
     fields: list[DatasetField] = Field(default_factory=list)
+    view: str | None = None           # kalıcılaştırıldıysa kaynak view (ör. rpt.v_bolge_satis)
+    original_sql: str | None = None   # view'a geçmeden önceki SQL
 
     @field_validator("id")
     @classmethod
@@ -74,6 +76,7 @@ class VisualOptions(_Base):
     limit: int | None = None
     aggregate: Literal["sum", "avg", "first", "last", "min", "max"] | None = None
     deltaField: str | None = None
+    compareField: str | None = None  # önceki dönem değeri; deltaField yoksa değişim buradan hesaplanır
     deltaLabel: str | None = None
     sparklineDatasetId: str | None = None
     sparklineField: str | None = None
@@ -217,6 +220,8 @@ def semantic_errors(spec: ReportSpec) -> list[str]:
         refs += enc.columns or []
         if v.options.deltaField:
             refs.append(v.options.deltaField)
+        if v.options.compareField:
+            refs.append(v.options.compareField)
         missing = [r for r in refs if avail and r not in avail]
         if missing:
             errors.append(f"{where}: '{v.datasetId}' dataset'inde olmayan alan(lar): {missing}. Mevcut: {sorted(avail)}")

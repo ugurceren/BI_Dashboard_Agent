@@ -146,4 +146,37 @@ class SqlValidator:
         joins = self.join_guard.check(tree)
         if joins.errors:
             return ValidationResult(False, joins.errors, sorted(tables), warnings=joins.warnings)
-        return ValidationResult(True, [], sorted(tables), sql, joins.warnings)
+        warnings = list(joins.warnings)
+        sql = self._distinct_counts(tree, sql, tables, warnings)
+        return ValidationResult(True, [], sorted(tables), self._float_division(tree, sql), warnings)
+
+    def _distinct_counts(self, tree: exp.Expression, sql: str, tables: set[str], warnings: list[str]) -> str:
+        """Sözlükte varsayılan toplaması count_distinct olan kolonlarda (ör. SalesOrderNumber) COUNT(x) → COUNT(DISTINCT x).
+        Sipariş satırı sayısını sipariş sayısı sanmak BI'da en sık yapılan hatalardan biri."""
+        distinct_cols = {c.name for t in tables for c in self.dictionary.tables[t].columns
+                         if (c.default_aggregation or "").lower() == "count_distinct" and c.role == "key"} if tables else set()
+        changed = False
+        for cnt in tree.find_all(exp.Count):
+            arg = cnt.this
+            if arg is None or isinstance(arg, (exp.Distinct, exp.Star)):
+                continue
+            hit = [c.name for c in arg.find_all(exp.Column) if c.name.lower() in distinct_cols]
+            if hit:
+                cnt.set("this", exp.Distinct(expressions=[arg]))
+                warnings.append(f"COUNT({hit[0]}) tekil sayım olmalı (sözlük: count_distinct); COUNT(DISTINCT ...) olarak düzeltildi.")
+                changed = True
+        return tree.sql(dialect=self.dialect) if changed else sql
+
+    def _float_division(self, tree: exp.Expression, sql: str) -> str:
+        """T-SQL'de INT/INT bölmesi ondalığı atar (COUNT/COUNT = 0), money bölmesi 4 haneye yuvarlar.
+        BI oranlarında her zaman ondalık istenir: payı FLOAT'a çevir."""
+        if self.dialect != "tsql":
+            return sql
+        divs = [d for d in tree.find_all(exp.Div)
+                if not isinstance(d.this, exp.Cast) and not any(
+                    isinstance(n, exp.Literal) and not n.is_string and "." in n.this for n in d.this.find_all(exp.Literal))]
+        if not divs:
+            return sql
+        for d in divs:
+            d.set("this", exp.Cast(this=d.this, to=exp.DataType.build("FLOAT")))
+        return tree.sql(dialect=self.dialect)

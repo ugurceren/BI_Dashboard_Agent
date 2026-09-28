@@ -47,12 +47,17 @@ Amaç: gereksinimleri karşılayan, dashboard'a hazır dataset'leri oluşturmak.
 
 Adımlar:
 1. Her KPI ve kırılım için search_dictionary ile doğru tabloları bul.
+   Sonuçlarda "Onaylı rapor view'ları" (rpt şeması) varsa ve ihtiyacı karşılıyorsa ÖNCE onları kullan: tanımları onaylıdır.
 2. get_table_details ile seçtiğin olgu (fact) ve boyut (dim) tablolarının kolonlarını ve JOIN ilişkilerini öğren.
 3. find_metrics ile kurumsal metrik tanımlarını kontrol et; varsa o formülleri kullan.
 4. Önce verinin tarih aralığını run_sql ile kontrol et (ör. MIN/MAX tarih). Sonra her dataset SQL'ini run_sql ile test et.
 5. save_datasets ile 4–7 dataset kaydet. Tipik set:
-   - kpi_summary: TEK satır; ana KPI'lar + karşılaştırma dönemine göre değişim oranları (ör. sales_growth = (bu - önceki) / önceki).
-   - zaman trendi (ay/hafta), her ana kırılım için bir dataset (bölge, ürün, kanal …), gerekirse top-N detay tablosu.
+   - kpi_summary: TEK satır. Her KPI için bu dönemin değeri + değişim oranı kolonu:
+     ör. sales_amount, sales_growth ((bu - önceki) / önceki), order_count, order_growth, gross_margin, margin_change.
+   - monthly_trend: yalnız zaman ekseni (ay) + ana ölçüler; kırılım KOLONU YOK (ya da en fazla 5-6 değerli tek bir kırılım).
+   - her ana kırılım için AYRI bir dataset, DÖNEM TOPLAMI olarak (ay kırılımı olmadan): ör. region_sales (region, sales_amount, order_count),
+     reseller_type_sales, category_sales. Bu dataset'ler bar/donut görselleri içindir.
+   - gerekirse top-N detay tablosu (SELECT TOP 10 ... ORDER BY).
 Dataset kuralları:
 - Toplulaştırmayı SQL'de yap; her dataset küçük olsun (ideal < 200 satır). Ham işlem satırı çekme.
 - Kolon takma adları (alias) snake_case ve ASCII olsun (ör. sales_amount, region, year_month).
@@ -68,6 +73,8 @@ Dataset kuralları:
   * Sistem bu kuralları otomatik kontrol eder; "Satır çoğalması" hatası alırsan sorguyu CTE ile yeniden yaz.
 - Önce verinin gerçek tarih aralığına bak; kullanıcı "bu yıl" dese bile veride olmayan yılları sorgulama, en son tam yılı kullan ve bunu söyle.
 - Yüzde/oran kolonlarını 0-1 arası ondalık üret (0.12 = %12).
+- "Sipariş sayısı" = COUNT(DISTINCT SalesOrderNumber); ürün adedi (OrderQuantity) ile karıştırma. Onaylı metrik varsa onu kullan.
+- Aynı aramayı/sorguyu tekrar etme. SQL'i mesaj metnine yazma, doğrudan run_sql ile çalıştır.
 save_datasets başarılı olunca dur; sistem tasarım fazına geçecek.
 """
 
@@ -78,6 +85,9 @@ Amaç: kayıtlı dataset'lerden, kullanıcının tarif ettiği ya da örnek gör
 Kurallar:
 - İlk dashboard için create_report_spec kullan. Sonraki küçük değişikliklerde update_visual / add_visual / remove_visual / update_report kullan; tüm spec'i baştan yazma.
 - encoding'deki alan adları dataset kolon adlarıyla BİREBİR aynı olmalı (aşağıdaki listeye bak).
+- KPI görsellerinde değişim kolonu varsa options.deltaField olarak ver (ör. deltaField: "sales_growth", deltaLabel: "geçen yıla göre").
+  Değişim kolonu yoksa ama önceki dönem değeri varsa options.compareField ver (ör. value: "sales_amount_2013", compareField: "sales_amount_2012").
+- Çok serili grafiklerde en fazla 5-6 seri kullan; daha fazla kategori için dönem toplamı dataset'iyle bar grafiği tercih et.
 - Görsel seçimi: zaman trendi → line/area (tutar+adet birlikte → combo); kategori karşılaştırma → bar (6'dan fazla kategori veya uzun etiket → horizontal); parça-bütün (≤6 dilim) → donut; tek sayı → kpi (deltaField ile değişim); detay → table; hedefe göre → gauge.
 - Uzun formatlı veride (ör. ay × kanal) seri ayrımı için encoding.series kullan; y tek alan olur.
 - Yerleşim 12 kolonluk ızgara: KPI'lar üst satırda (w=3, h=2), ana grafikler h=4, tablolar w=12. position verilmezse sistem otomatik yerleştirir; çakışmaları sistem düzeltir.
@@ -131,7 +141,28 @@ def _state_block(s: Session) -> str:
     return "\n\n".join(parts)
 
 
-def system_prompt(s: Session, dialect: str) -> str:
+def _memory_block(s: Session, steps_left: int | None) -> str:
+    parts: list[str] = []
+    verified = s.phase_memory.get("verified_sql", [])
+    if verified:
+        lines = [f"{i + 1}. {m['purpose'] or '(amaç belirtilmedi)'} — kolonlar: {', '.join(m['columns'])}; {m['rows']} satır\n```sql\n{m['sql']}\n```"
+                 for i, m in enumerate(verified)]
+        parts.append("## Çalışma hafızası: bu fazda test edilip ÇALIŞTIĞI doğrulanan sorgular\n"
+                     "Bunları yeniden test etme. save_datasets'te SQL'i yeniden yazmadan numarayla kaydedebilirsin: "
+                     '{"id": "kpi_summary", "description": "...", "verified": 2}\n' + "\n".join(lines))
+    if s.phase == "data":
+        if len(verified) >= 4:
+            parts.append("## İlerleme\nYeterli sayıda doğrulanmış sorgu var. Eksik kırılım yoksa ŞİMDİ save_datasets çağır.")
+        if steps_left is not None and steps_left <= 6:
+            parts.append(f"## Adım sınırı yaklaşıyor ({steps_left} adım kaldı)\nYeni arama yapma; doğrulanmış sorgularla hemen save_datasets çağır.")
+    elif steps_left is not None and steps_left <= 4:
+        parts.append(f"## Adım sınırı yaklaşıyor ({steps_left} adım kaldı)\nİşi tamamla ve kullanıcıya kısa bir özet yaz.")
+    return "\n\n".join(parts)
+
+
+def system_prompt(s: Session, dialect: str, steps_left: int | None = None) -> str:
     phase_text = {"requirements": REQUIREMENTS, "data": DATA, "design": DESIGN}[s.phase]
     state = _state_block(s)
-    return BASE.format(dialect=DIALECT_NOTES.get(dialect, "")) + "\n" + phase_text + ("\n" + state if state else "")
+    memory = _memory_block(s, steps_left)
+    return (BASE.format(dialect=DIALECT_NOTES.get(dialect, "")) + "\n" + phase_text
+            + ("\n" + state if state else "") + ("\n\n" + memory if memory else ""))

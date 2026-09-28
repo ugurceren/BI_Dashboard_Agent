@@ -154,7 +154,7 @@ class ModelFilterEngine:
                 cands = [(a, t, paths[t]) for a, t in tables.items() if t in paths]
                 if not cands:
                     continue
-                facts = [c for c in cands if kinds.get(c[1]) in ("fact", "bridge")]
+                facts = [c for c in cands if kinds.get(c[1]) in ("fact", "bridge", "view")]
                 if facts:
                     cands = facts
                 on_paths = {t for _, _, p in cands for t, _ in p[:-1]}
@@ -184,7 +184,8 @@ class ModelFilterEngine:
             name = proj.alias_or_name
             src = self._resolve(proj.this if isinstance(proj, exp.Alias) else proj, top, cte_map, 0)
             if src:
-                out[name] = src
+                # view'dan okunan dataset: tıklama filtresi view'ın kaynağındaki model kolonuna bağlansın
+                out[name] = getattr(self.dd, "view_lineage", {}).get(src, src)
         return out
 
     def _resolve(self, node: exp.Expression, sel: exp.Select, cte_map: dict, depth: int) -> str | None:

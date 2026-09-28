@@ -63,7 +63,9 @@ class FakeConnector:
                 or (isinstance(inner, exp.Literal) and inner.is_number)
             cols.append(p.alias_or_name or f"col{i}")
             types.append("number" if numeric else "string")
-        rows = [[(r + 1) * 10.5 if t == "number" else f"{c}_{r}" for c, t in zip(cols, types)] for r in range(3)]
+        # GROUP BY'sız toplama sorgusu gerçek veritabanında olduğu gibi tek satır döner
+        n = 1 if top.find(exp.AggFunc) and not top.args.get("group") else 3
+        rows = [[(r + 1) * 10.5 if t == "number" else f"{c}_{r}" for c, t in zip(cols, types)] for r in range(n)]
         return QueryResult(cols, types, rows[:max_rows], False, 1)
 
     def ping(self) -> None:

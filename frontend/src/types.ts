@@ -15,6 +15,9 @@ export interface Dataset {
   description: string;
   sql: string;
   fields: DatasetField[];
+  /** kalıcılaştırıldıysa kaynak view (ör. rpt.v_bolge_satis) */
+  view?: string | null;
+  original_sql?: string | null;
 }
 
 export type VisualType =
@@ -43,6 +46,8 @@ export interface VisualOptions {
   limit?: number;
   aggregate?: "sum" | "avg" | "first" | "last" | "min" | "max";
   deltaField?: string;
+  /** önceki dönem değeri: deltaField yoksa değişim buradan hesaplanır (tutar → %, oran → puan) */
+  compareField?: string;
   deltaLabel?: string;
   sparklineDatasetId?: string;
   sparklineField?: string;
@@ -235,7 +240,7 @@ export type StreamEvent =
   | { event: "done"; data: Record<string, never> };
 
 // ---------- İlişkisel model (GET /api/dictionary/model) ----------
-export type TableKind = "fact" | "dimension" | "bridge";
+export type TableKind = "fact" | "dimension" | "bridge" | "view";
 export type Cardinality = "N:1" | "1:1" | "N:N";
 
 export interface ModelColumn {
@@ -279,3 +284,6 @@ export interface DataModel {
   used_tables: Record<string, string[]>;   // tablo id → onu kullanan dataset id'leri
   dialect: string;
 }
+
+export interface ViewScriptResult { view: string; script: string; file: string; exists: boolean }
+export interface UseViewResult { session: SessionState; view: string; lost_filters: string[] }

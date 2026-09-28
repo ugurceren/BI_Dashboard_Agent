@@ -138,6 +138,13 @@ def _score(query_tokens: list[str], fields: list[tuple[str, float]]) -> float:
     return total
 
 
+def _rel_sig(r: "DDRelationship", flipped: bool = False) -> str:
+    """Önbellek imzası: sözlükteki ilişki tanımı değişirse önbellek geçersiz olur (sözlükteki orijinal yön)."""
+    if flipped:
+        return f"{r.to_table}|{r.from_table}|" + ",".join(f"{b}={a}" for a, b in r.pairs)
+    return f"{r.from_table}|{r.to_table}|" + ",".join(f"{a}={b}" for a, b in r.pairs)
+
+
 def _group_relationships(rows: list[dict[str, Any]]) -> list[DDRelationship]:
     """Satırları ilişkilere çevirir. Aynı relationship_id'ye sahip satırlar tek bir bileşik ilişkidir."""
     groups: dict[str, DDRelationship] = {}
@@ -181,6 +188,7 @@ class DataDictionary:
         self.tables: dict[str, DDTable] = {}
         self.metrics: list[DDMetric] = []
         self.relationships: list[DDRelationship] = []
+        self.view_lineage: dict[str, str] = {}   # "rpt.v_x.kolon" → view'ın kaynak model kolonu
 
     # ------------------------------------------------------------------ yükleme
     def _connector(self, cfg: dict) -> Connector:
@@ -222,14 +230,80 @@ class DataDictionary:
             ))
         rels = _group_relationships(rows(q.get("relationships")))
         if cfg.get("infer_cardinality", True) and any(r.cardinality is None for r in rels):
-            self._infer_cardinality(rels, tables)
+            cache = self._cardinality_cache()
+            for r in rels:
+                if r.cardinality is None and r.id in cache and cache[r.id]["sig"] == _rel_sig(r):
+                    r.cardinality = cache[r.id]["cardinality"]
+                    if cache[r.id].get("flip"):
+                        r.from_table, r.to_table = r.to_table, r.from_table
+                        r.pairs = [(b, a) for a, b in r.pairs]
+            todo = [r for r in rels if r.cardinality is None]
+            if todo:
+                before = {r.id: (r.from_table, r.to_table) for r in todo}
+                self._infer_cardinality(todo, tables)
+                for r in todo:
+                    if r.cardinality:
+                        flip = before[r.id] != (r.from_table, r.to_table)
+                        cache[r.id] = {"cardinality": r.cardinality, "flip": flip,
+                                       "sig": _rel_sig(r) if not flip else _rel_sig(r, flipped=True)}
+                self._save_cardinality_cache(cache)
         metrics = [DDMetric(r["metric_name"], r.get("business_name") or r["metric_name"], r.get("description") or "",
                             r.get("expression_sql") or "", (r.get("base_table") or "").lower(), r.get("value_format") or "number",
                             [s.strip() for s in (r.get("synonyms") or "").split(",") if s.strip()])
                    for r in rows(q.get("metrics"))]
         with self._lock:
             self.tables, self.relationships, self.metrics = tables, rels, metrics
+        for entry in self._view_registry():
+            try:
+                self.add_view(entry)
+            except Exception as e:  # noqa: BLE001 — bozuk kayıt sözlüğü düşürmesin
+                log.warning("View sözlüğe eklenemedi (%s): %s", entry.get("name"), e)
         return self
+
+    # ------------------------------------------------------------------ onaylı view'lar
+    def _view_registry(self) -> list[dict[str, Any]]:
+        from app.data.views import ViewRegistry
+
+        return ViewRegistry(self.settings.views_registry).all()
+
+    def add_view(self, entry: dict[str, Any]) -> "DDTable":
+        """Kalıcılaştırılmış bir dataset view'ını sözlüğe ekler; kaynak kolonlardan boyutlara ilişki kurar."""
+        name = entry["name"].lower()
+        cols = []
+        for c in entry["columns"]:
+            src = (c.get("lineage") or "").lower()
+            src_col = None
+            if src.count(".") >= 2:
+                st, _, sc = src.rpartition(".")
+                t = self.tables.get(st)
+                src_col = next((x for x in t.columns if x.name == sc), None) if t else None
+            if src:
+                self.view_lineage[f"{name}.{c['name'].lower()}"] = src
+            is_num = c.get("type") == "number"
+            cols.append(DDColumn(
+                table=name, name=c["name"].lower(), business_name=c.get("label") or c["name"],
+                description=f"Kaynak: {src}" if src else "", data_type=c.get("type") or "",
+                role="measure" if is_num else "dimension", default_aggregation="sum" if is_num else None,
+                synonyms=src_col.synonyms if src_col else [], is_pii=bool(src_col and src_col.is_pii),
+                sample_values="", display_name=c["name"]))
+        table = DDTable(name, entry.get("business_name") or entry["name"], entry.get("description") or "",
+                        "Onaylı rapor view'ları", "Rapor dataset'i (özet)", None, cols,
+                        display_name=entry["name"], table_type="view")
+        self.tables[name] = table
+        self.relationships = [r for r in self.relationships if r.from_table != name]
+        kinds = self._table_kinds()
+        new_rels = []
+        for c in entry["columns"]:
+            src = (c.get("lineage") or "").lower()
+            st, _, sc = src.rpartition(".")
+            if st in self.tables and kinds.get(st) == "dimension":
+                new_rels.append(DDRelationship(f"{name}__{c['name'].lower()}", name, st, [(c["name"].lower(), sc)]))
+        if new_rels:
+            self._infer_cardinality(new_rels, self.tables)
+            # yalnız boyut tarafı tekilse (N:1 / 1:1) ilişki anlamlı: filtre view'a yayılabilir
+            new_rels = [r for r in new_rels if r.from_table == name and r.to_unique]
+        self.relationships.extend(new_rels)
+        return table
 
     def _infer_cardinality(self, rels: list[DDRelationship], tables: dict[str, DDTable]) -> None:
         """Sözlükte kardinalite yoksa veriden çıkarır: bir taraf, join kolonları o tabloda tekilse '1'dir.
@@ -305,6 +379,42 @@ class DataDictionary:
     def relationships_for(self, table: str) -> list[DDRelationship]:
         t = table.lower()
         return [r for r in self.relationships if t in (r.from_table, r.to_table)]
+
+    def join_path(self, sources: list[str], target: str, max_hops: int = 4) -> list[DDRelationship] | None:
+        """Kaynak tablolardan hedefe en kısa ilişki zinciri (yönsüz, yalnız aktif ilişkiler öncelikli)."""
+        from collections import deque
+
+        target = target.lower()
+        start = [t.lower() for t in sources if t.lower() in self.tables]
+        if target in start:
+            return []
+        rels = sorted(self.relationships, key=lambda r: not r.active)
+        prev: dict[str, tuple[str, DDRelationship] | None] = {t: None for t in start}
+        q = deque((t, 0) for t in start)
+        while q:
+            u, d = q.popleft()
+            if d >= max_hops:
+                continue
+            for r in rels:
+                if u not in (r.from_table, r.to_table) or r.from_table == r.to_table:
+                    continue
+                v = r.to_table if u == r.from_table else r.from_table
+                if v in prev:
+                    continue
+                prev[v] = (u, r)
+                if v == target:
+                    path, cur = [], v
+                    while prev[cur] is not None:
+                        pu, pr = prev[cur]
+                        path.append(pr)
+                        cur = pu
+                    return list(reversed(path))
+                q.append((v, d + 1))
+        return None
+
+    def tables_with_column(self, column: str) -> list[str]:
+        col = column.lower()
+        return [t.name for t in self.tables.values() if any(c.name == col for c in t.columns)]
 
     def search(self, query: str, limit: int = 6) -> list[dict[str, Any]]:
         qt = tokens(query)
@@ -382,7 +492,7 @@ class DataDictionary:
         bridges = {t for t in self.tables if len(out[t]) >= 2 and not inc[t] and any(len(out[x]) >= 2 for x in out[t])}
         kinds = {}
         for name, t in self.tables.items():
-            if t.table_type in ("fact", "dimension", "bridge"):
+            if t.table_type in ("fact", "dimension", "bridge", "view"):
                 kinds[name] = t.table_type
             elif name in bridges:
                 kinds[name] = "bridge"
@@ -391,6 +501,26 @@ class DataDictionary:
             else:
                 kinds[name] = "dimension"
         return kinds
+
+    def _cache_path(self):
+        return self.settings.cache_dir / "cardinality.json"
+
+    def _cardinality_cache(self) -> dict[str, Any]:
+        import json
+
+        try:
+            return json.loads(self._cache_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _save_cardinality_cache(self, cache: dict[str, Any]) -> None:
+        import json
+
+        try:
+            self._cache_path().parent.mkdir(parents=True, exist_ok=True)
+            self._cache_path().write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
+        except OSError as e:
+            log.warning("Kardinalite önbelleği yazılamadı: %s", e)
 
     # ------------------------------------------------------------------ ilişkisel model (UI)
     def model(self) -> dict[str, Any]:

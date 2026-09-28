@@ -54,7 +54,7 @@ C = dict[tuple[str, str], tuple[str, str, str | None, str | None, str, bool]]
 COLUMNS: C = {
     # ---- İnternet satışları (bayi satışlarında da aynı kolonlar var)
     **{(t, "SalesAmount"): ("Satış Tutarı (USD)", "İndirim sonrası net satış tutarı", "measure", "sum", "ciro,satış,gelir,hasılat,revenue,tutar,hacim", False) for t in ("FactInternetSales", "FactResellerSales")},
-    **{(t, "OrderQuantity"): ("Sipariş Adedi (ürün)", "Satılan ürün adedi", "measure", "sum", "adet,miktar,satış adedi,quantity", False) for t in ("FactInternetSales", "FactResellerSales")},
+    **{(t, "OrderQuantity"): ("Satılan Ürün Adedi", "Satılan ürün (parça) adedi — sipariş sayısı DEĞİLDİR; sipariş sayısı için COUNT(DISTINCT SalesOrderNumber)", "measure", "sum", "adet,miktar,ürün adedi,quantity,satış miktarı", False) for t in ("FactInternetSales", "FactResellerSales")},
     **{(t, "TotalProductCost"): ("Toplam Ürün Maliyeti", "Satılan ürünlerin standart maliyeti", "measure", "sum", "maliyet,cost,smm", False) for t in ("FactInternetSales", "FactResellerSales")},
     **{(t, "ProductStandardCost"): ("Birim Standart Maliyet", "", "measure", "avg", "birim maliyet", False) for t in ("FactInternetSales", "FactResellerSales")},
     **{(t, "UnitPrice"): ("Birim Fiyat", "", "measure", "avg", "fiyat", False) for t in ("FactInternetSales", "FactResellerSales")},
@@ -200,7 +200,9 @@ ROLES = {"OrderDateKey": "Sipariş tarihi", "DueDateKey": "Vade tarihi", "ShipDa
 METRICS = [
     ("internet_sales_amount", "İnternet Satış Tutarı", "İnternet kanalı net satış", "SUM(f.SalesAmount)", "dbo.FactInternetSales", "currency", "internet ciro,online satış"),
     ("reseller_sales_amount", "Bayi Satış Tutarı", "Bayi kanalı net satış", "SUM(r.SalesAmount)", "dbo.FactResellerSales", "currency", "bayi ciro"),
-    ("order_count", "Sipariş Sayısı", "Tekil sipariş sayısı", "COUNT(DISTINCT f.SalesOrderNumber)", "dbo.FactInternetSales", "number", "sipariş adedi"),
+    ("order_count", "İnternet Sipariş Sayısı", "Tekil internet sipariş sayısı", "COUNT(DISTINCT f.SalesOrderNumber)", "dbo.FactInternetSales", "number", "sipariş sayısı,sipariş adedi"),
+    ("reseller_order_count", "Bayi Sipariş Sayısı", "Tekil bayi sipariş sayısı", "COUNT(DISTINCT r.SalesOrderNumber)", "dbo.FactResellerSales", "number", "sipariş sayısı,sipariş adedi,bayi siparişi"),
+    ("reseller_gross_margin_pct", "Bayi Brüt Kâr Marjı", "(Satış - maliyet) / satış, bayi kanalı", "SUM(r.SalesAmount - r.TotalProductCost) / NULLIF(SUM(r.SalesAmount), 0)", "dbo.FactResellerSales", "percent", "kâr marjı,kar oranı,bayi marjı"),
     ("gross_profit", "Brüt Kâr", "Satış - ürün maliyeti", "SUM(f.SalesAmount - f.TotalProductCost)", "dbo.FactInternetSales", "currency", "kâr,kar,marj"),
     ("gross_margin_pct", "Brüt Kâr Marjı", "(Satış - maliyet) / satış", "SUM(f.SalesAmount - f.TotalProductCost) / NULLIF(SUM(f.SalesAmount), 0)", "dbo.FactInternetSales", "percent", "kâr marjı,kar oranı"),
     ("avg_order_value", "Ortalama Sipariş Tutarı", "Sipariş başına satış", "SUM(f.SalesAmount) / NULLIF(COUNT(DISTINCT f.SalesOrderNumber), 0)", "dbo.FactInternetSales", "currency", "sepet,ortalama sepet"),

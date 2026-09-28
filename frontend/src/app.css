@@ -450,3 +450,14 @@ code { font-family: var(--mono); font-size: 0.92em; }
   .right-tools .muted, .btn-label { display: none; }
   .menu { width: min(340px, calc(100vw - 20px)); }
 }
+
+/* dataset → onaylı view */
+.vp { margin-top: 8px; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-2); display: flex; flex-direction: column; gap: 8px; }
+.vp-done { flex-direction: row; align-items: center; gap: 6px; border-style: solid; }
+.vp-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vp-name { width: 240px; }
+.vp-schema code { font-family: var(--mono); }
+.vp-steps { margin: 0; padding-left: 18px; color: var(--text-2); }
+.vp-script { max-height: 260px; overflow: auto; margin: 0; }
+.vp-ok { color: var(--ok); }
+.vp-open { margin-top: 6px; align-self: flex-start; }

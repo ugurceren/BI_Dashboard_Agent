@@ -3155,16 +3155,17 @@
     {
      "table": "dbo.factinternetsales",
      "name": "orderquantity",
-     "business_name": "Sipariş Adedi (ürün)",
-     "description": "Satılan ürün adedi",
+     "business_name": "Satılan Ürün Adedi",
+     "description": "Satılan ürün (parça) adedi — sipariş sayısı DEĞİLDİR; sipariş sayısı için COUNT(DISTINCT SalesOrderNumber)",
      "data_type": "smallint",
      "role": "measure",
      "default_aggregation": "sum",
      "synonyms": [
       "adet",
       "miktar",
-      "satış adedi",
-      "quantity"
+      "ürün adedi",
+      "quantity",
+      "satış miktarı"
      ],
      "is_pii": false,
      "sample_values": "",
@@ -3715,16 +3716,17 @@
     {
      "table": "dbo.factresellersales",
      "name": "orderquantity",
-     "business_name": "Sipariş Adedi (ürün)",
-     "description": "Satılan ürün adedi",
+     "business_name": "Satılan Ürün Adedi",
+     "description": "Satılan ürün (parça) adedi — sipariş sayısı DEĞİLDİR; sipariş sayısı için COUNT(DISTINCT SalesOrderNumber)",
      "data_type": "smallint",
      "role": "measure",
      "default_aggregation": "sum",
      "synonyms": [
       "adet",
       "miktar",
-      "satış adedi",
-      "quantity"
+      "ürün adedi",
+      "quantity",
+      "satış miktarı"
      ],
      "is_pii": false,
      "sample_values": "",
@@ -4850,12 +4852,13 @@
   },
   {
    "name": "order_count",
-   "business_name": "Sipariş Sayısı",
-   "description": "Tekil sipariş sayısı",
+   "business_name": "İnternet Sipariş Sayısı",
+   "description": "Tekil internet sipariş sayısı",
    "expression_sql": "COUNT(DISTINCT f.SalesOrderNumber)",
    "base_table": "dbo.factinternetsales",
    "value_format": "number",
    "synonyms": [
+    "sipariş sayısı",
     "sipariş adedi"
    ]
   },
@@ -4868,6 +4871,32 @@
    "value_format": "percent",
    "synonyms": [
     "hedef gerçekleşme"
+   ]
+  },
+  {
+   "name": "reseller_gross_margin_pct",
+   "business_name": "Bayi Brüt Kâr Marjı",
+   "description": "(Satış - maliyet) / satış, bayi kanalı",
+   "expression_sql": "SUM(r.SalesAmount - r.TotalProductCost) / NULLIF(SUM(r.SalesAmount), 0)",
+   "base_table": "dbo.factresellersales",
+   "value_format": "percent",
+   "synonyms": [
+    "kâr marjı",
+    "kar oranı",
+    "bayi marjı"
+   ]
+  },
+  {
+   "name": "reseller_order_count",
+   "business_name": "Bayi Sipariş Sayısı",
+   "description": "Tekil bayi sipariş sayısı",
+   "expression_sql": "COUNT(DISTINCT r.SalesOrderNumber)",
+   "base_table": "dbo.factresellersales",
+   "value_format": "number",
+   "synonyms": [
+    "sipariş sayısı",
+    "sipariş adedi",
+    "bayi siparişi"
    ]
   },
   {

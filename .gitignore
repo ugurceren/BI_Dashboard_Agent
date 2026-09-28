@@ -7,3 +7,6 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 frontend/dist-viewer/
+backend/cache/
+backend/view_scripts/
+backend/config/views.json
