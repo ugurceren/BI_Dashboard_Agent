@@ -51,7 +51,16 @@
     {
       "id": "f_region",
       "label": "Bölge",
+      "table": "dwh.dim_branch",
+      "column": "region",
       "field": "region",
+      "type": "multiselect"
+    },
+    {
+      "id": "f_cardtype",
+      "label": "Kart Tipi",
+      "table": "dwh.dim_product",
+      "column": "card_type",
       "type": "multiselect"
     }
   ],

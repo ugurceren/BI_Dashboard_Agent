@@ -122,16 +122,17 @@ def _rows_preview(result: QueryResult, n: int) -> list[dict[str, Any]]:
     return [dict(zip(result.columns, r)) for r in result.rows[:n]]
 
 
-def _run_validated(ctx: ToolContext, sql: str, max_rows: int) -> tuple[QueryResult | None, list[str], list[str]]:
+def _run_validated(ctx: ToolContext, sql: str, max_rows: int) -> tuple[QueryResult | None, list[str], list[str], list[str]]:
+    """(sonuç, hatalar, tablolar, uyarılar)"""
     pol = ctx.services.policy(ctx.session.user_role)
     v = ctx.services.validator.validate(sql, pol)
     if not v.ok:
-        return None, v.errors, v.tables
+        return None, v.errors, v.tables, v.warnings
     try:
         res = ctx.services.connector.execute(v.sql, min(max_rows, pol.max_rows))
     except QueryError as e:
-        return None, [f"Veritabanı hatası: {str(e)[:500]}"], v.tables
-    return res, [], v.tables
+        return None, [f"Veritabanı hatası: {str(e)[:500]}"], v.tables, v.warnings
+    return res, [], v.tables, v.warnings
 
 
 def _build_dataset(ctx: ToolContext, raw: dict[str, Any]) -> tuple[Dataset | None, dict[str, Any] | None, list[str]]:
@@ -140,7 +141,7 @@ def _build_dataset(ctx: ToolContext, raw: dict[str, Any]) -> tuple[Dataset | Non
     sql = str(raw.get("sql") or "").strip()
     if not did or not sql:
         return None, None, ["Her dataset için 'id' ve 'sql' zorunlu."]
-    res, errors, tables = _run_validated(ctx, sql, ctx.services.settings.max_rows)
+    res, errors, tables, warnings = _run_validated(ctx, sql, ctx.services.settings.max_rows)
     if errors or res is None:
         return None, None, [f"[{did}] {e}" for e in errors]
     if not res.rows:
@@ -160,6 +161,8 @@ def _build_dataset(ctx: ToolContext, raw: dict[str, Any]) -> tuple[Dataset | Non
         return None, None, [f"[{did}] {err['msg']}" for err in e.errors()]
     prof = profile(res)
     prof["sample_rows"] = _rows_preview(res, 5)
+    if warnings:
+        prof["join_warnings"] = warnings
     return ds, prof, []
 
 
@@ -264,10 +267,25 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
         spec = ReportSpec.model_validate(raw)
     except ValidationError as e:
         return None, [f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()][:15], notes
-    errs = semantic_errors(spec)
+    errs = semantic_errors(spec) + _filter_errors(ctx, spec)
     if errs:
         return None, errs[:15], notes
     return spec, [], notes
+
+
+def _filter_errors(ctx: ToolContext, spec: ReportSpec) -> list[str]:
+    dd, pol = ctx.services.dictionary, ctx.services.policy(ctx.session.user_role)
+    errs = []
+    for f in spec.filters:
+        if not (f.table and f.column):
+            continue
+        t = dd.tables.get(f.table.lower())
+        col = next((c for c in t.columns if c.name == f.column.lower()), None) if t else None
+        if not t or not col:
+            errs.append(f"Filtre '{f.id}': {f.table}.{f.column} sözlükte yok. get_table_details ile doğru boyut kolonunu bulun.")
+        elif col.is_pii and not pol.allow_pii:
+            errs.append(f"Filtre '{f.id}': {f.table}.{f.column} kişisel veri; filtre olarak kullanılamaz.")
+    return errs
 
 
 def _spec_ok(ctx: ToolContext, spec: ReportSpec, notes: list[str], what: str) -> ToolResult:
@@ -308,11 +326,14 @@ def h_find_metrics(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
 
 def h_run_sql(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     sql = str(a.get("sql") or "")
-    res, errors, _ = _run_validated(ctx, sql, ctx.services.settings.preview_rows)
+    res, errors, _, warnings = _run_validated(ctx, sql, ctx.services.settings.preview_rows)
     if errors or res is None:
         return ToolResult(False, {"ok": False, "errors": errors, "hint": "Hatayı düzeltip tekrar deneyin."},
                           "SQL reddedildi / hata: " + errors[0][:80])
-    return ToolResult(True, {"ok": True, "profile": profile(res), "rows": _rows_preview(res, 20), "elapsed_ms": res.elapsed_ms},
+    out = {"ok": True, "profile": profile(res), "rows": _rows_preview(res, 20), "elapsed_ms": res.elapsed_ms}
+    if warnings:
+        out["join_warnings"] = warnings
+    return ToolResult(True, out,
                       f"{len(res.rows)}{'+' if res.truncated else ''} satır, {res.elapsed_ms} ms")
 
 
@@ -474,9 +495,11 @@ _VISUAL = {
 }
 _THEME = {"type": "object", "description": "mode(light|dark), palette(hex listesi, >=3), background, surface, text, mutedText, accent, border (hex), "
                                            "fontFamily, radius(px), cardStyle(flat|outlined|elevated), density(compact|comfortable), headerStyle(plain|banner)"}
-_FILTERS = {"type": "array", "items": {"type": "object", "required": ["id", "label", "field"],
-                                       "properties": {"id": _STR, "label": _STR, "field": _STR,
-                                                      "type": {"type": "string", "enum": ["select", "multiselect"]}}}}
+_FILTERS = {"type": "array", "description": "Dilimleyiciler. table+column bir BOYUT tablosunun kolonu olmalı (ör. dbo.DimSalesTerritory / "
+                                            "SalesTerritoryGroup); sistem filtreyi ilişkiler üzerinden tüm görsellere yayar.",
+            "items": {"type": "object", "required": ["id", "label", "table", "column"],
+                      "properties": {"id": _STR, "label": _STR, "table": _STR, "column": _STR,
+                                     "type": {"type": "string", "enum": ["select", "multiselect"]}}}}
 _DATASET = {"type": "object", "required": ["id", "sql"],
             "properties": {"id": {"type": "string", "description": "snake_case"}, "description": _STR, "sql": _STR,
                            "fields": {"type": "array", "description": "İsteğe bağlı etiket/format: [{name,label,format}]",

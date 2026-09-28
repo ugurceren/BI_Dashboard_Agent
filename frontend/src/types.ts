@@ -65,7 +65,11 @@ export interface Visual {
 export interface Filter {
   id: string;
   label: string;
-  field: string;
+  /** model kolonu (Power BI dilimleyicisi gibi ilişkiler üzerinden tüm görsellere yayılır) */
+  table?: string;
+  column?: string;
+  /** yedek: dataset kolon adı (bağımsız HTML'de istemci tarafı filtre) */
+  field?: string;
   type: "select" | "multiselect";
 }
 
@@ -106,6 +110,42 @@ export interface DatasetData {
 
 export interface DashboardData {
   datasets: Record<string, DatasetData>;
+  /** dataset → uygulanan model filtre anahtarları ('şema.tablo.kolon') */
+  applied?: Record<string, string[]>;
+  /** dataset → {alan: model kolonu anahtarı} (export'ta istemci tarafı filtre için) */
+  bindings?: Record<string, Record<string, string>>;
+  /** filtre id → model kolonu anahtarı (export) */
+  filter_keys?: Record<string, string | null>;
+}
+
+// ---- Model filtreleri (GET /filters, POST /dashboard-data) ----
+export interface FilterInfo {
+  id: string;
+  label: string;
+  type: "select" | "multiselect";
+  field?: string | null;
+  key: string | null;          // 'şema.tablo.kolon'
+  options: CellValue[];
+}
+
+export interface FiltersResponse {
+  filters: FilterInfo[];
+  bindings: Record<string, Record<string, string>>;
+}
+
+export interface Selection {
+  key: string;
+  values: CellValue[];
+  exclude?: string[];          // bu dataset'lere uygulanmaz (tıklanan görselin kendisi)
+}
+
+/** Görselden tıklayarak yapılan çapraz filtre */
+export interface CrossSelection {
+  key: string;
+  value: CellValue;
+  label: string;               // "Ülke: France"
+  visualId: string;
+  datasetId: string;
 }
 
 // ---- Session ----
@@ -193,3 +233,49 @@ export type StreamEvent =
   | { event: "state"; data: SessionState }
   | { event: "error"; data: { message: string } }
   | { event: "done"; data: Record<string, never> };
+
+// ---------- İlişkisel model (GET /api/dictionary/model) ----------
+export type TableKind = "fact" | "dimension" | "bridge";
+export type Cardinality = "N:1" | "1:1" | "N:N";
+
+export interface ModelColumn {
+  id: string;            // küçük harf (ilişki eşleştirme anahtarı)
+  name: string;          // orijinal yazım
+  business_name: string;
+  data_type: string;
+  role: string;
+  is_pii: boolean;
+  is_key: boolean;
+  description: string;
+}
+
+export interface ModelTable {
+  id: string;            // küçük harf şema.tablo
+  name: string;
+  schema: string;
+  short_name: string;
+  business_name: string;
+  description: string;
+  subject_area: string;
+  grain: string;
+  row_count: number | null;
+  kind: TableKind;
+  columns: ModelColumn[];
+}
+
+export interface ModelRelationship {
+  id: string;
+  from_table: string;    // "çok" taraf (normalize)
+  to_table: string;
+  pairs: [string, string][];
+  pairs_display: [string, string][];
+  cardinality: Cardinality | null;
+  role: string;
+}
+
+export interface DataModel {
+  tables: ModelTable[];
+  relationships: ModelRelationship[];
+  used_tables: Record<string, string[]>;   // tablo id → onu kullanan dataset id'leri
+  dialect: string;
+}

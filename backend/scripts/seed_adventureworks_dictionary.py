@@ -194,6 +194,9 @@ COLUMNS: C = {
     ("DimSalesReason", "SalesReasonReasonType"): ("Neden Tipi", "", "dimension", None, "", False),
 }
 
+# Rol yapan boyut ilişkilerinin Türkçe adları (FactXxx.<kolon> → DimDate)
+ROLES = {"OrderDateKey": "Sipariş tarihi", "DueDateKey": "Vade tarihi", "ShipDateKey": "Sevk tarihi"}
+
 METRICS = [
     ("internet_sales_amount", "İnternet Satış Tutarı", "İnternet kanalı net satış", "SUM(f.SalesAmount)", "dbo.FactInternetSales", "currency", "internet ciro,online satış"),
     ("reseller_sales_amount", "Bayi Satış Tutarı", "Bayi kanalı net satış", "SUM(r.SalesAmount)", "dbo.FactResellerSales", "currency", "bayi ciro"),
@@ -246,8 +249,9 @@ def main() -> None:
     meta.execute("""CREATE TABLE meta.dd_columns (table_name NVARCHAR(256), column_name NVARCHAR(256), business_name NVARCHAR(256),
         description NVARCHAR(2000), data_type NVARCHAR(64), column_role NVARCHAR(32), default_aggregation NVARCHAR(32),
         synonyms NVARCHAR(1000), is_pii BIT, sample_values NVARCHAR(1000), PRIMARY KEY (table_name, column_name))""")
-    meta.execute("""CREATE TABLE meta.dd_relationships (from_table NVARCHAR(256), from_column NVARCHAR(256),
-        to_table NVARCHAR(256), to_column NVARCHAR(256))""")
+    meta.execute("""CREATE TABLE meta.dd_relationships (relationship_id NVARCHAR(256), from_table NVARCHAR(256),
+        from_column NVARCHAR(256), to_table NVARCHAR(256), to_column NVARCHAR(256),
+        cardinality NVARCHAR(8) NULL, role NVARCHAR(256) NULL, is_active BIT NULL)""")
     meta.execute("""CREATE TABLE meta.dd_metrics (metric_name NVARCHAR(128) PRIMARY KEY, business_name NVARCHAR(256),
         description NVARCHAR(2000), expression_sql NVARCHAR(2000), base_table NVARCHAR(256), value_format NVARCHAR(32), synonyms NVARCHAR(1000))""")
 
@@ -274,20 +278,32 @@ def main() -> None:
                          full, col, cbn, cdesc, dtype, role, agg, syn, pii, sample)
             n_cols += 1
 
+    # Bileşik FK'lar aynı constraint adını taşır → tek ilişki. Kardinalite boş bırakılır: backend
+    # yüklerken unique index metadatası / COUNT DISTINCT ile kendisi çıkarır (gerçek sözlükte de aynı yol).
     fks = src.execute("""
-        SELECT SCHEMA_NAME(tp.schema_id) + '.' + tp.name, cp.name, SCHEMA_NAME(tr.schema_id) + '.' + tr.name, cr.name
+        SELECT fk.name, SCHEMA_NAME(tp.schema_id) + '.' + tp.name, cp.name, SCHEMA_NAME(tr.schema_id) + '.' + tr.name, cr.name
         FROM sys.foreign_key_columns fkc
+        JOIN sys.foreign_keys fk ON fk.object_id = fkc.constraint_object_id
         JOIN sys.tables tp  ON tp.object_id = fkc.parent_object_id
         JOIN sys.columns cp ON cp.object_id = fkc.parent_object_id AND cp.column_id = fkc.parent_column_id
         JOIN sys.tables tr  ON tr.object_id = fkc.referenced_object_id
         JOIN sys.columns cr ON cr.object_id = fkc.referenced_object_id AND cr.column_id = fkc.referenced_column_id""").fetchall()
     known = {f"dbo.{t}" for t in TABLES}
-    rels = [tuple(r) for r in fks if r[0] in known and r[2] in known and r[0] != r[2]]
-    # FK'si tanımlı olmayan ama kullanılan ilişkiler
-    rels += [("dbo.FactSalesQuota", "EmployeeKey", "dbo.DimEmployee", "EmployeeKey"),
-             ("dbo.FactInternetSalesReason", "SalesOrderNumber", "dbo.FactInternetSales", "SalesOrderNumber")]
-    for r in dict.fromkeys(rels):
-        meta.execute("INSERT INTO meta.dd_relationships VALUES (?, ?, ?, ?)", *r)
+    rels = [tuple(r) for r in fks if r[1] in known and r[3] in known and r[1] != r[3]]
+    if not any(r[1] == "dbo.FactSalesQuota" and r[2] == "EmployeeKey" for r in rels):
+        rels.append(("FK_FactSalesQuota_DimEmployee_manual", "dbo.FactSalesQuota", "EmployeeKey", "dbo.DimEmployee", "EmployeeKey"))
+    # Aynı iki tablo arasında birden çok ilişki varsa (rol yapan boyut: sipariş/vade/sevk tarihi) rol adı ver
+    per_pair: dict[tuple[str, str], set[str]] = {}
+    for rid, ft, _, tt, _ in rels:
+        per_pair.setdefault((ft, tt), set()).add(rid)
+    for rid, ft, fc, tt, tc in dict.fromkeys(rels):
+        role = ""
+        if len(per_pair[(ft, tt)]) > 1:
+            role = ROLES.get(fc) or humanize(fc).replace(" Key", "")
+        # Power BI'daki gibi: rol yapan tarih ilişkilerinden yalnız sipariş tarihi aktif
+        active = None if not role else (1 if fc == "OrderDateKey" or len(per_pair[(ft, tt)]) == 1 else 0)
+        meta.execute("INSERT INTO meta.dd_relationships VALUES (?, ?, ?, ?, ?, NULL, ?, ?)", rid, ft, fc, tt, tc, role, active)
+    rels = {r[0] for r in rels}
     for m in METRICS:
         meta.execute("INSERT INTO meta.dd_metrics VALUES (?, ?, ?, ?, ?, ?, ?)", *m)
     meta_con.commit()

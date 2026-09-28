@@ -60,6 +60,14 @@ Dataset kuralları:
 - Kolon takma adları (alias) snake_case ve ASCII olsun (ör. sales_amount, region, year_month).
 - Filtre olarak kullanılacak boyutları (ör. region) kırılım dataset'lerinde kolon olarak da bulundur.
 - Tabloları sözlükte yazdığı gibi şemasıyla yaz (ör. dbo.FactInternetSales) ve sözlükteki JOIN ilişkilerini kullan.
+- JOIN kuralları (get_table_details'teki "joins" listesi: [N:1] = soldaki tabloda çok satır, sağdakinde tek):
+  * Ölçüyü "çok" (N) taraftaki tablodan topla; fact → boyut (N:1) yönünde birleştirmek güvenlidir.
+  * Bir ölçüyü toplarken "çok" tarafa doğru (1:N) birleştirme yapma: satırlar çoğalır, toplam şişer.
+    Örn. satırlar birden çok nedene/etikete bağlanan köprü tablolar, ya da ortak bir boyut üzerinden iki ayrı fact tablosu.
+    Çözüm: her fact'i önce kendi CTE'sinde ortak anahtara (ör. tarih, bölge) göre topla, sonra CTE'leri birleştir.
+  * Bileşik anahtarlı ilişkilerde (AND ile birden çok kolon) koşulların HEPSİNİ yaz.
+  * Aynı boyuta birden çok ilişki varsa (rol: Sipariş tarihi / Sevk tarihi …) kullanıcının istediği role ait kolonu seç.
+  * Sistem bu kuralları otomatik kontrol eder; "Satır çoğalması" hatası alırsan sorguyu CTE ile yeniden yaz.
 - Önce verinin gerçek tarih aralığına bak; kullanıcı "bu yıl" dese bile veride olmayan yılları sorgulama, en son tam yılı kullan ve bunu söyle.
 - Yüzde/oran kolonlarını 0-1 arası ondalık üret (0.12 = %12).
 save_datasets başarılı olunca dur; sistem tasarım fazına geçecek.
@@ -78,6 +86,10 @@ Kurallar:
 - Tema: tasarım özeti varsa renkleri, açık/koyu modu ve yoğunluğu ona uydur. Yoksa sade, kurumsal açık tema kullan.
   Koyu temada background/surface koyu, text açık renk olmalı. palette en az 3 hex renk.
 - Para birimi alanları için options.format "currency" veya büyük sayılar için "compact"; oranlar için "percent".
+- Filtreler (dilimleyiciler) Power BI gibi MODEL üzerinden çalışır: filters[].table + filters[].column bir boyut tablosunun
+  kolonu olmalı (ör. {"id":"f_bolge","label":"Bölge","table":"dbo.DimSalesTerritory","column":"SalesTerritoryGroup"}).
+  Dataset'lerde o kolonun bulunması gerekmez; sistem seçimi ilişkiler üzerinden (boyut → fact) tüm dataset'lere uygular.
+  Kullanıcı görsellerde bir çubuğa/dilime tıklayarak da diğer görselleri filtreleyebilir.
 - Kullanıcı henüz tasarım tercihini söylemediyse önce sor (tarif, örnek görsel veya varsayılan). "Varsayılan" derse hemen oluştur.
 - Araç başarılı olunca kullanıcıya ne yaptığını 1–3 cümleyle söyle ve 2–3 somut iyileştirme öner. Spec JSON'unu yazma; dashboard sağ panelde görünüyor.
 """

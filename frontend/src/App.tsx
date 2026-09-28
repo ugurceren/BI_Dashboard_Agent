@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { DashboardData, Health, Phase, SessionState, SessionSummary, StreamEvent, TranscriptItem } from "./types";
+import type { CellValue, CrossSelection, DashboardData, FiltersResponse, Health, Phase, Selection, SessionState, SessionSummary, StreamEvent, TranscriptItem } from "./types";
 import { httpApi, type Api } from "./api/client";
 import { mockApi } from "./api/mock";
 import { TopBar } from "./components/TopBar";
@@ -34,6 +34,10 @@ export default function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
+  // model filtreleri (dilimleyiciler + görselden çapraz filtre)
+  const [filterInfo, setFilterInfo] = useState<FiltersResponse | null>(null);
+  const [selections, setSelections] = useState<Record<string, CellValue[]>>({});
+  const [cross, setCross] = useState<CrossSelection | null>(null);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [chatWidth, setChatWidth] = useState(() => Math.min(640, Math.max(320, Number(lsGet(LS_WIDTH)) || 400)));
   const chatRef = useRef<HTMLElement>(null);
@@ -140,10 +144,22 @@ export default function App() {
     return `${state.id}#${state.spec_version}#${ds}`;
   }, [state]);
 
-  const loadData = useCallback(async (id: string) => {
+  // seçimler → backend'e gidecek liste: dilimleyiciler + çapraz filtre (kaynak görselin dataset'i hariç)
+  const selectionList = useMemo<Selection[]>(() => {
+    const out: Selection[] = [];
+    for (const f of filterInfo?.filters ?? []) {
+      const vals = selections[f.id];
+      if (f.key && vals?.length) out.push({ key: f.key, values: vals });
+    }
+    if (cross) out.push({ key: cross.key, values: [cross.value], exclude: [cross.datasetId] });
+    return out;
+  }, [filterInfo, selections, cross]);
+  const selectionKey = JSON.stringify(selectionList);
+
+  const loadData = useCallback(async (id: string, sel: Selection[] = []) => {
     setDataLoading(true);
     try {
-      const d = await api.dashboardData(id);
+      const d = await api.dashboardData(id, sel);
       setData(d && d.datasets ? d : { datasets: {} });
       setDataError(null);
     } catch (e) {
@@ -154,14 +170,38 @@ export default function App() {
     }
   }, [api]);
 
+  // filtre tanımları + seçenekler (spec/dataset değişince)
+  useEffect(() => {
+    if (!dataKey || !state?.spec) {
+      setFilterInfo(null);
+      return;
+    }
+    let alive = true;
+    api.filters(state.id).then((fi) => {
+      if (!alive) return;
+      setFilterInfo(fi);
+      const ids = new Set(fi.filters.map((f) => f.id));
+      setSelections((s) => Object.fromEntries(Object.entries(s).filter(([k]) => ids.has(k))));
+      setCross((c) => (c && fi.bindings[c.datasetId] ? c : null));
+    }).catch(() => alive && setFilterInfo(null));
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataKey]);
+
+  // oturum değişince seçimleri sıfırla
+  useEffect(() => {
+    setSelections({});
+    setCross(null);
+  }, [sessionId]);
+
   useEffect(() => {
     if (!dataKey || !state) {
       setData(null);
       return;
     }
-    void loadData(state.id);
+    void loadData(state.id, selectionList);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataKey]);
+  }, [dataKey, selectionKey]);
 
   // Başka bir yerde meşgulse (ör. başka sekme) durumu yokla
   useEffect(() => {
@@ -329,7 +369,11 @@ export default function App() {
           tab={tab}
           setTab={setTab}
           onSpecApplied={(s) => setState(s)}
-          onReloadData={() => state && void loadData(state.id)}
+          onReloadData={() => state && void loadData(state.id, selectionList)}
+          model={filterInfo ? {
+            filters: filterInfo.filters, bindings: filterInfo.bindings, applied: data?.applied ?? {},
+            selections, onSelections: setSelections, cross, onCross: setCross,
+          } : undefined}
         />
       </main>
       {toast ? (

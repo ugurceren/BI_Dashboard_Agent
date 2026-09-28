@@ -17,12 +17,22 @@ export function toRows(d: DatasetData): Row[] {
 
 export const keyOf = (v: CellValue | undefined): string => (v === null || v === undefined ? "∅" : String(v));
 
+/** Filtrenin bu dataset'teki karşılığı: field ya da (export'ta) model kolonunun alan kökeni. */
+export function fieldFor(f: Filter, datasetId: string, columns: string[], data: DashboardData): string | null {
+  if (f.field && columns.includes(f.field)) return f.field;
+  const key = data.filter_keys?.[f.id] ?? (f.table && f.column ? `${f.table}.${f.column}`.toLowerCase() : null);
+  const b = key ? data.bindings?.[datasetId] : undefined;
+  if (b) for (const [field, k] of Object.entries(b)) if (k === key && columns.includes(field)) return field;
+  return null;
+}
+
 /** Bir filtre alanının tüm dataset'lerdeki ayrık değerleri. */
 export function filterOptions(filter: Filter, data: DashboardData): string[] {
   const set = new Set<string>();
-  for (const ds of Object.values(data.datasets ?? {})) {
+  for (const [id, ds] of Object.entries(data.datasets ?? {})) {
     if (!ds || ds.error) continue;
-    const idx = ds.columns?.indexOf(filter.field) ?? -1;
+    const field = fieldFor(filter, id, ds.columns ?? [], data);
+    const idx = field ? ds.columns.indexOf(field) : -1;
     if (idx < 0) continue;
     for (const r of ds.rows ?? []) {
       const v = r[idx];
@@ -34,10 +44,10 @@ export function filterOptions(filter: Filter, data: DashboardData): string[] {
   return arr.sort((a, b) => a.localeCompare(b, "tr"));
 }
 
-export function applyFilters(rows: Row[], columns: string[], filters: Filter[], state: FilterState): Row[] {
-  const active = filters.filter((f) => columns.includes(f.field) && (state[f.id]?.length ?? 0) > 0);
+export function applyFilters(rows: Row[], fields: (string | null)[], filters: Filter[], state: FilterState): Row[] {
+  const active = filters.map((f, i) => ({ f, field: fields[i] })).filter(({ f, field }) => field && (state[f.id]?.length ?? 0) > 0);
   if (!active.length) return rows;
-  const sets = active.map((f) => ({ field: f.field, set: new Set(state[f.id]) }));
+  const sets = active.map(({ f, field }) => ({ field: field!, set: new Set(state[f.id]) }));
   return rows.filter((r) => sets.every(({ field, set }) => set.has(keyOf(r[field]))));
 }
 
@@ -127,7 +137,7 @@ export function pivot(rows: Row[], x: string, y: string[], seriesField?: string,
 
 /** Spec'in tüm dataset'lerini filtrelenmiş satırlara çevirir. */
 export function buildTables(spec: ReportSpec, data: DashboardData, state: FilterState) {
-  const out: Record<string, { all: Row[]; rows: Row[]; columns: string[]; error?: string }> = {};
+  const out: Record<string, { all: Row[]; rows: Row[]; columns: string[]; error?: string; filterFields?: (string | null)[] }> = {};
   for (const [id, ds] of Object.entries(data.datasets ?? {})) {
     if (!ds) continue;
     if (ds.error) {
@@ -135,7 +145,9 @@ export function buildTables(spec: ReportSpec, data: DashboardData, state: Filter
       continue;
     }
     const all = toRows(ds);
-    out[id] = { all, rows: applyFilters(all, ds.columns ?? [], spec.filters ?? [], state), columns: ds.columns ?? [] };
+    const filters = spec.filters ?? [];
+    const fields = filters.map((f) => fieldFor(f, id, ds.columns ?? [], data));
+    out[id] = { all, rows: applyFilters(all, fields, filters, state), columns: ds.columns ?? [], filterFields: fields };
   }
   return out;
 }

@@ -15,9 +15,11 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ValidationError
+from sqlglot import exp
 
 from app.config import BACKEND_DIR, get_settings, load_toml
 from app.data.connector import QueryError, create_connector
+from app.data.model_filters import ModelFilter, ModelFilterEngine
 from app.data.validator import RolePolicy, SqlValidator
 from app.dictionary.repository import DataDictionary
 from app.harness.agent import Agent, Event
@@ -235,16 +237,109 @@ def _dataset_payload(sql: str, role: str) -> dict[str, Any]:
     return payload
 
 
-def _dashboard_data(s) -> dict[str, Any]:
+def _all_datasets(s) -> dict[str, Any]:
     datasets = {d.id: d for d in s.datasets}
     if s.spec:
         datasets.update({d.id: d for d in s.spec.datasets})
-    return {"datasets": {did: _dataset_payload(d.sql, s.user_role) for did, d in datasets.items()}}
+    return datasets
+
+
+def _engine() -> ModelFilterEngine:
+    return ModelFilterEngine(state.services.dictionary, state.services.connector.dialect)
+
+
+def _bindings(s) -> dict[str, dict[str, str]]:
+    """dataset → {alan: 'şema.tablo.kolon'}: hangi dataset kolonu hangi model kolonundan geliyor (tıklayarak filtre için)."""
+    eng = _engine()
+    return {did: eng.lineage(d.sql) for did, d in _all_datasets(s).items()}
+
+
+def _filter_defs(s, bindings: dict[str, dict[str, str]] | None = None) -> list[dict[str, Any]]:
+    """Spec filtrelerini model kolonuna çözer (table+column ya da field'ın kökeni)."""
+    if not s.spec:
+        return []
+    out = []
+    for f in s.spec.filters:
+        key = f"{f.table}.{f.column}".lower() if f.table and f.column else None
+        if not key and f.field:
+            bindings = bindings if bindings is not None else _bindings(s)
+            key = next((b[f.field] for b in bindings.values() if f.field in b), None)
+        out.append({"id": f.id, "label": f.label, "type": f.type, "field": f.field, "key": key})
+    return out
+
+
+_options_cache: dict[str, tuple[float, list[Any]]] = {}
+
+
+def _filter_options(key: str, role: str) -> list[Any]:
+    hit = _options_cache.get(f"{role}|{key}")
+    if hit and time.time() - hit[0] < CACHE_TTL_S * 5:
+        return hit[1]
+    table, _, column = key.rpartition(".")
+    dd = state.services.dictionary
+    t = dd.tables.get(table)
+    col = next((c for c in t.columns if c.name == column), None) if t else None
+    if not t or not col:
+        return []
+    dialect = state.services.connector.dialect
+    c = exp.column(col.display_name or column)
+    sql = exp.select(c).distinct().from_(exp.to_table(t.display_name or table, dialect=dialect)).where(c.is_(exp.null()).not_())         .order_by(c).limit(500).sql(dialect=dialect)
+    payload = _dataset_payload(sql, role)  # validator: izinli şema + PII kontrolü burada da geçerli
+    values = [r[0] for r in payload.get("rows", [])]
+    _options_cache[f"{role}|{key}"] = (time.time(), values)
+    return values
+
+
+def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """selections: [{key: 'şema.tablo.kolon', values: [...], exclude: [dataset_id, ...]}]"""
+    eng = _engine()
+    out: dict[str, Any] = {}
+    applied: dict[str, list[str]] = {}
+    for did, d in _all_datasets(s).items():
+        sql = d.sql
+        active = [ModelFilter(*sel["key"].rsplit(".", 1), list(sel["values"]))
+                  for sel in selections or [] if sel.get("values") and did not in (sel.get("exclude") or [])
+                  and "." in sel.get("key", "")]
+        if active:
+            try:
+                sql, applied[did] = eng.apply(sql, active)
+            except Exception as e:  # noqa: BLE001 — filtre uygulanamazsa filtresiz göster
+                log.warning("Filtre uygulanamadı (%s): %s", did, e)
+                applied[did] = []
+        out[did] = _dataset_payload(sql, s.user_role)
+    return {"datasets": out, "applied": applied}
 
 
 @app.get("/api/sessions/{sid}/dashboard-data")
 def dashboard_data(sid: str) -> dict[str, Any]:
     return _dashboard_data(_session(sid))
+
+
+class SelectionIn(BaseModel):
+    key: str
+    values: list[Any]
+    exclude: list[str] | None = None
+
+
+class DashboardQuery(BaseModel):
+    selections: list[SelectionIn] = []
+
+
+@app.post("/api/sessions/{sid}/dashboard-data")
+def dashboard_data_filtered(sid: str, body: DashboardQuery) -> dict[str, Any]:
+    """Model filtreleriyle dashboard verisi: seçimler ilişkiler üzerinden her dataset'e yayılır."""
+    return _dashboard_data(_session(sid), [sel.model_dump() for sel in body.selections])
+
+
+@app.get("/api/sessions/{sid}/filters")
+def dashboard_filters(sid: str) -> dict[str, Any]:
+    """Dilimleyici tanımları + seçenekleri ve dataset alanlarının model kökenleri."""
+    s = _session(sid)
+    bindings = _bindings(s)
+    defs = _filter_defs(s, bindings)
+    for f in defs:
+        f["options"] = _filter_options(f["key"], s.user_role) if f["key"] else []
+    return {"filters": defs, "bindings": bindings}
 
 
 @app.get("/api/sessions/{sid}/export/html")
@@ -255,7 +350,10 @@ def export_html(sid: str) -> HTMLResponse:
     viewer = get_settings().viewer_html
     if not viewer.exists():
         raise HTTPException(503, "Viewer derlenmemiş: frontend klasöründe `npm run build:viewer` çalıştırın.")
-    payload = json.dumps({"spec": s.spec.model_dump(exclude_none=True), "data": _dashboard_data(s)},
+    data = _dashboard_data(s)
+    data["bindings"] = _bindings(s)
+    data["filter_keys"] = {f["id"]: f["key"] for f in _filter_defs(s, data["bindings"])}
+    payload = json.dumps({"spec": s.spec.model_dump(exclude_none=True), "data": data},
                          ensure_ascii=False, default=str).replace("<", "\\u003c")
     html = viewer.read_text(encoding="utf-8").replace("__REPORT_JSON__", payload, 1)
     title = s.spec.title or "dashboard"
@@ -268,6 +366,28 @@ def export_html(sid: str) -> HTMLResponse:
 @app.get("/api/dictionary/search")
 def dictionary_search(q: str = "") -> list[dict[str, Any]]:
     return state.services.dictionary.search(q, 10) if q.strip() else []
+
+
+@app.get("/api/dictionary/model")
+def dictionary_model(session: str | None = None) -> dict[str, Any]:
+    """İlişkisel model; session verilirse o rapordaki dataset'lerin kullandığı tablolar da işaretlenir."""
+    model = state.services.dictionary.model()
+    used: dict[str, list[str]] = {}
+    if session:
+        try:
+            s = state.store.get(session)
+        except KeyError:
+            raise HTTPException(404, "Oturum bulunamadı")
+        datasets = {d.id: d for d in s.datasets}
+        if s.spec:
+            datasets.update({d.id: d for d in s.spec.datasets})
+        pol = state.services.policy(s.user_role)
+        for d in datasets.values():
+            for t in state.services.validator.validate(d.sql, pol).tables:
+                used.setdefault(t, []).append(d.id)
+    model["used_tables"] = used
+    model["dialect"] = state.services.connector.dialect
+    return model
 
 
 @app.post("/api/dictionary/reload")

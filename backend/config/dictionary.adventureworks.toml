@@ -2,6 +2,7 @@
 # Veri (AdventureWorksDW2025) ile sözlük ayrı veritabanlarında: kurumdaki yapının aynısı.
 
 source = "odbc"
+infer_cardinality = true
 odbc = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=BI_Meta;Trusted_Connection=yes;TrustServerCertificate=yes;"
 
 [queries]
@@ -17,7 +18,8 @@ FROM meta.dd_columns
 """
 
 relationships = """
-SELECT from_table, from_column, to_table, to_column FROM meta.dd_relationships
+SELECT relationship_id, from_table, from_column, to_table, to_column, cardinality, role, is_active
+FROM meta.dd_relationships
 """
 
 metrics = """

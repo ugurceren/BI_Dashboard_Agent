@@ -107,10 +107,21 @@ class Visual(_Base):
 
 
 class Filter(_Base):
+    """Model tabanlı filtre: table + column (sözlükteki bir boyut kolonu) verilirse tüm görsellere ilişkiler
+    üzerinden yayılır (Power BI dilimleyicisi gibi). Yalnız field verilirse dataset kolonunun kökeni bulunur."""
+
     id: str
     label: str
-    field: str
+    table: str | None = None      # ör. dbo.DimSalesTerritory
+    column: str | None = None     # ör. SalesTerritoryGroup
+    field: str | None = None      # eski/yedek: dataset kolon adı
     type: Literal["select", "multiselect"] = "multiselect"
+
+    @model_validator(mode="after")
+    def _target(self) -> "Filter":
+        if not ((self.table and self.column) or self.field):
+            raise ValueError("filtre için table+column (model kolonu) ya da field gerekli")
+        return self
 
 
 class Theme(_Base):
@@ -234,6 +245,6 @@ def semantic_errors(spec: ReportSpec) -> list[str]:
             break
 
     for f in spec.filters:
-        if not any(f.field in fields_of(d) for d in spec.datasets):
-            errors.append(f"Filtre '{f.id}': '{f.field}' alanı hiçbir dataset'te yok.")
+        if not (f.table and f.column) and not any(f.field in fields_of(d) for d in spec.datasets):
+            errors.append(f"Filtre '{f.id}': '{f.field}' alanı hiçbir dataset'te yok; table+column ile model kolonunu verin.")
     return errors

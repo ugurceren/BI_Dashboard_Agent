@@ -5,6 +5,8 @@ Kurallar (hepsi modelden bağımsız, deterministik):
   * yalnızca sözlükte tanımlı, rolün izin verdiği şemalardaki tablolar
   * tablo fonksiyonları (read_csv, OPENROWSET ...) ve yasaklı fonksiyonlar engellenir
   * rol PII görmeye yetkili değilse sözlükte is_pii=true olan kolonlar ve PII içeren tablolarda SELECT * engellenir
+  * JOIN'ler sözlükteki ilişkilerle eşlenir: eksik bileşik anahtar ve satır çoğalması (fan-out / chasm trap)
+    reddedilir, sözlükte olmayan birleştirmeler uyarı olarak döner (join_guard.py)
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from dataclasses import dataclass, field
 import sqlglot
 from sqlglot import exp
 
+from app.data.join_guard import JoinGuard
 from app.dictionary.repository import DataDictionary
 
 
@@ -32,6 +35,7 @@ class ValidationResult:
     errors: list[str]
     tables: list[str] = field(default_factory=list)
     sql: str = ""
+    warnings: list[str] = field(default_factory=list)
 
 
 _FORBIDDEN_NODES = tuple(
@@ -48,6 +52,7 @@ class SqlValidator:
         self.dictionary = dictionary
         self.dialect = dialect
         self.denied_functions = {f.lower() for f in denied_functions}
+        self.join_guard = JoinGuard(dictionary)
 
     def validate(self, sql: str, policy: RolePolicy) -> ValidationResult:
         sql = (sql or "").strip().rstrip(";").strip()
@@ -133,4 +138,7 @@ class SqlValidator:
 
         if errors:
             return ValidationResult(False, sorted(set(errors)), sorted(tables))
-        return ValidationResult(True, [], sorted(tables), sql)
+        joins = self.join_guard.check(tree)
+        if joins.errors:
+            return ValidationResult(False, joins.errors, sorted(tables), warnings=joins.warnings)
+        return ValidationResult(True, [], sorted(tables), sql, joins.warnings)

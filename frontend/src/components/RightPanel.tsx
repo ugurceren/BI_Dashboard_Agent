@@ -1,13 +1,15 @@
-// Sağ panel: Dashboard / Veri / Spec sekmeleri.
+// Sağ panel: Dashboard / Veri / Model / Spec sekmeleri.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardData, Dataset, DictionaryHit, ReportSpec, SessionState } from "../types";
 import { DashboardRenderer } from "../dashboard/DashboardRenderer";
 import { formatValue } from "../dashboard/format";
 import { ApiError, type Api } from "../api/client";
+import { ModelTab } from "./ModelTab";
+import type { ModelFiltering } from "../dashboard/DashboardRenderer";
 
-export type Tab = "dashboard" | "data" | "spec";
+export type Tab = "dashboard" | "data" | "model" | "spec";
 
-export function RightPanel({ api, state, data, dataLoading, dataError, tab, setTab, onSpecApplied, onReloadData }: {
+export function RightPanel({ api, state, data, dataLoading, dataError, tab, setTab, onSpecApplied, onReloadData, model }: {
   api: Api;
   state: SessionState | null;
   data: DashboardData | null;
@@ -17,6 +19,8 @@ export function RightPanel({ api, state, data, dataLoading, dataError, tab, setT
   setTab: (t: Tab) => void;
   onSpecApplied: (s: SessionState) => void;
   onReloadData: () => void;
+  /** model filtreleri (Power BI tarzı); yoksa istemci tarafı filtre */
+  model?: ModelFiltering;
 }) {
   const spec = state?.spec ?? null;
   const datasetCount = useMemo(() => mergeDatasets(state).length, [state]);
@@ -26,6 +30,7 @@ export function RightPanel({ api, state, data, dataLoading, dataError, tab, setT
         <div className="tabs" role="tablist">
           <TabBtn id="dashboard" tab={tab} setTab={setTab} label="Dashboard" />
           <TabBtn id="data" tab={tab} setTab={setTab} label="Veri" count={datasetCount || undefined} />
+          <TabBtn id="model" tab={tab} setTab={setTab} label="Model" />
           <TabBtn id="spec" tab={tab} setTab={setTab} label="Spec" />
         </div>
         <div className="right-tools">
@@ -48,9 +53,11 @@ export function RightPanel({ api, state, data, dataLoading, dataError, tab, setT
       </div>
       <div className="right-body">
         {tab === "dashboard" ? (
-          <DashboardTab spec={spec} data={data} loading={dataLoading} error={dataError} phase={state?.phase} />
+          <DashboardTab spec={spec} data={data} loading={dataLoading} error={dataError} phase={state?.phase} model={model} />
         ) : tab === "data" ? (
           <DataTab api={api} state={state} data={data} />
+        ) : tab === "model" ? (
+          <ModelTab api={api} state={state} />
         ) : (
           <SpecTab api={api} state={state} onApplied={onSpecApplied} />
         )}
@@ -78,8 +85,8 @@ function mergeDatasets(state: SessionState | null): Dataset[] {
 
 // ---------- Dashboard ----------
 
-function DashboardTab({ spec, data, loading, error, phase }: {
-  spec: ReportSpec | null; data: DashboardData | null; loading: boolean; error: string | null; phase?: string;
+function DashboardTab({ spec, data, loading, error, phase, model }: {
+  spec: ReportSpec | null; data: DashboardData | null; loading: boolean; error: string | null; phase?: string; model?: ModelFiltering;
 }) {
   if (!spec) {
     return (
@@ -101,7 +108,7 @@ function DashboardTab({ spec, data, loading, error, phase }: {
     <div className="dash-scroll">
       {error ? <div className="banner-error">Veri alınamadı: {error}</div> : null}
       {data ? (
-        <DashboardRenderer spec={spec} data={data} loading={loading} />
+        <DashboardRenderer spec={spec} data={data} loading={loading} model={model} />
       ) : (
         <div className="panel-empty"><span className="spinner" /> <p>Veri yükleniyor…</p></div>
       )}

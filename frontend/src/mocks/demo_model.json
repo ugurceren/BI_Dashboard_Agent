@@ -1,0 +1,981 @@
+{
+ "tables": [
+  {
+   "id": "dwh.fact_card_transaction",
+   "name": "dwh.fact_card_transaction",
+   "schema": "dwh",
+   "short_name": "fact_card_transaction",
+   "business_name": "Kredi Kartı İşlemleri",
+   "description": "Kredi kartlarıyla yapılan her harcama işlemi (satış). Ciro, işlem adedi, taksit analizleri için ana tablo.",
+   "subject_area": "Kartlı Ödemeler",
+   "grain": "Bir satır = bir kart işlemi",
+   "row_count": 400000,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "transaction_id",
+     "id": "transaction_id",
+     "business_name": "İşlem No",
+     "data_type": "BIGINT",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": "İşlem benzersiz anahtarı"
+    },
+    {
+     "name": "date_key",
+     "id": "date_key",
+     "business_name": "Tarih Anahtarı",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "dim_date.date_key ile ilişkili"
+    },
+    {
+     "name": "customer_id",
+     "id": "customer_id",
+     "business_name": "Müşteri No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "dim_customer ile ilişkili"
+    },
+    {
+     "name": "product_id",
+     "id": "product_id",
+     "business_name": "Ürün No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "dim_product ile ilişkili"
+    },
+    {
+     "name": "branch_id",
+     "id": "branch_id",
+     "business_name": "Şube No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "dim_branch ile ilişkili (kartın bağlı şubesi)"
+    },
+    {
+     "name": "mcc_id",
+     "id": "mcc_id",
+     "business_name": "Kategori No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "dim_merchant_category ile ilişkili"
+    },
+    {
+     "name": "channel_id",
+     "id": "channel_id",
+     "business_name": "Kanal No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "dim_channel ile ilişkili"
+    },
+    {
+     "name": "amount_try",
+     "id": "amount_try",
+     "business_name": "İşlem Tutarı (TL)",
+     "data_type": "DECIMAL",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Harcama tutarı, Türk Lirası"
+    },
+    {
+     "name": "installment_count",
+     "id": "installment_count",
+     "business_name": "Taksit Sayısı",
+     "data_type": "INTEGER",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "1 = peşin"
+    },
+    {
+     "name": "is_international",
+     "id": "is_international",
+     "business_name": "Yurt Dışı İşlem",
+     "data_type": "BOOLEAN",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": "İşlem yurt dışında/yabancı işyerinde mi"
+    }
+   ]
+  },
+  {
+   "id": "dwh.fact_card_application",
+   "name": "dwh.fact_card_application",
+   "schema": "dwh",
+   "short_name": "fact_card_application",
+   "business_name": "Kart Başvuruları",
+   "description": "Yeni kredi kartı başvuruları ve sonuçları (onay/red).",
+   "subject_area": "Kartlı Ödemeler",
+   "grain": "Bir satır = bir başvuru",
+   "row_count": 60000,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "application_id",
+     "id": "application_id",
+     "business_name": "Başvuru No",
+     "data_type": "BIGINT",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Başvuru anahtarı"
+    },
+    {
+     "name": "date_key",
+     "id": "date_key",
+     "business_name": "Tarih Anahtarı",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "Başvuru tarihi"
+    },
+    {
+     "name": "branch_id",
+     "id": "branch_id",
+     "business_name": "Şube No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "product_id",
+     "id": "product_id",
+     "business_name": "Ürün No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "Başvurulan kart ürünü"
+    },
+    {
+     "name": "channel_id",
+     "id": "channel_id",
+     "business_name": "Kanal No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "Başvuru kanalı"
+    },
+    {
+     "name": "application_status",
+     "id": "application_status",
+     "business_name": "Başvuru Durumu",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Onaylandı / Reddedildi / Beklemede"
+    },
+    {
+     "name": "requested_limit_try",
+     "id": "requested_limit_try",
+     "business_name": "Talep Edilen Limit (TL)",
+     "data_type": "DECIMAL",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dwh.fact_loan_disbursement",
+   "name": "dwh.fact_loan_disbursement",
+   "schema": "dwh",
+   "short_name": "fact_loan_disbursement",
+   "business_name": "Kredi Kullandırımları",
+   "description": "Bireysel ve KOBİ kredilerinin kullandırım kayıtları.",
+   "subject_area": "Krediler",
+   "grain": "Bir satır = bir kredi kullandırımı",
+   "row_count": 45000,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "loan_id",
+     "id": "loan_id",
+     "business_name": "Kredi No",
+     "data_type": "BIGINT",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "date_key",
+     "id": "date_key",
+     "business_name": "Tarih Anahtarı",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "Kullandırım tarihi"
+    },
+    {
+     "name": "customer_id",
+     "id": "customer_id",
+     "business_name": "Müşteri No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "branch_id",
+     "id": "branch_id",
+     "business_name": "Şube No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "loan_type",
+     "id": "loan_type",
+     "business_name": "Kredi Türü",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "İhtiyaç / Taşıt / Konut / KOBİ"
+    },
+    {
+     "name": "amount_try",
+     "id": "amount_try",
+     "business_name": "Kredi Tutarı (TL)",
+     "data_type": "DECIMAL",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Kullandırılan anapara"
+    },
+    {
+     "name": "term_months",
+     "id": "term_months",
+     "business_name": "Vade (Ay)",
+     "data_type": "INTEGER",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "monthly_interest_rate",
+     "id": "monthly_interest_rate",
+     "business_name": "Aylık Faiz (%)",
+     "data_type": "DECIMAL",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dwh.dim_date",
+   "name": "dwh.dim_date",
+   "schema": "dwh",
+   "short_name": "dim_date",
+   "business_name": "Tarih",
+   "description": "Takvim boyutu: yıl, çeyrek, ay, hafta, gün.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir gün",
+   "row_count": 974,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "date_key",
+     "id": "date_key",
+     "business_name": "Tarih Anahtarı",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "YYYYMMDD"
+    },
+    {
+     "name": "full_date",
+     "id": "full_date",
+     "business_name": "Tarih",
+     "data_type": "DATE",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "year",
+     "id": "year",
+     "business_name": "Yıl",
+     "data_type": "INTEGER",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "quarter",
+     "id": "quarter",
+     "business_name": "Çeyrek",
+     "data_type": "INTEGER",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "1-4"
+    },
+    {
+     "name": "month",
+     "id": "month",
+     "business_name": "Ay No",
+     "data_type": "INTEGER",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "1-12"
+    },
+    {
+     "name": "month_name",
+     "id": "month_name",
+     "business_name": "Ay Adı",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Türkçe ay adı"
+    },
+    {
+     "name": "year_month",
+     "id": "year_month",
+     "business_name": "Yıl-Ay",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "YYYY-MM, aylık trendler için"
+    },
+    {
+     "name": "week_of_year",
+     "id": "week_of_year",
+     "business_name": "Hafta",
+     "data_type": "INTEGER",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "day_name",
+     "id": "day_name",
+     "business_name": "Gün Adı",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "is_weekend",
+     "id": "is_weekend",
+     "business_name": "Hafta Sonu",
+     "data_type": "BOOLEAN",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dwh.dim_branch",
+   "name": "dwh.dim_branch",
+   "schema": "dwh",
+   "short_name": "dim_branch",
+   "business_name": "Şube",
+   "description": "Şube, il ve bölge bilgisi.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir şube",
+   "row_count": 63,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "branch_id",
+     "id": "branch_id",
+     "business_name": "Şube No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "branch_name",
+     "id": "branch_name",
+     "business_name": "Şube Adı",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "city",
+     "id": "city",
+     "business_name": "İl",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "region",
+     "id": "region",
+     "business_name": "Bölge",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Coğrafi bölge"
+    }
+   ]
+  },
+  {
+   "id": "dwh.dim_product",
+   "name": "dwh.dim_product",
+   "schema": "dwh",
+   "short_name": "dim_product",
+   "business_name": "Kart Ürünü",
+   "description": "Kredi kartı ürünleri: kart tipi (bireysel/ticari) ve seviyesi.",
+   "subject_area": "Kartlı Ödemeler",
+   "grain": "Bir satır = bir ürün",
+   "row_count": 6,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "product_id",
+     "id": "product_id",
+     "business_name": "Ürün No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "product_name",
+     "id": "product_name",
+     "business_name": "Ürün Adı",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "card_type",
+     "id": "card_type",
+     "business_name": "Kart Tipi",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Bireysel / Ticari"
+    },
+    {
+     "name": "card_tier",
+     "id": "card_tier",
+     "business_name": "Kart Seviyesi",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Classic / Gold / Platinum / Business"
+    },
+    {
+     "name": "annual_fee_try",
+     "id": "annual_fee_try",
+     "business_name": "Yıllık Aidat (TL)",
+     "data_type": "DECIMAL",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dwh.dim_merchant_category",
+   "name": "dwh.dim_merchant_category",
+   "schema": "dwh",
+   "short_name": "dim_merchant_category",
+   "business_name": "İşyeri Kategorisi (MCC)",
+   "description": "Harcamanın yapıldığı işyeri sektörü.",
+   "subject_area": "Kartlı Ödemeler",
+   "grain": "Bir satır = bir kategori",
+   "row_count": 10,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "mcc_id",
+     "id": "mcc_id",
+     "business_name": "Kategori No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "category_name",
+     "id": "category_name",
+     "business_name": "İşyeri Kategorisi",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Sektör adı"
+    }
+   ]
+  },
+  {
+   "id": "dwh.dim_channel",
+   "name": "dwh.dim_channel",
+   "schema": "dwh",
+   "short_name": "dim_channel",
+   "business_name": "Kanal",
+   "description": "İşlemin/başvurunun gerçekleştiği kanal.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir kanal",
+   "row_count": 4,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "channel_id",
+     "id": "channel_id",
+     "business_name": "Kanal No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "channel_name",
+     "id": "channel_name",
+     "business_name": "Kanal Adı",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Fiziki POS / Sanal POS / Mobil Ödeme / Temassız"
+    }
+   ]
+  },
+  {
+   "id": "dwh.dim_customer",
+   "name": "dwh.dim_customer",
+   "schema": "dwh",
+   "short_name": "dim_customer",
+   "business_name": "Müşteri",
+   "description": "Müşteri demografisi ve segmenti. Kimlik bilgileri kişisel veridir (KVKK/GDPR).",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir müşteri",
+   "row_count": 40000,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "customer_id",
+     "id": "customer_id",
+     "business_name": "Müşteri No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "segment",
+     "id": "segment",
+     "business_name": "Müşteri Segmenti",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Bireysel / Affluent / Private / KOBİ"
+    },
+    {
+     "name": "age_band",
+     "id": "age_band",
+     "business_name": "Yaş Grubu",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "gender",
+     "id": "gender",
+     "business_name": "Cinsiyet",
+     "data_type": "VARCHAR",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "home_branch_id",
+     "id": "home_branch_id",
+     "business_name": "Ana Şube No",
+     "data_type": "INTEGER",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "dim_branch ile ilişkili"
+    },
+    {
+     "name": "customer_name",
+     "id": "customer_name",
+     "business_name": "Müşteri Adı",
+     "data_type": "VARCHAR",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "national_id",
+     "id": "national_id",
+     "business_name": "TCKN",
+     "data_type": "VARCHAR",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "phone_number",
+     "id": "phone_number",
+     "business_name": "Telefon",
+     "data_type": "VARCHAR",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "customer_since",
+     "id": "customer_since",
+     "business_name": "Müşteri Olma Tarihi",
+     "data_type": "DATE",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  }
+ ],
+ "relationships": [
+  {
+   "id": "tx_date",
+   "from_table": "dwh.fact_card_transaction",
+   "to_table": "dwh.dim_date",
+   "pairs": [
+    [
+     "date_key",
+     "date_key"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "date_key",
+     "date_key"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "İşlem tarihi"
+  },
+  {
+   "id": "tx_customer",
+   "from_table": "dwh.fact_card_transaction",
+   "to_table": "dwh.dim_customer",
+   "pairs": [
+    [
+     "customer_id",
+     "customer_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "customer_id",
+     "customer_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "tx_product",
+   "from_table": "dwh.fact_card_transaction",
+   "to_table": "dwh.dim_product",
+   "pairs": [
+    [
+     "product_id",
+     "product_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "product_id",
+     "product_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "tx_branch",
+   "from_table": "dwh.fact_card_transaction",
+   "to_table": "dwh.dim_branch",
+   "pairs": [
+    [
+     "branch_id",
+     "branch_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "branch_id",
+     "branch_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Kartın bağlı şubesi"
+  },
+  {
+   "id": "tx_mcc",
+   "from_table": "dwh.fact_card_transaction",
+   "to_table": "dwh.dim_merchant_category",
+   "pairs": [
+    [
+     "mcc_id",
+     "mcc_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "mcc_id",
+     "mcc_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "tx_channel",
+   "from_table": "dwh.fact_card_transaction",
+   "to_table": "dwh.dim_channel",
+   "pairs": [
+    [
+     "channel_id",
+     "channel_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "channel_id",
+     "channel_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "app_date",
+   "from_table": "dwh.fact_card_application",
+   "to_table": "dwh.dim_date",
+   "pairs": [
+    [
+     "date_key",
+     "date_key"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "date_key",
+     "date_key"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Başvuru tarihi"
+  },
+  {
+   "id": "app_branch",
+   "from_table": "dwh.fact_card_application",
+   "to_table": "dwh.dim_branch",
+   "pairs": [
+    [
+     "branch_id",
+     "branch_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "branch_id",
+     "branch_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "app_product",
+   "from_table": "dwh.fact_card_application",
+   "to_table": "dwh.dim_product",
+   "pairs": [
+    [
+     "product_id",
+     "product_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "product_id",
+     "product_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "app_channel",
+   "from_table": "dwh.fact_card_application",
+   "to_table": "dwh.dim_channel",
+   "pairs": [
+    [
+     "channel_id",
+     "channel_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "channel_id",
+     "channel_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "loan_date",
+   "from_table": "dwh.fact_loan_disbursement",
+   "to_table": "dwh.dim_date",
+   "pairs": [
+    [
+     "date_key",
+     "date_key"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "date_key",
+     "date_key"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Kullandırım tarihi"
+  },
+  {
+   "id": "loan_customer",
+   "from_table": "dwh.fact_loan_disbursement",
+   "to_table": "dwh.dim_customer",
+   "pairs": [
+    [
+     "customer_id",
+     "customer_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "customer_id",
+     "customer_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "loan_branch",
+   "from_table": "dwh.fact_loan_disbursement",
+   "to_table": "dwh.dim_branch",
+   "pairs": [
+    [
+     "branch_id",
+     "branch_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "branch_id",
+     "branch_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": ""
+  },
+  {
+   "id": "cust_branch",
+   "from_table": "dwh.dim_customer",
+   "to_table": "dwh.dim_branch",
+   "pairs": [
+    [
+     "home_branch_id",
+     "branch_id"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "home_branch_id",
+     "branch_id"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Müşterinin ana şubesi"
+  }
+ ],
+ "used_tables": {
+  "dwh.fact_card_transaction": [
+   "kpi_summary",
+   "monthly_trend"
+  ],
+  "dwh.dim_date": [
+   "kpi_summary"
+  ],
+  "dwh.dim_branch": [
+   "region_sales"
+  ]
+ },
+ "dialect": "duckdb"
+}

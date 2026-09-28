@@ -1,12 +1,12 @@
 // Görsel bileşenleri: grafik, KPI, tablo, metin + kart kabuğu ve hata sınırı.
 import { Component, useMemo, useState, type ReactNode } from "react";
-import type { Dataset, Visual } from "../types";
+import type { CellValue, Dataset, Visual } from "../types";
 import { EChart } from "./EChart";
 import {
   buildChartOption, EmptyDataError, enc, fieldDef, fieldLabel, fmtFor, kpiValue, tooltipBase, usedFields, validateFields, VisualError,
   type ChartCtx,
 } from "./charts";
-import { groupBy, type Row } from "./data";
+import { groupBy, keyOf, type Row } from "./data";
 import { escapeHtml, formatCategory, formatValue, isPeriodLike, resolveFormat, toNumber } from "./format";
 import { alpha, type DerivedTheme } from "./theme";
 
@@ -25,6 +25,36 @@ export interface VisualProps {
   datasets: Dataset[];
   theme: DerivedTheme;
   filterNote?: string;
+  /** çapraz filtre: kategoriye tıklanınca (alan, ham değer) */
+  onSelect?: (field: string, value: CellValue) => void;
+  /** bu görselden yapılmış seçim ("Ülke: France") */
+  selectionNote?: string;
+  /** seçili ham değer: görselde vurgulanır, diğerleri soluklaşır (Power BI gibi) */
+  selected?: CellValue;
+}
+
+const DIM = 0.28;
+
+/** Seçili kategori dışındaki öğeleri soluklaştırır (bar: kategori ekseni; pie/donut/funnel/treemap: ada göre). */
+function highlightSelection(option: any, selected: CellValue): any {
+  const out = { ...option };
+  const dimItem = (d: any) => (d !== null && typeof d === "object" && !Array.isArray(d)
+    ? { ...d, itemStyle: { ...(d.itemStyle ?? {}), opacity: DIM } }
+    : { value: d, itemStyle: { opacity: DIM } });
+  const axes = [...[].concat(option.xAxis ?? []), ...[].concat(option.yAxis ?? [])] as any[];
+  const catAxis = axes.find((a) => a && a.type === "category" && Array.isArray(a.data));
+  const series = [].concat(option.series ?? []) as any[];
+  if (catAxis) {
+    const idx = catAxis.data.findIndex((c: any) => c === keyOf(selected) || c === selected);
+    if (idx < 0) return option;
+    out.series = series.map((s) => (s.type === "bar" && Array.isArray(s.data)
+      ? { ...s, data: s.data.map((d: any, i: number) => (i === idx ? d : dimItem(d))) } : s));
+    return out;
+  }
+  const names = new Set([formatCategory(selected), formatCategory(selected, false), keyOf(selected)]);
+  out.series = series.map((s) => (Array.isArray(s.data)
+    ? { ...s, data: s.data.map((d: any) => (d && typeof d === "object" && names.has(d.name) ? d : dimItem(d))) } : s));
+  return out;
 }
 
 // ---------- hata sınırı ----------
@@ -67,8 +97,8 @@ export function ErrorCard({ title, message }: { title?: string; message: string 
 
 // ---------- kart kabuğu ----------
 
-function CardHead({ visual, filterNote, tableToggle, onToggle, showTable }: {
-  visual: Visual; filterNote?: string; tableToggle?: boolean; onToggle?: () => void; showTable?: boolean;
+function CardHead({ visual, filterNote, selectionNote, tableToggle, onToggle, showTable }: {
+  visual: Visual; filterNote?: string; selectionNote?: string; tableToggle?: boolean; onToggle?: () => void; showTable?: boolean;
 }) {
   if (!visual.title && !visual.subtitle && !tableToggle) return null;
   return (
@@ -78,6 +108,7 @@ function CardHead({ visual, filterNote, tableToggle, onToggle, showTable }: {
         {visual.subtitle ? <div className="db-card-sub">{visual.subtitle}</div> : null}
       </div>
       <div className="db-card-actions">
+        {selectionNote ? <span className="db-badge db-badge--sel" title="Bu görselden yapılan seçim diğer görselleri filtreliyor">{selectionNote}</span> : null}
         {filterNote ? <span className="db-badge" title={filterNote}>Filtre dışı</span> : null}
         {tableToggle ? (
           <button
@@ -111,6 +142,9 @@ export function ChartVisual(p: VisualProps) {
   const fine = ["pie", "donut", "gauge", "bar", "heatmap"].includes(visual.type);
   const wBucket = fine ? Math.round(size.w) : size.w >= 400 ? 1 : 0;
   const hBucket = fine ? Math.round(size.h) : size.h >= 220 ? 1 : 0;
+  const e0 = enc(visual);
+  const clickField = ["pie", "donut", "funnel", "treemap"].includes(visual.type) ? e0.category
+    : ["bar", "line", "area", "combo", "heatmap"].includes(visual.type) ? e0.x : undefined;
   const built = useMemo(() => {
     const ctx: ChartCtx = {
       visual, dataset: p.dataset, rows: t.rows, all: t.all, columns: t.columns, theme: p.theme,
@@ -125,14 +159,27 @@ export function ChartVisual(p: VisualProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visual, p.dataset, t, p.theme, wBucket, hBucket]);
 
+  const shown = useMemo(() => (built.option && p.selected !== undefined ? highlightSelection(built.option, p.selected) : built.option),
+    [built.option, p.selected]);
+
   return (
     <div className="db-card">
-      <CardHead visual={visual} filterNote={p.filterNote} tableToggle showTable={showTable} onToggle={() => setShowTable((s) => !s)} />
+      <CardHead visual={visual} filterNote={p.filterNote} selectionNote={p.selectionNote} tableToggle showTable={showTable} onToggle={() => setShowTable((s) => !s)} />
       <div className="db-card-body">
         {showTable ? (
           <DataTable rows={t.rows} columns={usedFields(visual, t.columns)} dataset={p.dataset} visual={visual} theme={p.theme} />
         ) : built.option ? (
-          <EChart option={built.option} onSize={(w, h) => setSize((s) => (Math.abs(s.w - w) > 1 || Math.abs(s.h - h) > 1 ? { w, h } : s))} />
+          <EChart
+            option={shown!}
+            onSize={(w, h) => setSize((s) => (Math.abs(s.w - w) > 1 || Math.abs(s.h - h) > 1 ? { w, h } : s))}
+            onClick={p.onSelect && clickField ? (ev) => {
+              // grafikteki ad (ham ya da biçimlenmiş) → verideki ham değer
+              const name = ev.name;
+              if (name === undefined) return;
+              const raw = t.all.map((r) => r[clickField]).find((v) => keyOf(v) === name || formatCategory(v) === name || formatCategory(v, false) === name);
+              if (raw !== undefined) p.onSelect!(clickField, raw);
+            } : undefined}
+          />
         ) : (
           <div className="db-empty-note">{built.empty}</div>
         )}

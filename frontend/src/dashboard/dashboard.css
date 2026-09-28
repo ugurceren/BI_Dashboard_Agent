@@ -344,3 +344,33 @@
 /* ---------- metin ---------- */
 .db-text-title { white-space: normal; font-size: 14px; margin-bottom: 4px; }
 .db-text-body { white-space: pre-wrap; color: var(--db-text); font-size: 13px; line-height: 1.6; margin-top: 6px; overflow: auto; opacity: .9; }
+
+/* ---------- çapraz filtre (görselden tıklayarak seçim) ---------- */
+.db-cross-chip {
+  align-self: flex-end;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--db-accent);
+  background: color-mix(in srgb, var(--db-accent) 12%, var(--db-surface));
+  color: var(--db-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 320px;
+}
+.db-cross-chip span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-header--banner .db-cross-chip { border-color: var(--db-banner-text); background: rgba(255, 255, 255, 0.16); color: var(--db-banner-text); }
+.db-badge--sel {
+  color: var(--db-accent);
+  border-color: var(--db-accent);
+  background: color-mix(in srgb, var(--db-accent) 10%, var(--db-surface));
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.db-echart.is-clickable canvas { cursor: pointer; }

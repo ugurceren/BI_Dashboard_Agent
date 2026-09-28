@@ -305,21 +305,22 @@ DD_COLUMNS = [
     ("dwh.dim_customer", "customer_since", "Müşteri Olma Tarihi", "", "DATE", "date", None, "", False),
 ]
 
+# (relationship_id, from_table, from_column, to_table, to_column, cardinality, role)
 DD_RELATIONSHIPS = [
-    ("dwh.fact_card_transaction", "date_key", "dwh.dim_date", "date_key"),
-    ("dwh.fact_card_transaction", "customer_id", "dwh.dim_customer", "customer_id"),
-    ("dwh.fact_card_transaction", "product_id", "dwh.dim_product", "product_id"),
-    ("dwh.fact_card_transaction", "branch_id", "dwh.dim_branch", "branch_id"),
-    ("dwh.fact_card_transaction", "mcc_id", "dwh.dim_merchant_category", "mcc_id"),
-    ("dwh.fact_card_transaction", "channel_id", "dwh.dim_channel", "channel_id"),
-    ("dwh.fact_card_application", "date_key", "dwh.dim_date", "date_key"),
-    ("dwh.fact_card_application", "branch_id", "dwh.dim_branch", "branch_id"),
-    ("dwh.fact_card_application", "product_id", "dwh.dim_product", "product_id"),
-    ("dwh.fact_card_application", "channel_id", "dwh.dim_channel", "channel_id"),
-    ("dwh.fact_loan_disbursement", "date_key", "dwh.dim_date", "date_key"),
-    ("dwh.fact_loan_disbursement", "customer_id", "dwh.dim_customer", "customer_id"),
-    ("dwh.fact_loan_disbursement", "branch_id", "dwh.dim_branch", "branch_id"),
-    ("dwh.dim_customer", "home_branch_id", "dwh.dim_branch", "branch_id"),
+    ("tx_date", "dwh.fact_card_transaction", "date_key", "dwh.dim_date", "date_key", "N:1", "İşlem tarihi"),
+    ("tx_customer", "dwh.fact_card_transaction", "customer_id", "dwh.dim_customer", "customer_id", "N:1", ""),
+    ("tx_product", "dwh.fact_card_transaction", "product_id", "dwh.dim_product", "product_id", "N:1", ""),
+    ("tx_branch", "dwh.fact_card_transaction", "branch_id", "dwh.dim_branch", "branch_id", "N:1", "Kartın bağlı şubesi"),
+    ("tx_mcc", "dwh.fact_card_transaction", "mcc_id", "dwh.dim_merchant_category", "mcc_id", "N:1", ""),
+    ("tx_channel", "dwh.fact_card_transaction", "channel_id", "dwh.dim_channel", "channel_id", "N:1", ""),
+    ("app_date", "dwh.fact_card_application", "date_key", "dwh.dim_date", "date_key", "N:1", "Başvuru tarihi"),
+    ("app_branch", "dwh.fact_card_application", "branch_id", "dwh.dim_branch", "branch_id", "N:1", ""),
+    ("app_product", "dwh.fact_card_application", "product_id", "dwh.dim_product", "product_id", "N:1", ""),
+    ("app_channel", "dwh.fact_card_application", "channel_id", "dwh.dim_channel", "channel_id", "N:1", ""),
+    ("loan_date", "dwh.fact_loan_disbursement", "date_key", "dwh.dim_date", "date_key", "N:1", "Kullandırım tarihi"),
+    ("loan_customer", "dwh.fact_loan_disbursement", "customer_id", "dwh.dim_customer", "customer_id", "N:1", ""),
+    ("loan_branch", "dwh.fact_loan_disbursement", "branch_id", "dwh.dim_branch", "branch_id", "N:1", ""),
+    ("cust_branch", "dwh.dim_customer", "home_branch_id", "dwh.dim_branch", "branch_id", "N:1", "Müşterinin ana şubesi"),
 ]
 
 # (metric_name, business_name, description, expression_sql, base_table, format, synonyms)
@@ -359,8 +360,9 @@ def build_dictionary(con: duckdb.DuckDBPyConnection) -> None:
 
     con.execute("""
         CREATE OR REPLACE TABLE meta.dd_relationships (
-            from_table VARCHAR, from_column VARCHAR, to_table VARCHAR, to_column VARCHAR)""")
-    con.executemany("INSERT INTO meta.dd_relationships VALUES (?, ?, ?, ?)", DD_RELATIONSHIPS)
+            relationship_id VARCHAR, from_table VARCHAR, from_column VARCHAR, to_table VARCHAR, to_column VARCHAR,
+            cardinality VARCHAR, role VARCHAR, is_active BOOLEAN)""")
+    con.executemany("INSERT INTO meta.dd_relationships VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)", DD_RELATIONSHIPS)
 
     con.execute("""
         CREATE OR REPLACE TABLE meta.dd_metrics (

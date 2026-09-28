@@ -66,7 +66,9 @@ interface Visual {
 interface Filter {
   id: string;
   label: string;
-  field: string;           // bu alanı içeren tüm dataset'lere istemci tarafında uygulanır
+  table?: string;          // model kolonu: ör. "dbo.DimSalesTerritory" — Power BI dilimleyicisi gibi
+  column?: string;         //   ör. "SalesTerritoryGroup"; seçim ilişkiler üzerinden (boyut → fact) tüm dataset SQL'lerine uygulanır
+  field?: string;          // yedek: dataset kolon adı (table+column yoksa kökeni bulunur; bağımsız HTML'de istemci tarafı filtre)
   type: "select" | "multiselect";
 }
 
@@ -154,7 +156,10 @@ interface SessionState {
 | POST | `/api/sessions/{id}/phase` | `{ phase }` | `SessionState` (geri dönmek için) |
 | PUT | `/api/sessions/{id}/spec` | `ReportSpec` | `SessionState` veya `422 { detail: string[] }` |
 | POST | `/api/sessions/{id}/demo` | – | Demo spec + dataset'leri yükler, `SessionState` |
-| GET | `/api/sessions/{id}/dashboard-data` | – | `{ datasets: { [id]: { columns: string[], rows: any[][], error?: string } } }` |
+| GET | `/api/sessions/{id}/dashboard-data` | – | `{ datasets: { [id]: { columns: string[], rows: any[][], error?: string } }, applied: {} }` |
+| POST | `/api/sessions/{id}/dashboard-data` | `{ selections: [{ key: "şema.tablo.kolon", values: any[], exclude?: string[] }] }` | Aynı + `applied: { [datasetId]: string[] }` (hangi filtre hangi dataset'e uygulanabildi) |
+| GET | `/api/sessions/{id}/filters` | – | `{ filters: [{ id, label, type, key, options: any[] }], bindings: { [datasetId]: { [alan]: "şema.tablo.kolon" } } }` |
+| GET | `/api/dictionary/model?session=` | – | İlişkisel model (tablolar, kolonlar, ilişkiler: kardinalite, rol, aktif) + raporda kullanılan tablolar |
 | GET | `/api/dictionary/search?q=...` | – | `[{ table, business_name, description, score, columns: [{ name, business_name, role }] }]` |
 | GET | `/api/sessions/{id}/export/html` | – | Tek dosyalık, bağımsız HTML dashboard (indir) |
 
@@ -171,3 +176,13 @@ interface SessionState {
 | `done` | `{}` |
 
 `rows` değerleri: sayılar number, tarihler ISO string (`"2026-01-01"`), null olabilir.
+
+## 4. Model filtreleri (Power BI tarzı)
+
+* Dilimleyici seçimleri ve görselden tıklamalar `selections` olarak POST edilir. Backend her dataset SQL'inin her SELECT
+  bloğuna, filtre tablosundan ilişkiler üzerinden (yalnız aktif, "tek → çok" yönünde) yayılan bir koşul ekler
+  (`EXISTS (SELECT 1 FROM Dim d WHERE d.Key = f.Key AND d.kolon IN (...))`, çok adımlı yollarda iç içe).
+* Filtre tablosu dataset'te zaten varsa doğrudan o takma ada uygulanır (rol yapan tarih boyutunda dataset'in JOIN'i rolü belirler).
+* Ulaşılamayan dataset'ler filtrelenmez; `applied` içinde o filtre anahtarı olmaz → arayüz "Filtre dışı" rozeti gösterir.
+* Görselden tıklama: `bindings` ile tıklanan alanın model kolonu bulunur; seçim `exclude: [kaynak dataset]` ile gönderilir,
+  kaynak görsel tüm veriyi gösterip seçili öğeyi vurgular.

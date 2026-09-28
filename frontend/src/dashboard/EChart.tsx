@@ -25,9 +25,11 @@ function whenFontsReady(): Promise<unknown> {
   return fontsReady;
 }
 
-export function EChart({ option, className, onSize }: {
+export function EChart({ option, className, onSize, onClick }: {
   option: EOption;
   className?: string;
+  /** öğeye tıklama (çapraz filtre) */
+  onClick?: (params: { name?: string; seriesName?: string; dataIndex?: number; componentType?: string }) => void;
   /** boyut değişince (px) — seçenek boyuta göre değişecekse */
   onSize?: (w: number, h: number) => void;
 }) {
@@ -37,12 +39,15 @@ export function EChart({ option, className, onSize }: {
   optRef.current = option;
   const sizeCb = useRef(onSize);
   sizeCb.current = onSize;
+  const clickCb = useRef(onClick);
+  clickCb.current = onClick;
 
   useEffect(() => {
     const el = ref.current!;
     const c = echarts.init(el, undefined, { renderer: "canvas" });
     chart.current = c;
     c.setOption(optRef.current, true);
+    c.on("click", (p: unknown) => clickCb.current?.(p as { name?: string }));
     // Boyutu hemen bildir: rAF gizli/arka plandaki sekmelerde çalışmaz, seçenekler varsayılan boyutta kalırdı.
     if (el.clientWidth > 0 && el.clientHeight > 0) sizeCb.current?.(el.clientWidth, el.clientHeight);
     const ro = new ResizeObserver((entries) => {
@@ -70,5 +75,5 @@ export function EChart({ option, className, onSize }: {
     if (c && !c.isDisposed()) c.setOption(option, true);
   }, [option]);
 
-  return <div ref={ref} className={className ?? "db-echart"} />;
+  return <div ref={ref} className={(className ?? "db-echart") + (onClick ? " is-clickable" : "")} />;
 }

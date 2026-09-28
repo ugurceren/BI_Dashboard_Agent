@@ -1,6 +1,6 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
 import type {
-  DashboardData, DictionaryHit, Health, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent,
+  DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Selection, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent,
 } from "../types";
 
 export class ApiError extends Error {
@@ -29,8 +29,10 @@ export interface Api {
   setPhase(id: string, phase: Phase): Promise<SessionState>;
   putSpec(id: string, spec: ReportSpec): Promise<SessionState>;
   loadDemo(id: string): Promise<SessionState>;
-  dashboardData(id: string): Promise<DashboardData>;
+  dashboardData(id: string, selections?: Selection[]): Promise<DashboardData>;
+  filters(id: string): Promise<FiltersResponse>;
   searchDictionary(q: string): Promise<DictionaryHit[]>;
+  dataModel(sessionId?: string): Promise<DataModel>;
   exportUrl(id: string): string;
 }
 
@@ -157,7 +159,12 @@ export const httpApi: Api = {
   setPhase: (id, phase) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/phase`, { method: "POST", body: JSON.stringify({ phase }) }),
   putSpec: (id, spec) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/spec`, { method: "PUT", body: JSON.stringify(spec) }),
   loadDemo: (id) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/demo`, { method: "POST" }),
-  dashboardData: (id) => req<DashboardData>(`/api/sessions/${encodeURIComponent(id)}/dashboard-data`),
+  dashboardData: (id, selections) =>
+    selections && selections.length
+      ? req<DashboardData>(`/api/sessions/${encodeURIComponent(id)}/dashboard-data`, { method: "POST", body: JSON.stringify({ selections }) })
+      : req<DashboardData>(`/api/sessions/${encodeURIComponent(id)}/dashboard-data`),
+  filters: (id) => req<FiltersResponse>(`/api/sessions/${encodeURIComponent(id)}/filters`),
   searchDictionary: (q) => req<DictionaryHit[]>(`/api/dictionary/search?q=${encodeURIComponent(q)}`),
+  dataModel: (sid) => req<DataModel>(`/api/dictionary/model${sid ? `?session=${encodeURIComponent(sid)}` : ""}`),
   exportUrl: (id) => `/api/sessions/${encodeURIComponent(id)}/export/html`,
 };

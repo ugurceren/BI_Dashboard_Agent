@@ -1,8 +1,9 @@
 // ?mock=1 — backend olmadan geliştirme için bellek içi sahte API.
 import demoSpecJson from "../mocks/demo_spec.json";
 import demoDataJson from "../mocks/demo_data.json";
+import demoModelJson from "../mocks/demo_model.json";
 import type {
-  DashboardData, DictionaryHit, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, TranscriptItem,
+  DashboardData, DataModel, DictionaryHit, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, TranscriptItem,
 } from "../types";
 import { ApiError, type Api } from "./client";
 
@@ -101,6 +102,16 @@ const state = (s: MockSession): SessionState => {
   const { updatedAt, data, ...rest } = s;
   return clone(rest);
 };
+
+/** mock: filtre anahtarı → dataset alan adı (gerçek backend bunu ilişkilerden çözer) */
+function mockFilterFields(s: MockSession): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of s.spec?.filters ?? []) {
+    const key = f.table && f.column ? `${f.table}.${f.column}`.toLowerCase() : f.field;
+    if (key) out[key] = f.field ?? f.column ?? "";
+  }
+  return out;
+}
 
 function get(id: string): MockSession {
   const s = sessions.get(id);
@@ -210,9 +221,44 @@ export const mockApi: Api = {
     s.transcript.push(item("system", "Demo dashboard yüklendi.", "design"));
     return state(s);
   },
-  async dashboardData(id) {
+  async dashboardData(id, selections) {
     await sleep(250);
-    return clone(get(id).data);
+    const data = clone(get(id).data);
+    // sahte model filtresi: seçimi, filtre alanını (field) taşıyan dataset'lere uygula
+    const fields = mockFilterFields(get(id));
+    data.applied = {};
+    for (const [did, ds] of Object.entries(data.datasets)) {
+      for (const sel of selections ?? []) {
+        const field = fields[sel.key];
+        const idx = field ? ds.columns.indexOf(field) : -1;
+        if (idx < 0 || sel.exclude?.includes(did)) continue;
+        const set = new Set(sel.values.map(String));
+        ds.rows = ds.rows.filter((r) => set.has(String(r[idx])));
+        (data.applied[did] ??= []).push(sel.key);
+      }
+    }
+    return data;
+  },
+  async filters(id) {
+    await sleep(120);
+    const s = get(id);
+    const fields = mockFilterFields(s);
+    const bindings: Record<string, Record<string, string>> = {};
+    for (const [did, ds] of Object.entries(s.data.datasets))
+      for (const [key, field] of Object.entries(fields)) if (ds.columns.includes(field)) (bindings[did] ??= {})[field] = key;
+    return {
+      bindings,
+      filters: (s.spec?.filters ?? []).map((f) => {
+        const key = f.table && f.column ? `${f.table}.${f.column}`.toLowerCase() : f.field ?? null;
+        const field = key ? fields[key] : undefined;
+        const opts = new Set<string>();
+        for (const ds of Object.values(s.data.datasets)) {
+          const i = field ? ds.columns.indexOf(field) : -1;
+          if (i >= 0) for (const r of ds.rows) if (r[i] != null) opts.add(String(r[i]));
+        }
+        return { id: f.id, label: f.label, type: f.type, field: f.field, key, options: [...opts].sort() };
+      }),
+    };
   },
   async searchDictionary(q): Promise<DictionaryHit[]> {
     await sleep(150);
@@ -232,6 +278,10 @@ export const mockApi: Api = {
     ];
     const ql = q.toLocaleLowerCase("tr");
     return all.filter((h) => JSON.stringify(h).toLocaleLowerCase("tr").includes(ql) || ql.length < 3);
+  },
+  async dataModel(): Promise<DataModel> {
+    await sleep(150);
+    return clone(demoModelJson as unknown as DataModel);
   },
   exportUrl: () => "/viewer.html",
 };

@@ -21,6 +21,13 @@ Her şeyi harness doğrular.
                                    └─ audit log (logs/audit.jsonl)
 ```
 
+## Hızlı başlatma (Windows)
+
+Proje klasöründeki **`start.bat`** dosyasına çift tıklayın. İlk çalıştırmada eksik kurulumu (Python ortamı, npm paketleri,
+`.env`, HTML export şablonu) kendisi yapar; sonra backend ve frontend'i ayrı pencerelerde başlatıp tarayıcıda
+http://localhost:5173 adresini açar. Kapatmak için "BI Agent - Backend" ve "BI Agent - Frontend" pencerelerini kapatın.
+Veri sözlüğü (`seed_*.py`) bat dosyası tarafından oluşturulmaz; aşağıdaki adımlarla bir kez oluşturulmalıdır.
+
 ## Kurulum
 
 ```bash
@@ -96,6 +103,8 @@ iletişim ve ücret bilgileri PII olarak işaretli (analyst rolü sorgulayamaz);
 | Faz bazlı araçlar | Her fazda yalnızca o faza ait araçlar açık; model başka işe kalkışamaz |
 | SQL validator | Tek ifade; yalnız SELECT/WITH/UNION; DML/DDL/INTO/COPY/ATTACH/PRAGMA yasak; tablo fonksiyonları yasak; sadece sözlükteki + izinli şemadaki tablolar |
 | PII | Sözlükte `is_pii` olan kolonlar ve PII içeren tablolarda `SELECT *` engellenir (rol izni yoksa) |
+| Model filtreleri | Dilimleyiciler bir model kolonuna bağlanır (ör. `dbo.DimSalesTerritory.SalesTerritoryGroup`); seçim, aktif ilişkiler üzerinden (boyut → fact, çok adımlı yollar dahil) her dataset'in SQL'ine eklenir. Görsellerde bir çubuğa/dilime tıklamak da diğer görselleri filtreler (Power BI çapraz filtresi) |
+| JOIN / kardinalite | Birleştirmeler sözlükteki ilişkilerle (N:1, 1:1, N:N, bileşik anahtar, rol) eşlenir. Eksik bileşik anahtar ve satır çoğalması (fan-out, iki fact'in ortak boyut üzerinden birleşmesi — chasm trap) reddedilir; sözlükte olmayan birleştirmeler uyarı olarak döner. Kardinalite sözlükte yoksa unique index / COUNT DISTINCT ile otomatik çıkarılır |
 | Bağlantı | DuckDB salt-okunur + dış erişim kapalı; SQL Server için salt-okunur kullanıcı, zaman aşımı, satır limiti |
 | Spec | Pydantic şema + dataset/alan referans kontrolü; model hiçbir zaman kod üretmez |
 | Denetim | Her LLM çağrısı ve araç çalıştırması `logs/audit.jsonl`'a yazılır |
