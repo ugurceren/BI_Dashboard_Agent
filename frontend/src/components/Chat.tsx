@@ -174,9 +174,9 @@ export function Transcript({ items, status, busy, empty }: {
 // ---------- boş durum ----------
 
 export const SUGGESTIONS = [
-  "Kredi kartı satış performansı için yönetim dashboard'u istiyorum",
-  "Kredi kullandırımlarını bölge ve ürün bazında analiz et",
-  "Şube bazında aktif müşteri ve işlem adedi trendini görmek istiyorum",
+  "İnternet satış performansı için yönetim dashboard'u istiyorum",
+  "Bayi satışlarını bölge ve satış temsilcisi bazında analiz et",
+  "Ürün kategorilerine göre brüt kâr marjı ve aylık trendi görmek istiyorum",
 ];
 
 export function EmptyChat({ onPick, onDemo, disabled }: { onPick: (s: string) => void; onDemo: () => void; disabled?: boolean }) {

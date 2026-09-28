@@ -1,19 +1,21 @@
-# Veri sözlüğü kaynağı.
+# Veri sözlüğü kaynağı (SQL Server).
 #
-# Sözlük hangi veritabanında ve hangi tablolarda olursa olsun, aşağıdaki sorguların
-# mantıksal kolon adlarıyla (AS ...) sonuç döndürmesi yeterli. Kendi SQL Server sözlüğünüze
-# bağlarken sadece bu sorguları kendi tablo/kolon adlarınıza göre yeniden yazın.
+# Sözlük hangi veritabanında ve hangi tablolarda olursa olsun, aşağıdaki sorguların mantıksal kolon
+# adlarıyla (AS ...) sonuç döndürmesi yeterli. Kendi sözlüğünüze bağlarken sadece bu sorguları kendi
+# tablo/kolon adlarınıza göre yeniden yazın. Varsayılan: scripts/seed_adventureworks_dictionary.py'nin
+# oluşturduğu BI_Meta veritabanı (AdventureWorksDW2025 için Türkçe sözlük).
 #
-# source = "data"   -> veri kaynağıyla aynı bağlantı (geliştirmede DuckDB)
-# source = "odbc"   -> ayrı bir SQL Server bağlantısı (odbc = "...")
+# source = "odbc"   -> sözlük ayrı bir veritabanında (odbc = "...")
+# source = "data"   -> sözlük, veriyle aynı bağlantıda (SQLSERVER_ODBC)
 
-source = "data"
+source = "odbc"
+odbc = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=BI_Meta;Trusted_Connection=yes;TrustServerCertificate=yes;"
 # Kardinalitesi boş ilişkiler için veriden (unique index / COUNT DISTINCT) otomatik tespit
 infer_cardinality = true
-# odbc = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlsrv01;DATABASE=MetaDB;Trusted_Connection=yes;"
 
 [queries]
 # Zorunlu kolonlar: table_name (şema.tablo), business_name, description, subject_area, grain, row_count
+# İsteğe bağlı: table_type (fact | dimension | bridge; boşsa ilişkilerden çıkarılır)
 tables = """
 SELECT table_name, business_name, description, subject_area, grain, row_count
 FROM meta.dd_tables
@@ -34,9 +36,9 @@ FROM meta.dd_columns
 #   cardinality     — N:1 | 1:N | 1:1 | N:N  (boşsa veriden otomatik çıkarılır, bkz. infer_cardinality)
 #   role            — aynı boyuta birden çok ilişki varsa anlamı (ör. "Sipariş tarihi", "Sevk tarihi")
 #   is_active       — 1/0; filtreler yalnız aktif ilişkilerden yayılır (boşsa: aynı tablo çiftinde ilki aktif)
-# SQL Server'da ilişki tablonuz yoksa foreign key'lerden okuyabilirsiniz:
+# İlişki tablonuz yoksa foreign key'lerden okuyabilirsiniz:
 #   SELECT fk.name AS relationship_id, SCHEMA_NAME(tp.schema_id)+'.'+tp.name AS from_table, cp.name AS from_column,
-#          SCHEMA_NAME(tr.schema_id)+'.'+tr.name AS to_table, cr.name AS to_column, NULL AS cardinality, NULL AS role
+#          SCHEMA_NAME(tr.schema_id)+'.'+tr.name AS to_table, cr.name AS to_column, NULL AS cardinality, NULL AS role, NULL AS is_active
 #   FROM sys.foreign_keys fk JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
 #   JOIN sys.tables tp ON tp.object_id = fkc.parent_object_id JOIN sys.columns cp ON cp.object_id = tp.object_id AND cp.column_id = fkc.parent_column_id
 #   JOIN sys.tables tr ON tr.object_id = fkc.referenced_object_id JOIN sys.columns cr ON cr.object_id = tr.object_id AND cr.column_id = fkc.referenced_column_id
@@ -51,10 +53,3 @@ metrics = """
 SELECT metric_name, business_name, description, expression_sql, base_table, value_format, synonyms
 FROM meta.dd_metrics
 """
-
-# SQL Server örneği (kendi sözlük tablolarınıza göre uyarlayın):
-# tables = """
-# SELECT s.SemaAdi + '.' + s.TabloAdi AS table_name, s.IsAdi AS business_name, s.Aciklama AS description,
-#        s.KonuAlani AS subject_area, s.Granularite AS grain, NULL AS row_count
-# FROM dbo.VS_Tablo s WHERE s.Aktif = 1
-# """

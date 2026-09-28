@@ -234,29 +234,27 @@ class DataDictionary:
     def _infer_cardinality(self, rels: list[DDRelationship], tables: dict[str, DDTable]) -> None:
         """Sözlükte kardinalite yoksa veriden çıkarır: bir taraf, join kolonları o tabloda tekilse '1'dir.
 
-        SQL Server: önce PK/unique index metadatasına bakılır (ucuz). Index yoksa ve tablo küçükse
+        Önce PK/unique index metadatasına bakılır (ucuz). Index yoksa ve tablo küçükse
         (≤ 2M satır) COUNT(DISTINCT) ile ölçülür; büyük tablolar 'N' (çok) kabul edilir.
         """
         con = self._data_connector or create_connector(self.settings)
-        tsql = con.dialect == "tsql"
-        q = (lambda n: "[" + n.replace("]", "]]") + "]") if tsql else (lambda n: '"' + n.replace('"', '""') + '"')
+        q = lambda n: "[" + n.replace("]", "]]") + "]"  # noqa: E731
         unique_sets: dict[str, list[set[str]]] = {}
-        if tsql:
-            try:
-                r = con.execute("""
-                    SELECT LOWER(SCHEMA_NAME(t.schema_id) + '.' + t.name), i.index_id, LOWER(c.name)
-                    FROM sys.indexes i
-                    JOIN sys.tables t ON t.object_id = i.object_id
-                    JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
-                    JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
-                    WHERE i.is_unique = 1""", 200_000)
-                idx: dict[tuple[str, int], set[str]] = {}
-                for t, i, c in r.rows:
-                    idx.setdefault((t, i), set()).add(c)
-                for (t, _), cols in idx.items():
-                    unique_sets.setdefault(t, []).append(cols)
-            except Exception as e:  # noqa: BLE001
-                log.warning("Unique index metadatası okunamadı: %s", e)
+        try:
+            r = con.execute("""
+                SELECT LOWER(SCHEMA_NAME(t.schema_id) + '.' + t.name), i.index_id, LOWER(c.name)
+                FROM sys.indexes i
+                JOIN sys.tables t ON t.object_id = i.object_id
+                JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
+                JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                WHERE i.is_unique = 1""", 200_000)
+            idx: dict[tuple[str, int], set[str]] = {}
+            for t, i, c in r.rows:
+                idx.setdefault((t, i), set()).add(c)
+            for (t, _), cols in idx.items():
+                unique_sets.setdefault(t, []).append(cols)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Unique index metadatası okunamadı: %s", e)
         cache: dict[tuple[str, frozenset[str]], bool | None] = {}
 
         def unique(table: str, cols: list[str]) -> bool | None:
@@ -431,3 +429,26 @@ class DataDictionary:
             } for r in rels],
         }
 
+
+    # ------------------------------------------------------------------ anlık görüntü (testler / çevrimdışı)
+    def to_snapshot(self) -> dict[str, Any]:
+        """Yüklenmiş sözlüğün tamamı (kardinalite dahil) JSON'a çevrilebilir sözlük olarak."""
+        from dataclasses import asdict
+
+        return {
+            "tables": [{**{k: v for k, v in asdict(t).items() if k != "columns"},
+                        "columns": [asdict(c) for c in t.columns]} for t in self.tables.values()],
+            "relationships": [{**{k: v for k, v in asdict(r).items() if not k.startswith("_")},
+                               "pairs": [list(p) for p in r.pairs]} for r in self.relationships],
+            "metrics": [asdict(m) for m in self.metrics],
+        }
+
+    @classmethod
+    def from_snapshot(cls, settings: Settings, snap: dict[str, Any], data_connector: Connector | None = None) -> "DataDictionary":
+        dd = cls(settings, data_connector)
+        for t in snap["tables"]:
+            cols = [DDColumn(**c) for c in t["columns"]]
+            dd.tables[t["name"]] = DDTable(**{k: v for k, v in t.items() if k != "columns"}, columns=cols)
+        dd.relationships = [DDRelationship(**{**r, "pairs": [tuple(p) for p in r["pairs"]]}) for r in snap["relationships"]]
+        dd.metrics = [DDMetric(**m) for m in snap["metrics"]]
+        return dd

@@ -7,12 +7,14 @@ from app.harness.session import SessionStore
 from app.llm.gateway import AssistantTurn, _extract_prompt_tool_calls, _to_prompt_mode, parse_json_loose
 from tests.conftest import FakeLLM, call
 
-KPI_SQL = """SELECT SUM(f.amount_try) AS sales_amount, COUNT(*) AS tx_count
-FROM dwh.fact_card_transaction f JOIN dwh.dim_date d ON d.date_key = f.date_key WHERE d.year = 2026"""
-REGION_SQL = """SELECT b.region, SUM(f.amount_try) AS sales_amount
-FROM dwh.fact_card_transaction f JOIN dwh.dim_branch b ON b.branch_id = f.branch_id GROUP BY b.region"""
-TREND_SQL = """SELECT d.year_month, SUM(f.amount_try) AS sales_amount
-FROM dwh.fact_card_transaction f JOIN dwh.dim_date d ON d.date_key = f.date_key GROUP BY 1 ORDER BY 1"""
+KPI_SQL = """SELECT SUM(f.SalesAmount) AS sales_amount, COUNT(DISTINCT f.SalesOrderNumber) AS order_count
+FROM dbo.FactInternetSales f JOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey WHERE d.CalendarYear = 2013"""
+REGION_SQL = """SELECT t.SalesTerritoryRegion AS region, SUM(f.SalesAmount) AS sales_amount
+FROM dbo.FactInternetSales f JOIN dbo.DimSalesTerritory t ON t.SalesTerritoryKey = f.SalesTerritoryKey
+GROUP BY t.SalesTerritoryRegion"""
+TREND_SQL = """SELECT CONVERT(char(7), d.FullDateAlternateKey, 126) AS year_month, SUM(f.SalesAmount) AS sales_amount
+FROM dbo.FactInternetSales f JOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey
+GROUP BY CONVERT(char(7), d.FullDateAlternateKey, 126) ORDER BY year_month"""
 
 
 def _run(agent, sid, text, images=None):
@@ -24,26 +26,26 @@ def test_full_flow(settings, services):
         # --- ihtiyaç fazı: bir soru sor
         AssistantTurn("Hangi zaman aralığını istersiniz?"),
         # kullanıcı yanıtlar → gereksinimleri kaydet (faz → data, aynı turda devam)
-        AssistantTurn("", [call("save_requirements", report_title="Kart Satış Raporu", business_goal="Satışları izlemek",
-                                kpis=["Satış tutarı"], dimensions=["Bölge", "Ay"], time_range="2026")]),
-        AssistantTurn("", [call("search_dictionary", query="kredi kartı satış bölge")]),
-        AssistantTurn("", [call("get_table_details", tables=["dwh.fact_card_transaction", "dwh.dim_branch"])]),
+        AssistantTurn("", [call("save_requirements", report_title="İnternet Satış Raporu", business_goal="Satışları izlemek",
+                                kpis=["Satış tutarı"], dimensions=["Bölge", "Ay"], time_range="2013")]),
+        AssistantTurn("", [call("search_dictionary", query="internet satış bölge")]),
+        AssistantTurn("", [call("get_table_details", tables=["dbo.FactInternetSales", "dbo.DimSalesTerritory"])]),
         # hatalı SQL → harness hatayı modele geri verir
-        AssistantTurn("", [call("run_sql", sql="SELECT national_id FROM dwh.dim_customer")]),
+        AssistantTurn("", [call("run_sql", sql="SELECT EmailAddress FROM dbo.DimCustomer")]),
         AssistantTurn("", [call("run_sql", sql=REGION_SQL)]),
         AssistantTurn("", [call("save_datasets", datasets=[
             {"id": "kpi_summary", "description": "KPI", "sql": KPI_SQL},
             {"id": "region_sales", "description": "Bölge", "sql": REGION_SQL},
             {"id": "monthly_trend", "description": "Trend", "sql": TREND_SQL},
         ])]),
-        AssistantTurn("Veriler hazır. Marmara en yüksek bölge. Nasıl bir tasarım istersiniz?"),
+        AssistantTurn("Veriler hazır. Southwest en yüksek bölge. Nasıl bir tasarım istersiniz?"),
         # --- tasarım fazı
         AssistantTurn("", [call("create_report_spec", spec={
-            "title": "Kart Satış Raporu",
+            "title": "İnternet Satış Raporu",
             "theme": {"mode": "dark"},
             "visuals": [
                 {"id": "k1", "type": "kpi", "title": "Satış", "datasetId": "kpi_summary", "encoding": {"value": "sales_amount"}},
-                {"id": "k2", "type": "kpi", "title": "Adet", "datasetId": "kpi_summary", "encoding": {"value": "tx_count"},
+                {"id": "k2", "type": "kpi", "title": "Adet", "datasetId": "kpi_summary", "encoding": {"value": "order_count"},
                  "position": {"x": 0, "y": 0, "w": 3, "h": 2}},  # k1 ile çakışır → otomatik taşınır
                 {"id": "r", "type": "bar", "title": "Bölge", "datasetId": "region_sales", "encoding": {"x": "region", "y": "sales_amount"}},
                 {"id": "t", "type": "line", "title": "Trend", "datasetId": "monthly_trend", "encoding": {"x": "year_month", "y": ["sales_amount"]}},
@@ -59,18 +61,18 @@ def test_full_flow(settings, services):
     agent = Agent(llm, services, store)
     s = store.create("analyst")
 
-    ev = _run(agent, s.id, "Kredi kartı satış raporu istiyorum")
+    ev = _run(agent, s.id, "İnternet satış raporu istiyorum")
     assert ev[-1].type == "done"
     s = store.get(s.id)
     assert s.phase == "requirements" and s.transcript[-1].role == "assistant"
     assert "save_requirements" in llm.calls[0]["tools"] and "run_sql" not in llm.calls[0]["tools"]
 
-    _run(agent, s.id, "2026 yılı, bölge ve ay kırılımı")
+    _run(agent, s.id, "2013 yılı, bölge ve ay kırılımı")
     s = store.get(s.id)
     assert s.phase == "design"
     assert [d.id for d in s.datasets] == ["kpi_summary", "region_sales", "monthly_trend"]
     kpi = next(d for d in s.datasets if d.id == "kpi_summary")
-    assert {f.name: f.format for f in kpi.fields} == {"sales_amount": "currency", "tx_count": "number"}
+    assert {f.name: f.format for f in kpi.fields} == {"sales_amount": "currency", "order_count": "number"}
     tools = [t.tool for t in s.transcript if t.role == "tool"]
     pii = next(t for t in tools if t.name == "run_sql" and not t.ok)
     assert "PII" in json.dumps(llm.calls[5]["messages"][-1], ensure_ascii=False), "PII hatası modele geri verilmeli"

@@ -1,23 +1,23 @@
 {
   "version": 1,
-  "title": "Kredi Kartı Satış Performansı",
-  "subtitle": "2026 Ocak–Ağustos · geçen yılın aynı dönemiyle karşılaştırmalı",
+  "title": "AdventureWorks Satış Performansı",
+  "subtitle": "2013 internet satışları · 2012 ile karşılaştırmalı",
   "theme": {
     "mode": "light",
     "palette": [
-      "#2563eb",
-      "#0ea5e9",
-      "#14b8a6",
+      "#0f766e",
+      "#0891b2",
+      "#6366f1",
       "#f59e0b",
-      "#ef4444",
-      "#8b5cf6",
+      "#e11d48",
+      "#84cc16",
       "#64748b"
     ],
-    "background": "#f4f6fb",
+    "background": "#f3f6f8",
     "surface": "#ffffff",
     "text": "#0f172a",
     "mutedText": "#64748b",
-    "accent": "#2563eb",
+    "accent": "#0f766e",
     "border": "#e2e8f0",
     "fontFamily": "Inter, 'Segoe UI', system-ui, sans-serif",
     "radius": 14,
@@ -31,26 +31,35 @@
   },
   "filters": [
     {
-      "id": "f_region",
-      "label": "Bölge",
-      "table": "dwh.dim_branch",
-      "column": "region",
-      "field": "region",
-      "type": "multiselect"
+      "id": "f_group",
+      "label": "Bölge Grubu",
+      "table": "dbo.DimSalesTerritory",
+      "column": "SalesTerritoryGroup",
+      "type": "multiselect",
+      "field": "territory_group"
     },
     {
-      "id": "f_cardtype",
-      "label": "Kart Tipi",
-      "table": "dwh.dim_product",
-      "column": "card_type",
-      "type": "multiselect"
+      "id": "f_country",
+      "label": "Ülke",
+      "table": "dbo.DimSalesTerritory",
+      "column": "SalesTerritoryCountry",
+      "type": "multiselect",
+      "field": "country"
+    },
+    {
+      "id": "f_category",
+      "label": "Ürün Kategorisi",
+      "table": "dbo.DimProductCategory",
+      "column": "EnglishProductCategoryName",
+      "type": "multiselect",
+      "field": "category"
     }
   ],
   "datasets": [
     {
       "id": "kpi_summary",
-      "description": "2026 YTD ana göstergeler ve geçen yılın aynı dönemine göre değişim",
-      "sql": "WITH p AS (\n  SELECT d.year, SUM(f.amount_try) AS sales, COUNT(*) AS tx, COUNT(DISTINCT f.customer_id) AS customers\n  FROM dwh.fact_card_transaction f JOIN dwh.dim_date d ON d.date_key = f.date_key\n  WHERE d.year IN (2025, 2026) AND d.month <= 8\n  GROUP BY d.year\n)\nSELECT c.sales AS sales_amount, (c.sales - p.sales) / p.sales AS sales_growth,\n       c.tx AS tx_count, (c.tx - p.tx) * 1.0 / p.tx AS tx_growth,\n       c.sales / c.tx AS avg_ticket, (c.sales / c.tx - p.sales / p.tx) / (p.sales / p.tx) AS avg_ticket_growth,\n       c.customers AS active_customers, (c.customers - p.customers) * 1.0 / p.customers AS customer_growth\nFROM p c JOIN p p ON c.year = 2026 AND p.year = 2025",
+      "description": "2013 internet satış KPI'ları ve 2012'ye göre değişim",
+      "sql": "WITH p AS (\n  SELECT d.CalendarYear AS yr,\n         CAST(SUM(f.SalesAmount) AS float) AS sales,\n         COUNT(DISTINCT f.SalesOrderNumber) AS orders,\n         CAST(SUM(f.SalesAmount - f.TotalProductCost) AS float) AS profit,\n         COUNT(DISTINCT f.CustomerKey) AS customers\n  FROM dbo.FactInternetSales f\n  JOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey\n  WHERE d.CalendarYear IN (2012, 2013)\n  GROUP BY d.CalendarYear\n)\nSELECT c.sales AS sales_amount, (c.sales - p.sales) / p.sales AS sales_growth,\n       c.orders AS order_count, (c.orders - p.orders) * 1.0 / p.orders AS order_growth,\n       c.profit / c.sales AS gross_margin, c.profit / c.sales - p.profit / p.sales AS margin_change,\n       c.customers AS active_customers, (c.customers - p.customers) * 1.0 / p.customers AS customer_growth\nFROM p c JOIN p p ON c.yr = 2013 AND p.yr = 2012",
       "fields": [
         {
           "name": "sales_amount",
@@ -65,26 +74,26 @@
           "format": "percent"
         },
         {
-          "name": "tx_count",
-          "label": "İşlem Adedi",
+          "name": "order_count",
+          "label": "Sipariş Sayısı",
           "type": "number",
           "format": "number"
         },
         {
-          "name": "tx_growth",
-          "label": "İşlem Büyümesi",
+          "name": "order_growth",
+          "label": "Sipariş Büyümesi",
           "type": "number",
           "format": "percent"
         },
         {
-          "name": "avg_ticket",
-          "label": "Ortalama Sepet",
+          "name": "gross_margin",
+          "label": "Brüt Kâr Marjı",
           "type": "number",
-          "format": "currency"
+          "format": "percent"
         },
         {
-          "name": "avg_ticket_growth",
-          "label": "Sepet Büyümesi",
+          "name": "margin_change",
+          "label": "Marj Değişimi",
           "type": "number",
           "format": "percent"
         },
@@ -104,13 +113,14 @@
     },
     {
       "id": "monthly_trend",
-      "description": "Aylık satış tutarı ve işlem adedi (son 20 ay)",
-      "sql": "SELECT d.year_month, SUM(f.amount_try) AS sales_amount, COUNT(*) AS tx_count\nFROM dwh.fact_card_transaction f JOIN dwh.dim_date d ON d.date_key = f.date_key\nWHERE d.full_date >= DATE '2025-01-01'\nGROUP BY d.year_month ORDER BY d.year_month",
+      "description": "Aylık internet satış tutarı ve sipariş sayısı (2012–2013)",
+      "sql": "SELECT CONVERT(char(7), d.FullDateAlternateKey, 126) AS year_month,\n       CAST(SUM(f.SalesAmount) AS float) AS sales_amount,\n       COUNT(DISTINCT f.SalesOrderNumber) AS order_count\nFROM dbo.FactInternetSales f\nJOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey\nWHERE d.CalendarYear IN (2012, 2013)\nGROUP BY CONVERT(char(7), d.FullDateAlternateKey, 126)\nORDER BY year_month",
       "fields": [
         {
           "name": "year_month",
           "label": "Ay",
-          "type": "string"
+          "type": "string",
+          "format": null
         },
         {
           "name": "sales_amount",
@@ -119,51 +129,54 @@
           "format": "currency"
         },
         {
-          "name": "tx_count",
-          "label": "İşlem Adedi",
+          "name": "order_count",
+          "label": "Sipariş Sayısı",
           "type": "number",
           "format": "number"
         }
       ]
     },
     {
-      "id": "region_sales",
-      "description": "Bölge bazında 2026 YTD satış",
-      "sql": "SELECT b.region, SUM(f.amount_try) AS sales_amount, COUNT(*) AS tx_count\nFROM dwh.fact_card_transaction f\nJOIN dwh.dim_date d ON d.date_key = f.date_key\nJOIN dwh.dim_branch b ON b.branch_id = f.branch_id\nWHERE d.year = 2026\nGROUP BY b.region ORDER BY sales_amount DESC",
+      "id": "country_sales",
+      "description": "Ülke bazında 2013 internet satışı",
+      "sql": "SELECT t.SalesTerritoryGroup AS territory_group, t.SalesTerritoryCountry AS country,\n       CAST(SUM(f.SalesAmount) AS float) AS sales_amount\nFROM dbo.FactInternetSales f\nJOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey\nJOIN dbo.DimSalesTerritory t ON t.SalesTerritoryKey = f.SalesTerritoryKey\nWHERE d.CalendarYear = 2013\nGROUP BY t.SalesTerritoryGroup, t.SalesTerritoryCountry\nORDER BY sales_amount DESC",
       "fields": [
         {
-          "name": "region",
-          "label": "Bölge",
-          "type": "string"
+          "name": "territory_group",
+          "label": "Bölge Grubu",
+          "type": "string",
+          "format": null
+        },
+        {
+          "name": "country",
+          "label": "Ülke",
+          "type": "string",
+          "format": null
         },
         {
           "name": "sales_amount",
           "label": "Satış Tutarı",
           "type": "number",
           "format": "currency"
-        },
-        {
-          "name": "tx_count",
-          "label": "İşlem Adedi",
-          "type": "number",
-          "format": "number"
         }
       ]
     },
     {
-      "id": "category_share",
-      "description": "İşyeri kategorisine göre 2026 YTD satış dağılımı",
-      "sql": "SELECT m.category_name, b.region, SUM(f.amount_try) AS sales_amount\nFROM dwh.fact_card_transaction f\nJOIN dwh.dim_date d ON d.date_key = f.date_key\nJOIN dwh.dim_merchant_category m ON m.mcc_id = f.mcc_id\nJOIN dwh.dim_branch b ON b.branch_id = f.branch_id\nWHERE d.year = 2026\nGROUP BY m.category_name, b.region",
+      "id": "category_sales",
+      "description": "Ürün kategorisine göre 2013 internet satışı",
+      "sql": "SELECT pc.EnglishProductCategoryName AS category, t.SalesTerritoryGroup AS territory_group,\n       CAST(SUM(f.SalesAmount) AS float) AS sales_amount\nFROM dbo.FactInternetSales f\nJOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey\nJOIN dbo.DimProduct p ON p.ProductKey = f.ProductKey\nJOIN dbo.DimProductSubcategory ps ON ps.ProductSubcategoryKey = p.ProductSubcategoryKey\nJOIN dbo.DimProductCategory pc ON pc.ProductCategoryKey = ps.ProductCategoryKey\nJOIN dbo.DimSalesTerritory t ON t.SalesTerritoryKey = f.SalesTerritoryKey\nWHERE d.CalendarYear = 2013\nGROUP BY pc.EnglishProductCategoryName, t.SalesTerritoryGroup",
       "fields": [
         {
-          "name": "category_name",
+          "name": "category",
           "label": "Kategori",
-          "type": "string"
+          "type": "string",
+          "format": null
         },
         {
-          "name": "region",
-          "label": "Bölge",
-          "type": "string"
+          "name": "territory_group",
+          "label": "Bölge Grubu",
+          "type": "string",
+          "format": null
         },
         {
           "name": "sales_amount",
@@ -175,18 +188,20 @@
     },
     {
       "id": "channel_monthly",
-      "description": "Kanal bazında aylık satış (2026)",
-      "sql": "SELECT d.year_month, c.channel_name, SUM(f.amount_try) AS sales_amount\nFROM dwh.fact_card_transaction f\nJOIN dwh.dim_date d ON d.date_key = f.date_key\nJOIN dwh.dim_channel c ON c.channel_id = f.channel_id\nWHERE d.year = 2026\nGROUP BY d.year_month, c.channel_name ORDER BY d.year_month",
+      "description": "Kanal bazında aylık satış: internet ve bayi (2012–2013)",
+      "sql": "SELECT CONVERT(char(7), d.FullDateAlternateKey, 126) AS year_month, N'İnternet' AS channel,\n       CAST(SUM(f.SalesAmount) AS float) AS sales_amount\nFROM dbo.FactInternetSales f JOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey\nWHERE d.FullDateAlternateKey BETWEEN '2012-01-01' AND '2013-11-30'\nGROUP BY CONVERT(char(7), d.FullDateAlternateKey, 126)\nUNION ALL\nSELECT CONVERT(char(7), d.FullDateAlternateKey, 126), N'Bayi', CAST(SUM(r.SalesAmount) AS float)\nFROM dbo.FactResellerSales r JOIN dbo.DimDate d ON d.DateKey = r.OrderDateKey\nWHERE d.FullDateAlternateKey BETWEEN '2012-01-01' AND '2013-11-30'\nGROUP BY CONVERT(char(7), d.FullDateAlternateKey, 126)\nORDER BY year_month",
       "fields": [
         {
           "name": "year_month",
           "label": "Ay",
-          "type": "string"
+          "type": "string",
+          "format": null
         },
         {
-          "name": "channel_name",
+          "name": "channel",
           "label": "Kanal",
-          "type": "string"
+          "type": "string",
+          "format": null
         },
         {
           "name": "sales_amount",
@@ -197,24 +212,21 @@
       ]
     },
     {
-      "id": "top_branches",
-      "description": "2026 YTD en yüksek satışlı 10 şube",
-      "sql": "SELECT b.branch_name, b.city, b.region, SUM(f.amount_try) AS sales_amount, COUNT(*) AS tx_count,\n       SUM(f.amount_try) / COUNT(*) AS avg_ticket\nFROM dwh.fact_card_transaction f\nJOIN dwh.dim_date d ON d.date_key = f.date_key\nJOIN dwh.dim_branch b ON b.branch_id = f.branch_id\nWHERE d.year = 2026\nGROUP BY b.branch_name, b.city, b.region ORDER BY sales_amount DESC LIMIT 10",
+      "id": "top_products",
+      "description": "2013'te en çok satan 10 ürün",
+      "sql": "SELECT TOP 10 p.EnglishProductName AS product, ps.EnglishProductSubcategoryName AS subcategory,\n       CAST(SUM(f.SalesAmount) AS float) AS sales_amount, SUM(f.OrderQuantity) AS quantity,\n       CAST(SUM(f.SalesAmount - f.TotalProductCost) AS float) / NULLIF(CAST(SUM(f.SalesAmount) AS float), 0) AS gross_margin\nFROM dbo.FactInternetSales f\nJOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey\nJOIN dbo.DimProduct p ON p.ProductKey = f.ProductKey\nJOIN dbo.DimProductSubcategory ps ON ps.ProductSubcategoryKey = p.ProductSubcategoryKey\nWHERE d.CalendarYear = 2013\nGROUP BY p.EnglishProductName, ps.EnglishProductSubcategoryName\nORDER BY sales_amount DESC",
       "fields": [
         {
-          "name": "branch_name",
-          "label": "Şube",
-          "type": "string"
+          "name": "product",
+          "label": "Ürün",
+          "type": "string",
+          "format": null
         },
         {
-          "name": "city",
-          "label": "İl",
-          "type": "string"
-        },
-        {
-          "name": "region",
-          "label": "Bölge",
-          "type": "string"
+          "name": "subcategory",
+          "label": "Alt Kategori",
+          "type": "string",
+          "format": null
         },
         {
           "name": "sales_amount",
@@ -223,16 +235,16 @@
           "format": "currency"
         },
         {
-          "name": "tx_count",
-          "label": "İşlem Adedi",
+          "name": "quantity",
+          "label": "Adet",
           "type": "number",
           "format": "number"
         },
         {
-          "name": "avg_ticket",
-          "label": "Ortalama Sepet",
+          "name": "gross_margin",
+          "label": "Brüt Marj",
           "type": "number",
-          "format": "currency"
+          "format": "percent"
         }
       ]
     }
@@ -248,9 +260,9 @@
       },
       "options": {
         "format": "compact",
-        "currency": "TRY",
+        "currency": "USD",
         "deltaField": "sales_growth",
-        "deltaLabel": "geçen yıla göre",
+        "deltaLabel": "2012'ye göre",
         "sparklineDatasetId": "monthly_trend",
         "sparklineField": "sales_amount"
       },
@@ -262,19 +274,19 @@
       }
     },
     {
-      "id": "kpi_tx",
+      "id": "kpi_orders",
       "type": "kpi",
-      "title": "İşlem Adedi",
+      "title": "Sipariş Sayısı",
       "datasetId": "kpi_summary",
       "encoding": {
-        "value": "tx_count"
+        "value": "order_count"
       },
       "options": {
         "format": "number",
-        "deltaField": "tx_growth",
-        "deltaLabel": "geçen yıla göre",
+        "deltaField": "order_growth",
+        "deltaLabel": "2012'ye göre",
         "sparklineDatasetId": "monthly_trend",
-        "sparklineField": "tx_count"
+        "sparklineField": "order_count"
       },
       "position": {
         "x": 3,
@@ -284,18 +296,18 @@
       }
     },
     {
-      "id": "kpi_ticket",
+      "id": "kpi_margin",
       "type": "kpi",
-      "title": "Ortalama Sepet",
+      "title": "Brüt Kâr Marjı",
       "datasetId": "kpi_summary",
       "encoding": {
-        "value": "avg_ticket"
+        "value": "gross_margin"
       },
       "options": {
-        "format": "currency",
-        "decimals": 0,
-        "deltaField": "avg_ticket_growth",
-        "deltaLabel": "geçen yıla göre"
+        "format": "percent",
+        "decimals": 1,
+        "deltaField": "margin_change",
+        "deltaLabel": "puan, 2012'ye göre"
       },
       "position": {
         "x": 6,
@@ -315,7 +327,7 @@
       "options": {
         "format": "number",
         "deltaField": "customer_growth",
-        "deltaLabel": "geçen yıla göre"
+        "deltaLabel": "2012'ye göre"
       },
       "position": {
         "x": 9,
@@ -327,18 +339,19 @@
     {
       "id": "trend",
       "type": "combo",
-      "title": "Aylık Satış Trendi",
-      "subtitle": "Tutar (bar) ve işlem adedi (çizgi)",
+      "title": "Aylık İnternet Satışları",
+      "subtitle": "Tutar (bar) ve sipariş sayısı (çizgi)",
       "datasetId": "monthly_trend",
       "encoding": {
         "x": "year_month",
         "y": [
           "sales_amount",
-          "tx_count"
+          "order_count"
         ]
       },
       "options": {
         "format": "compact",
+        "currency": "USD",
         "showLegend": true,
         "smooth": true
       },
@@ -350,12 +363,12 @@
       }
     },
     {
-      "id": "region_bar",
+      "id": "country_bar",
       "type": "bar",
-      "title": "Bölge Bazında Satış",
-      "datasetId": "region_sales",
+      "title": "Ülke Bazında Satış",
+      "datasetId": "country_sales",
       "encoding": {
-        "x": "region",
+        "x": "country",
         "y": [
           "sales_amount"
         ]
@@ -364,6 +377,7 @@
         "horizontal": true,
         "sort": "desc",
         "format": "compact",
+        "currency": "USD",
         "showLabels": true
       },
       "position": {
@@ -377,13 +391,14 @@
       "id": "category_donut",
       "type": "donut",
       "title": "Kategori Dağılımı",
-      "datasetId": "category_share",
+      "datasetId": "category_sales",
       "encoding": {
-        "category": "category_name",
+        "category": "category",
         "value": "sales_amount"
       },
       "options": {
         "format": "compact",
+        "currency": "USD",
         "showLegend": true
       },
       "position": {
@@ -397,18 +412,20 @@
       "id": "channel_area",
       "type": "area",
       "title": "Kanal Bazında Aylık Satış",
+      "subtitle": "İnternet ve bayi",
       "datasetId": "channel_monthly",
       "encoding": {
         "x": "year_month",
         "y": [
           "sales_amount"
         ],
-        "series": "channel_name"
+        "series": "channel"
       },
       "options": {
         "stacked": true,
         "smooth": true,
         "format": "compact",
+        "currency": "USD",
         "showLegend": true
       },
       "position": {
@@ -419,22 +436,21 @@
       }
     },
     {
-      "id": "branch_table",
+      "id": "product_table",
       "type": "table",
-      "title": "En Yüksek Satışlı 10 Şube",
-      "datasetId": "top_branches",
+      "title": "En Çok Satan 10 Ürün",
+      "datasetId": "top_products",
       "encoding": {
         "columns": [
-          "branch_name",
-          "city",
-          "region",
+          "product",
+          "subcategory",
           "sales_amount",
-          "tx_count",
-          "avg_ticket"
+          "quantity",
+          "gross_margin"
         ]
       },
       "options": {
-        "format": "currency"
+        "currency": "USD"
       },
       "position": {
         "x": 0,

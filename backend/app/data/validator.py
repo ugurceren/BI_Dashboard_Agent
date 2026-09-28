@@ -90,7 +90,7 @@ class SqlValidator:
                 errors.append(f"Veritabanı/sunucu adı kullanmayın: '{t.sql(self.dialect)}' yerine '{t.db}.{t.name}' yazın.")
                 continue
             if not t.db:
-                errors.append(f"Tabloyu şemasıyla yazın: '{t.name}' yerine ör. 'dwh.{t.name}'.")
+                errors.append(f"Tabloyu şemasıyla yazın: '{t.name}' yerine ör. 'dbo.{t.name}'.")
                 continue
             full = f"{t.db}.{t.name}".lower()
             schema = t.db.lower()
@@ -106,6 +106,11 @@ class SqlValidator:
             tables.add(full)
             alias_to_table[t.alias_or_name.lower()] = full
             alias_to_table.setdefault(t.name.lower(), full)
+
+        # --- değişkenler (@x, @@SERVERNAME ...): tek SELECT'te gerekmez, sistem bilgisi sızdırabilir
+        for node in tree.find_all(*[getattr(exp, n) for n in ("Parameter", "SessionParameter", "Placeholder") if hasattr(exp, n)]):
+            errors.append(f"Değişken / sistem değişkeni kullanılamaz: {node.sql(self.dialect)[:40]}")
+            break
 
         # --- fonksiyonlar
         for f in tree.find_all(exp.Func):

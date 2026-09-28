@@ -1,0 +1,4897 @@
+{
+ "tables": [
+  {
+   "name": "dbo.dimaccount",
+   "business_name": "Hesap Planı",
+   "description": "Muhasebe hesap planı (hiyerarşik).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = bir hesap",
+   "row_count": 99,
+   "display_name": "dbo.DimAccount",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimaccount",
+     "name": "accountcodealternatekey",
+     "business_name": "Account Code Alternate Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "AccountCodeAlternateKey"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "accountdescription",
+     "business_name": "Hesap Adı",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "hesap"
+     ],
+     "is_pii": false,
+     "sample_values": "Accounts Payable, Accrued Expenses, Additional Paid In Capital, Allowance for Bad Debt, Amortization of Goodwill, Assets, Average Unit Price, Balance Sheet",
+     "display_name": "AccountDescription"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "accountkey",
+     "business_name": "Account Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "AccountKey"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "accounttype",
+     "business_name": "Hesap Tipi",
+     "description": "Assets, Liabilities, Revenue, Expenditures ...",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Assets, Balances, Expenditures, Flow, Liabilities, Revenue, Statistical",
+     "display_name": "AccountType"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "custommemberoptions",
+     "business_name": "Custom Member Options",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CustomMemberOptions"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "custommembers",
+     "business_name": "Custom Members",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "[Account].[Accounts].[Account Level 04].&[50]/[Account].[Accounts].[Account Level 02].&[97]",
+     "display_name": "CustomMembers"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "operator",
+     "business_name": "Operator",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "-, ~, +",
+     "display_name": "Operator"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "parentaccountcodealternatekey",
+     "business_name": "Parent Account Code Alternate Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ParentAccountCodeAlternateKey"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "parentaccountkey",
+     "business_name": "Parent Account Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ParentAccountKey"
+    },
+    {
+     "table": "dbo.dimaccount",
+     "name": "valuetype",
+     "business_name": "Value Type",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Currency, Units",
+     "display_name": "ValueType"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimcurrency",
+   "business_name": "Para Birimi",
+   "description": "Para birimi kodları ve adları.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir para birimi",
+   "row_count": 105,
+   "display_name": "dbo.DimCurrency",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimcurrency",
+     "name": "currencyalternatekey",
+     "business_name": "Para Birimi Kodu",
+     "description": "USD, EUR ...",
+     "data_type": "nchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "AED, AFA, ALL, AMD, ANG, AOA, ARS, ATS",
+     "display_name": "CurrencyAlternateKey"
+    },
+    {
+     "table": "dbo.dimcurrency",
+     "name": "currencykey",
+     "business_name": "Currency Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CurrencyKey"
+    },
+    {
+     "table": "dbo.dimcurrency",
+     "name": "currencyname",
+     "business_name": "Para Birimi",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "döviz"
+     ],
+     "is_pii": false,
+     "sample_values": "Afghani, Algerian Dinar, Argentine Peso, Armenian Dram, Aruban Guilder, Australian Dollar, Azerbaijanian Manat, Bahamian Dollar",
+     "display_name": "CurrencyName"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimcustomer",
+   "business_name": "Müşteri",
+   "description": "Bireysel (internet) müşteriler: demografi ve iletişim. Kimlik/iletişim alanları kişisel veridir.",
+   "subject_area": "Müşteri",
+   "grain": "Bir satır = bir müşteri",
+   "row_count": 18484,
+   "display_name": "dbo.DimCustomer",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimcustomer",
+     "name": "addressline1",
+     "business_name": "Adres 1",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "AddressLine1"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "addressline2",
+     "business_name": "Adres 2",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "AddressLine2"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "birthdate",
+     "business_name": "Doğum Tarihi",
+     "description": "Kişisel veri",
+     "data_type": "date",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [
+      "yaş"
+     ],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "BirthDate"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "commutedistance",
+     "business_name": "İşe Uzaklık",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "0-1 Miles, 10+ Miles, 1-2 Miles, 2-5 Miles, 5-10 Miles",
+     "display_name": "CommuteDistance"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "customeralternatekey",
+     "business_name": "Müşteri No",
+     "description": "Müşteriyi tekil tanımlar",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "CustomerAlternateKey"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "customerkey",
+     "business_name": "Customer Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CustomerKey"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "datefirstpurchase",
+     "business_name": "İlk Alışveriş Tarihi",
+     "description": "",
+     "data_type": "date",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "yeni müşteri",
+      "kazanım"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DateFirstPurchase"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "emailaddress",
+     "business_name": "E-posta",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "EmailAddress"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "englisheducation",
+     "business_name": "Eğitim",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "eğitim durumu"
+     ],
+     "is_pii": false,
+     "sample_values": "Bachelors, Graduate Degree, High School, Partial College, Partial High School",
+     "display_name": "EnglishEducation"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "englishoccupation",
+     "business_name": "Meslek",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "meslek"
+     ],
+     "is_pii": false,
+     "sample_values": "Clerical, Management, Manual, Professional, Skilled Manual",
+     "display_name": "EnglishOccupation"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "firstname",
+     "business_name": "Ad",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "FirstName"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "gender",
+     "business_name": "Cinsiyet",
+     "description": "M / F",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "cinsiyet"
+     ],
+     "is_pii": false,
+     "sample_values": "F, M",
+     "display_name": "Gender"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "geographykey",
+     "business_name": "Geography Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "GeographyKey"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "houseownerflag",
+     "business_name": "Ev Sahibi mi",
+     "description": "1/0",
+     "data_type": "nchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "0, 1",
+     "display_name": "HouseOwnerFlag"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "lastname",
+     "business_name": "Soyad",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "LastName"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "maritalstatus",
+     "business_name": "Medeni Durum",
+     "description": "M=Evli, S=Bekar",
+     "data_type": "nchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "medeni hal"
+     ],
+     "is_pii": false,
+     "sample_values": "M, S",
+     "display_name": "MaritalStatus"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "middlename",
+     "business_name": "İkinci Ad",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "MiddleName"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "namestyle",
+     "business_name": "Name Style",
+     "description": "",
+     "data_type": "bit",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "NameStyle"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "numbercarsowned",
+     "business_name": "Araç Sayısı",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "NumberCarsOwned"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "numberchildrenathome",
+     "business_name": "Number Children At Home",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "NumberChildrenAtHome"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "phone",
+     "business_name": "Telefon",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "Phone"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "suffix",
+     "business_name": "Ek",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "Suffix"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "title",
+     "business_name": "Unvan",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "Title"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "totalchildren",
+     "business_name": "Çocuk Sayısı",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "TotalChildren"
+    },
+    {
+     "table": "dbo.dimcustomer",
+     "name": "yearlyincome",
+     "business_name": "Yıllık Gelir",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "gelir grubu",
+      "gelir"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "YearlyIncome"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimdate",
+   "business_name": "Tarih",
+   "description": "Takvim ve mali takvim boyutu.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir gün",
+   "row_count": 3652,
+   "display_name": "dbo.DimDate",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimdate",
+     "name": "calendarquarter",
+     "business_name": "Çeyrek",
+     "description": "1-4",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "çeyrek",
+      "dönem"
+     ],
+     "is_pii": false,
+     "sample_values": "1, 2, 3, 4",
+     "display_name": "CalendarQuarter"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "calendarsemester",
+     "business_name": "Yarıyıl",
+     "description": "1-2",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "1, 2",
+     "display_name": "CalendarSemester"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "calendaryear",
+     "business_name": "Yıl",
+     "description": "Takvim yılı",
+     "data_type": "smallint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "yıl",
+      "yıllık"
+     ],
+     "is_pii": false,
+     "sample_values": "2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012",
+     "display_name": "CalendarYear"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "datekey",
+     "business_name": "Tarih Anahtarı",
+     "description": "YYYYMMDD",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DateKey"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "daynumberofmonth",
+     "business_name": "Day Number Of Month",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DayNumberOfMonth"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "daynumberofweek",
+     "business_name": "Day Number Of Week",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DayNumberOfWeek"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "daynumberofyear",
+     "business_name": "Day Number Of Year",
+     "description": "",
+     "data_type": "smallint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DayNumberOfYear"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "englishdaynameofweek",
+     "business_name": "Gün Adı (İng.)",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "gün"
+     ],
+     "is_pii": false,
+     "sample_values": "Friday, Monday, Saturday, Sunday, Thursday, Tuesday, Wednesday",
+     "display_name": "EnglishDayNameOfWeek"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "englishmonthname",
+     "business_name": "Ay Adı (İng.)",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "ay"
+     ],
+     "is_pii": false,
+     "sample_values": "April, August, December, February, January, July, June, March",
+     "display_name": "EnglishMonthName"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "fiscalquarter",
+     "business_name": "Mali Çeyrek",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "1, 2, 3, 4",
+     "display_name": "FiscalQuarter"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "fiscalsemester",
+     "business_name": "Fiscal Semester",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "FiscalSemester"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "fiscalyear",
+     "business_name": "Mali Yıl",
+     "description": "",
+     "data_type": "smallint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "mali yıl"
+     ],
+     "is_pii": false,
+     "sample_values": "2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012",
+     "display_name": "FiscalYear"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "fulldatealternatekey",
+     "business_name": "Tarih",
+     "description": "Takvim günü (date)",
+     "data_type": "date",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "gün",
+      "tarih"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "FullDateAlternateKey"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "monthnumberofyear",
+     "business_name": "Ay No",
+     "description": "1-12",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "ay",
+      "aylık"
+     ],
+     "is_pii": false,
+     "sample_values": "1, 10, 11, 12, 2, 3, 4, 5",
+     "display_name": "MonthNumberOfYear"
+    },
+    {
+     "table": "dbo.dimdate",
+     "name": "weeknumberofyear",
+     "business_name": "Hafta",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "haftalık"
+     ],
+     "is_pii": false,
+     "sample_values": "1, 10, 11, 12, 13, 14, 15, 16",
+     "display_name": "WeekNumberOfYear"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimdepartmentgroup",
+   "business_name": "Departman Grubu",
+   "description": "Departman grupları (hiyerarşik).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = bir departman grubu",
+   "row_count": 7,
+   "display_name": "dbo.DimDepartmentGroup",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimdepartmentgroup",
+     "name": "departmentgroupkey",
+     "business_name": "Department Group Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DepartmentGroupKey"
+    },
+    {
+     "table": "dbo.dimdepartmentgroup",
+     "name": "departmentgroupname",
+     "business_name": "Departman Grubu",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "departman"
+     ],
+     "is_pii": false,
+     "sample_values": "Corporate, Executive General and Administration, Inventory Management, Manufacturing, Quality Assurance, Research and Development, Sales and Marketing",
+     "display_name": "DepartmentGroupName"
+    },
+    {
+     "table": "dbo.dimdepartmentgroup",
+     "name": "parentdepartmentgroupkey",
+     "business_name": "Parent Department Group Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ParentDepartmentGroupKey"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimemployee",
+   "business_name": "Çalışan",
+   "description": "Çalışanlar ve satış temsilcileri. Kişisel bilgiler (kimlik, doğum tarihi, iletişim, ücret) hassastır.",
+   "subject_area": "İK",
+   "grain": "Bir satır = bir çalışan kaydı",
+   "row_count": 296,
+   "display_name": "dbo.DimEmployee",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimemployee",
+     "name": "baserate",
+     "business_name": "Saatlik Ücret",
+     "description": "Ücret bilgisi — hassas",
+     "data_type": "money",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [
+      "maaş",
+      "ücret"
+     ],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "BaseRate"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "birthdate",
+     "business_name": "Doğum Tarihi",
+     "description": "Kişisel veri",
+     "data_type": "date",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "BirthDate"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "currentflag",
+     "business_name": "Current Flag",
+     "description": "",
+     "data_type": "bit",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CurrentFlag"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "departmentname",
+     "business_name": "Departman",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "departman",
+      "birim"
+     ],
+     "is_pii": false,
+     "sample_values": "Document Control, Engineering, Executive, Facilities and Maintenance, Finance, Human Resources, Information Services, Marketing",
+     "display_name": "DepartmentName"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "emailaddress",
+     "business_name": "E-posta",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "EmailAddress"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "emergencycontactname",
+     "business_name": "Acil Durum Kişisi",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "EmergencyContactName"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "emergencycontactphone",
+     "business_name": "Acil Durum Telefonu",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "EmergencyContactPhone"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "employeekey",
+     "business_name": "Employee Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "EmployeeKey"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "employeenationalidalternatekey",
+     "business_name": "Kimlik No",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "EmployeeNationalIDAlternateKey"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "enddate",
+     "business_name": "End Date",
+     "description": "",
+     "data_type": "date",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "EndDate"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "firstname",
+     "business_name": "Ad",
+     "description": "Satış temsilcisi raporlarında kullanılabilir",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "temsilci adı"
+     ],
+     "is_pii": false,
+     "sample_values": "A. Scott, Alan, Alejandro, Alex, Alice, Amy, Andreas, Andrew",
+     "display_name": "FirstName"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "gender",
+     "business_name": "Cinsiyet",
+     "description": "Kişisel veri (İK)",
+     "data_type": "nchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "Gender"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "hiredate",
+     "business_name": "İşe Giriş Tarihi",
+     "description": "",
+     "data_type": "date",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "kıdem"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "HireDate"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "lastname",
+     "business_name": "Soyad",
+     "description": "Satış temsilcisi raporlarında kullanılabilir",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "temsilci soyadı"
+     ],
+     "is_pii": false,
+     "sample_values": "Abbas, Abercrombie, Abolrous, Ackerman, Adams, Ajenstat, Alberts, Alderson",
+     "display_name": "LastName"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "loginid",
+     "business_name": "Kullanıcı Adı",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "LoginID"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "maritalstatus",
+     "business_name": "Medeni Durum",
+     "description": "Kişisel veri",
+     "data_type": "nchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "MaritalStatus"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "middlename",
+     "business_name": "İkinci Ad",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "MiddleName"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "namestyle",
+     "business_name": "Name Style",
+     "description": "",
+     "data_type": "bit",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "NameStyle"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "parentemployeekey",
+     "business_name": "Parent Employee Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ParentEmployeeKey"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "parentemployeenationalidalternatekey",
+     "business_name": "Yönetici Kimlik No",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "ParentEmployeeNationalIDAlternateKey"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "payfrequency",
+     "business_name": "Pay Frequency",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "PayFrequency"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "phone",
+     "business_name": "Telefon",
+     "description": "Kişisel veri",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "Phone"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "salariedflag",
+     "business_name": "Salaried Flag",
+     "description": "",
+     "data_type": "bit",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalariedFlag"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "salespersonflag",
+     "business_name": "Satış Temsilcisi mi",
+     "description": "1 = satış temsilcisi",
+     "data_type": "bit",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "satışçı"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesPersonFlag"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesTerritoryKey"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "sickleavehours",
+     "business_name": "Hastalık İzni Saatleri",
+     "description": "",
+     "data_type": "smallint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "SickLeaveHours"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "startdate",
+     "business_name": "Start Date",
+     "description": "",
+     "data_type": "date",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "StartDate"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "status",
+     "business_name": "Status",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Current",
+     "display_name": "Status"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "title",
+     "business_name": "Görev",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "unvan",
+      "pozisyon"
+     ],
+     "is_pii": false,
+     "sample_values": "Accountant, Accounts Manager, Accounts Payable Specialist, Accounts Receivable Specialist, Application Specialist, Assistant to the Chief Financial Officer, Benefits Specialist, Buyer",
+     "display_name": "Title"
+    },
+    {
+     "table": "dbo.dimemployee",
+     "name": "vacationhours",
+     "business_name": "İzin Saatleri",
+     "description": "",
+     "data_type": "smallint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "VacationHours"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimgeography",
+   "business_name": "Coğrafya",
+   "description": "Şehir, eyalet/il, ülke ve posta kodu.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir şehir/posta kodu",
+   "row_count": 655,
+   "display_name": "dbo.DimGeography",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimgeography",
+     "name": "city",
+     "business_name": "Şehir",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "şehir",
+      "il"
+     ],
+     "is_pii": false,
+     "sample_values": "Abingdon, Albany, Alexandria, Alhambra, Alpine, Altamonte Springs, Arlington, Ascheim",
+     "display_name": "City"
+    },
+    {
+     "table": "dbo.dimgeography",
+     "name": "countryregioncode",
+     "business_name": "Country Region Code",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "AU, CA, DE, FR, GB, US",
+     "display_name": "CountryRegionCode"
+    },
+    {
+     "table": "dbo.dimgeography",
+     "name": "englishcountryregionname",
+     "business_name": "Ülke",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "ülke"
+     ],
+     "is_pii": false,
+     "sample_values": "Australia, Canada, France, Germany, United Kingdom, United States",
+     "display_name": "EnglishCountryRegionName"
+    },
+    {
+     "table": "dbo.dimgeography",
+     "name": "geographykey",
+     "business_name": "Geography Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "GeographyKey"
+    },
+    {
+     "table": "dbo.dimgeography",
+     "name": "ipaddresslocator",
+     "business_name": "IP Adresi",
+     "description": "Kişisel veri sayılabilir",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "IpAddressLocator"
+    },
+    {
+     "table": "dbo.dimgeography",
+     "name": "postalcode",
+     "business_name": "Posta Kodu",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "PostalCode"
+    },
+    {
+     "table": "dbo.dimgeography",
+     "name": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesTerritoryKey"
+    },
+    {
+     "table": "dbo.dimgeography",
+     "name": "stateprovincecode",
+     "business_name": "State Province Code",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "17, 31, 32, 41, 45, 57, 59, 62",
+     "display_name": "StateProvinceCode"
+    },
+    {
+     "table": "dbo.dimgeography",
+     "name": "stateprovincename",
+     "business_name": "Eyalet/İl",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "eyalet",
+      "il"
+     ],
+     "is_pii": false,
+     "sample_values": "Alabama, Alberta, Arizona, Bayern, Brandenburg, British Columbia, Brunswick, California",
+     "display_name": "StateProvinceName"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimorganization",
+   "business_name": "Organizasyon",
+   "description": "Şirket organizasyon birimleri (hiyerarşik).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = bir birim",
+   "row_count": 14,
+   "display_name": "dbo.DimOrganization",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimorganization",
+     "name": "currencykey",
+     "business_name": "Currency Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CurrencyKey"
+    },
+    {
+     "table": "dbo.dimorganization",
+     "name": "organizationkey",
+     "business_name": "Organization Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrganizationKey"
+    },
+    {
+     "table": "dbo.dimorganization",
+     "name": "organizationname",
+     "business_name": "Organizasyon",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "şirket",
+      "birim"
+     ],
+     "is_pii": false,
+     "sample_values": "AdventureWorks Cycle, Australia, Canadian Division, Central Division, European Operations, France, Germany, North America Operations",
+     "display_name": "OrganizationName"
+    },
+    {
+     "table": "dbo.dimorganization",
+     "name": "parentorganizationkey",
+     "business_name": "Parent Organization Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ParentOrganizationKey"
+    },
+    {
+     "table": "dbo.dimorganization",
+     "name": "percentageofownership",
+     "business_name": "Percentage Of Ownership",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": ".25, .50, .75, 1",
+     "display_name": "PercentageOfOwnership"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimproduct",
+   "business_name": "Ürün",
+   "description": "Ürün kartı: ad, renk, boyut, model, fiyat, maliyet.",
+   "subject_area": "Ürün",
+   "grain": "Bir satır = bir ürün versiyonu",
+   "row_count": 606,
+   "display_name": "dbo.DimProduct",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimproduct",
+     "name": "class",
+     "business_name": "Sınıf",
+     "description": "H=High, M=Medium, L=Low",
+     "data_type": "nchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "H, L, M",
+     "display_name": "Class"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "color",
+     "business_name": "Renk",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "renk"
+     ],
+     "is_pii": false,
+     "sample_values": "Black, Blue, Grey, Multi, NA, Red, Silver, Silver/Black",
+     "display_name": "Color"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "daystomanufacture",
+     "business_name": "Days To Manufacture",
+     "description": "",
+     "data_type": "int",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DaysToManufacture"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "dealerprice",
+     "business_name": "Dealer Price",
+     "description": "",
+     "data_type": "money",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DealerPrice"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "enddate",
+     "business_name": "End Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "EndDate"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "englishdescription",
+     "business_name": "Description",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "A light yet stiff aluminum bar for long distance riding., A stable pedal for all-day riding., A true multi-sport bike that offers streamlined riding and a revolutionary design. Aerodynamic desig, Aerodynamic rims for smooth riding., Affordable light for safe night riding - uses 3 AAA batteries, All-occasion value bike with our basic comfort and safety features. Offers wider, more stable tires, All-purpose bar for on or off-road., Alluminum-alloy frame provides a light, stiff ride, whether you are racing in the velodrome or on a",
+     "display_name": "EnglishDescription"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "englishproductname",
+     "business_name": "Ürün Adı",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "ürün"
+     ],
+     "is_pii": false,
+     "sample_values": "Adjustable Race, All-Purpose Bike Stand, AWC Logo Cap, BB Ball Bearing, Bearing Ball, Bike Wash - Dissolver, Blade, Cable Lock",
+     "display_name": "EnglishProductName"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "finishedgoodsflag",
+     "business_name": "Finished Goods Flag",
+     "description": "",
+     "data_type": "bit",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "FinishedGoodsFlag"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "listprice",
+     "business_name": "Liste Fiyatı",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "fiyat"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ListPrice"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "modelname",
+     "business_name": "Model",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "model"
+     ],
+     "is_pii": false,
+     "sample_values": "All-Purpose Bike Stand, Bike Wash, Cable Lock, Chain, Classic Vest, Cycling Cap, Fender Set - Mountain, Front Brakes",
+     "display_name": "ModelName"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "productalternatekey",
+     "business_name": "Product Alternate Key",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductAlternateKey"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "productkey",
+     "business_name": "Product Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductKey"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "productline",
+     "business_name": "Ürün Hattı",
+     "description": "R=Road, M=Mountain, T=Touring, S=Standard",
+     "data_type": "nchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "hat"
+     ],
+     "is_pii": false,
+     "sample_values": "M, R, S, T",
+     "display_name": "ProductLine"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "productsubcategorykey",
+     "business_name": "Product Subcategory Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductSubcategoryKey"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "reorderpoint",
+     "business_name": "Reorder Point",
+     "description": "",
+     "data_type": "smallint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ReorderPoint"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "safetystocklevel",
+     "business_name": "Safety Stock Level",
+     "description": "",
+     "data_type": "smallint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SafetyStockLevel"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "size",
+     "business_name": "Beden/Boyut",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "beden"
+     ],
+     "is_pii": false,
+     "sample_values": "38, 40, 42, 44, 46, 48, 50, 52",
+     "display_name": "Size"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "sizerange",
+     "business_name": "Size Range",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "38-40 CM, 42-46 CM, 48-52 CM, 54-58 CM, 60-62 CM, 70, L, M",
+     "display_name": "SizeRange"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "sizeunitmeasurecode",
+     "business_name": "Size Unit Measure Code",
+     "description": "",
+     "data_type": "nchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "CM",
+     "display_name": "SizeUnitMeasureCode"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "standardcost",
+     "business_name": "Standart Maliyet",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "maliyet"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "StandardCost"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "startdate",
+     "business_name": "Start Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "StartDate"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "status",
+     "business_name": "Status",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Current",
+     "display_name": "Status"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "style",
+     "business_name": "Style",
+     "description": "",
+     "data_type": "nchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "M, U, W",
+     "display_name": "Style"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "turkishdescription",
+     "business_name": "Turkish Description",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "\"4 bisikleti güvenli bir şekilde taşır, çelik konstrüksiyon, 2'' çekiye sabitlenebilir.\", \"8 farklı boyda yama, yapışkan ve zımpara kağıdı  içerir.\", \"Ağır işe ve aşınmaya dayanıklı şortlar, konfor için anti bakteriyel pedli dikişsiz likra astar şort, \"Alüminyum alaşımı kadro, ister velodromda yarış yapın, ister köy yollarında zorlu takım sürüşlerine, \"AWC logolu matara - 0,9 litre; sızdırmaz.\", \"Başlangıç seviyesinde yetişkin bisikleti, kırda veya sokağınızda konforlu sürüş sunar. Kolay çıkarı, \"Benzer yol tutuşu, daha ucuz tel başları.\", \"Bu bisiklet hem hesaplıdır, hem de yüksek seviyede performans gösterir. Duyarlıdır ve manevra kabil",
+     "display_name": "TurkishDescription"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "weight",
+     "business_name": "Weight",
+     "description": "",
+     "data_type": "float",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Weight"
+    },
+    {
+     "table": "dbo.dimproduct",
+     "name": "weightunitmeasurecode",
+     "business_name": "Weight Unit Measure Code",
+     "description": "",
+     "data_type": "nchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "G, LB",
+     "display_name": "WeightUnitMeasureCode"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimproductcategory",
+   "business_name": "Ürün Kategorisi",
+   "description": "Ana ürün kategorileri: Bikes, Components, Clothing, Accessories.",
+   "subject_area": "Ürün",
+   "grain": "Bir satır = bir kategori",
+   "row_count": 4,
+   "display_name": "dbo.DimProductCategory",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimproductcategory",
+     "name": "englishproductcategoryname",
+     "business_name": "Kategori",
+     "description": "Bikes, Components, Clothing, Accessories",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "kategori",
+      "ürün kategorisi"
+     ],
+     "is_pii": false,
+     "sample_values": "Accessories, Bikes, Clothing, Components",
+     "display_name": "EnglishProductCategoryName"
+    },
+    {
+     "table": "dbo.dimproductcategory",
+     "name": "productcategoryalternatekey",
+     "business_name": "Product Category Alternate Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductCategoryAlternateKey"
+    },
+    {
+     "table": "dbo.dimproductcategory",
+     "name": "productcategorykey",
+     "business_name": "Product Category Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductCategoryKey"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimproductsubcategory",
+   "business_name": "Ürün Alt Kategorisi",
+   "description": "Ürün alt kategorileri (ör. Mountain Bikes, Helmets).",
+   "subject_area": "Ürün",
+   "grain": "Bir satır = bir alt kategori",
+   "row_count": 37,
+   "display_name": "dbo.DimProductSubcategory",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimproductsubcategory",
+     "name": "englishproductsubcategoryname",
+     "business_name": "Alt Kategori",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "alt kategori",
+      "ürün grubu"
+     ],
+     "is_pii": false,
+     "sample_values": "Bib-Shorts, Bike Racks, Bike Stands, Bottles and Cages, Bottom Brackets, Brakes, Caps, Chains",
+     "display_name": "EnglishProductSubcategoryName"
+    },
+    {
+     "table": "dbo.dimproductsubcategory",
+     "name": "productcategorykey",
+     "business_name": "Product Category Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductCategoryKey"
+    },
+    {
+     "table": "dbo.dimproductsubcategory",
+     "name": "productsubcategoryalternatekey",
+     "business_name": "Product Subcategory Alternate Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductSubcategoryAlternateKey"
+    },
+    {
+     "table": "dbo.dimproductsubcategory",
+     "name": "productsubcategorykey",
+     "business_name": "Product Subcategory Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductSubcategoryKey"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimpromotion",
+   "business_name": "Promosyon",
+   "description": "Kampanya ve indirim tanımları.",
+   "subject_area": "Pazarlama",
+   "grain": "Bir satır = bir promosyon",
+   "row_count": 16,
+   "display_name": "dbo.DimPromotion",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimpromotion",
+     "name": "discountpct",
+     "business_name": "İndirim Oranı",
+     "description": "0-1",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "indirim"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DiscountPct"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "enddate",
+     "business_name": "End Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "EndDate"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "englishpromotioncategory",
+     "business_name": "Promosyon Kategorisi",
+     "description": "Customer / Reseller / No Discount",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Customer, No Discount, Reseller",
+     "display_name": "EnglishPromotionCategory"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "englishpromotionname",
+     "business_name": "Promosyon Adı",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "kampanya",
+      "promosyon"
+     ],
+     "is_pii": false,
+     "sample_values": "Half-Price Pedal Sale, LL Road Frame Sale, Mountain Tire Sale, Mountain-100 Clearance Sale, Mountain-500 Silver Clearance Sale, No Discount, Road-650 Overstock, Sport Helmet Discount-2002",
+     "display_name": "EnglishPromotionName"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "englishpromotiontype",
+     "business_name": "Promosyon Tipi",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "kampanya tipi"
+     ],
+     "is_pii": false,
+     "sample_values": "Discontinued Product, Excess Inventory, New Product, No Discount, Seasonal Discount, Volume Discount",
+     "display_name": "EnglishPromotionType"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "maxqty",
+     "business_name": "Max Qty",
+     "description": "",
+     "data_type": "int",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "MaxQty"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "minqty",
+     "business_name": "Min Qty",
+     "description": "",
+     "data_type": "int",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "MinQty"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "promotionalternatekey",
+     "business_name": "Promotion Alternate Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "PromotionAlternateKey"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "promotionkey",
+     "business_name": "Promotion Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "PromotionKey"
+    },
+    {
+     "table": "dbo.dimpromotion",
+     "name": "startdate",
+     "business_name": "Start Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "StartDate"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimreseller",
+   "business_name": "Bayi",
+   "description": "Bayi firmalar: iş tipi, çalışan sayısı, yıllık satış.",
+   "subject_area": "Satış",
+   "grain": "Bir satır = bir bayi",
+   "row_count": 701,
+   "display_name": "dbo.DimReseller",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimreseller",
+     "name": "addressline1",
+     "business_name": "Adres 1",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "AddressLine1"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "addressline2",
+     "business_name": "Adres 2",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "AddressLine2"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "annualrevenue",
+     "business_name": "Yıllık Gelir",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "AnnualRevenue"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "annualsales",
+     "business_name": "Yıllık Satış",
+     "description": "Bayinin beyan ettiği yıllık satış",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "AnnualSales"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "bankname",
+     "business_name": "Banka",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "BankName"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "businesstype",
+     "business_name": "İş Tipi",
+     "description": "Specialty Bike Shop / Value Added Reseller / Warehouse",
+     "data_type": "varchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "bayi tipi"
+     ],
+     "is_pii": false,
+     "sample_values": "Specialty Bike Shop, Value Added Reseller, Warehouse",
+     "display_name": "BusinessType"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "firstorderyear",
+     "business_name": "First Order Year",
+     "description": "",
+     "data_type": "int",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "FirstOrderYear"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "geographykey",
+     "business_name": "Geography Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "GeographyKey"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "lastorderyear",
+     "business_name": "Last Order Year",
+     "description": "",
+     "data_type": "int",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "LastOrderYear"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "minpaymentamount",
+     "business_name": "Min Payment Amount",
+     "description": "",
+     "data_type": "money",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "MinPaymentAmount"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "minpaymenttype",
+     "business_name": "Min Payment Type",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "MinPaymentType"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "numberemployees",
+     "business_name": "Çalışan Sayısı",
+     "description": "",
+     "data_type": "int",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "NumberEmployees"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "orderfrequency",
+     "business_name": "Order Frequency",
+     "description": "",
+     "data_type": "char",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "A, Q, S",
+     "display_name": "OrderFrequency"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "ordermonth",
+     "business_name": "Order Month",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrderMonth"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "phone",
+     "business_name": "Telefon",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": true,
+     "sample_values": "",
+     "display_name": "Phone"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "productline",
+     "business_name": "Product Line",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Mountain, Road, Touring",
+     "display_name": "ProductLine"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "reselleralternatekey",
+     "business_name": "Reseller Alternate Key",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ResellerAlternateKey"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "resellerkey",
+     "business_name": "Reseller Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ResellerKey"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "resellername",
+     "business_name": "Bayi Adı",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "bayi"
+     ],
+     "is_pii": false,
+     "sample_values": "A Bicycle Association, A Bike Store, A Cycle Shop, A Great Bicycle Company, A Typical Bike Shop, Acceptable Sales & Service, Accessories Network, Acclaimed Bicycle Company",
+     "display_name": "ResellerName"
+    },
+    {
+     "table": "dbo.dimreseller",
+     "name": "yearopened",
+     "business_name": "Year Opened",
+     "description": "",
+     "data_type": "int",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "YearOpened"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimsalesreason",
+   "business_name": "Satış Nedeni",
+   "description": "Müşterinin satın alma nedeni (fiyat, kalite, promosyon ...).",
+   "subject_area": "Satış",
+   "grain": "Bir satır = bir neden",
+   "row_count": 10,
+   "display_name": "dbo.DimSalesReason",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimsalesreason",
+     "name": "salesreasonalternatekey",
+     "business_name": "Sales Reason Alternate Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesReasonAlternateKey"
+    },
+    {
+     "table": "dbo.dimsalesreason",
+     "name": "salesreasonkey",
+     "business_name": "Sales Reason Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesReasonKey"
+    },
+    {
+     "table": "dbo.dimsalesreason",
+     "name": "salesreasonname",
+     "business_name": "Satış Nedeni",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "neden"
+     ],
+     "is_pii": false,
+     "sample_values": "Demo Event, Magazine Advertisement, Manufacturer, On Promotion, Other, Price, Quality, Review",
+     "display_name": "SalesReasonName"
+    },
+    {
+     "table": "dbo.dimsalesreason",
+     "name": "salesreasonreasontype",
+     "business_name": "Neden Tipi",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Marketing, Other, Promotion",
+     "display_name": "SalesReasonReasonType"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimsalesterritory",
+   "business_name": "Satış Bölgesi",
+   "description": "Satış bölgesi, ülke ve bölge grubu (North America, Europe, Pacific).",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir satış bölgesi",
+   "row_count": 11,
+   "display_name": "dbo.DimSalesTerritory",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimsalesterritory",
+     "name": "salesterritoryalternatekey",
+     "business_name": "Sales Territory Alternate Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesTerritoryAlternateKey"
+    },
+    {
+     "table": "dbo.dimsalesterritory",
+     "name": "salesterritorycountry",
+     "business_name": "Bölge Ülkesi",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "ülke"
+     ],
+     "is_pii": false,
+     "sample_values": "Australia, Canada, France, Germany, NA, United Kingdom, United States",
+     "display_name": "SalesTerritoryCountry"
+    },
+    {
+     "table": "dbo.dimsalesterritory",
+     "name": "salesterritorygroup",
+     "business_name": "Bölge Grubu",
+     "description": "North America / Europe / Pacific",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "kıta",
+      "bölge grubu",
+      "coğrafya"
+     ],
+     "is_pii": false,
+     "sample_values": "Europe, NA, North America, Pacific",
+     "display_name": "SalesTerritoryGroup"
+    },
+    {
+     "table": "dbo.dimsalesterritory",
+     "name": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesTerritoryKey"
+    },
+    {
+     "table": "dbo.dimsalesterritory",
+     "name": "salesterritoryregion",
+     "business_name": "Satış Bölgesi",
+     "description": "ör. Northwest, Canada, France",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "bölge",
+      "satış bölgesi",
+      "region"
+     ],
+     "is_pii": false,
+     "sample_values": "Australia, Canada, Central, France, Germany, NA, Northeast, Northwest",
+     "display_name": "SalesTerritoryRegion"
+    }
+   ]
+  },
+  {
+   "name": "dbo.dimscenario",
+   "business_name": "Senaryo",
+   "description": "Finans senaryosu: Actual (gerçekleşen), Budget (bütçe), Forecast (tahmin).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = bir senaryo",
+   "row_count": 3,
+   "display_name": "dbo.DimScenario",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.dimscenario",
+     "name": "scenariokey",
+     "business_name": "Scenario Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ScenarioKey"
+    },
+    {
+     "table": "dbo.dimscenario",
+     "name": "scenarioname",
+     "business_name": "Senaryo",
+     "description": "Actual / Budget / Forecast",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "bütçe",
+      "gerçekleşen",
+      "tahmin"
+     ],
+     "is_pii": false,
+     "sample_values": "Actual, Budget, Forecast",
+     "display_name": "ScenarioName"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factcallcenter",
+   "business_name": "Çağrı Merkezi",
+   "description": "Çağrı merkezi günlük vardiya performansı: çağrı, sipariş, sorun, servis seviyesi.",
+   "subject_area": "Operasyon",
+   "grain": "Bir satır = gün × vardiya",
+   "row_count": 120,
+   "display_name": "dbo.FactCallCenter",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factcallcenter",
+     "name": "automaticresponses",
+     "business_name": "Automatic Responses",
+     "description": "",
+     "data_type": "int",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "AutomaticResponses"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "averagetimeperissue",
+     "business_name": "Sorun Başına Ortalama Süre (dk)",
+     "description": "",
+     "data_type": "smallint",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "çözüm süresi"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "AverageTimePerIssue"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "calls",
+     "business_name": "Çağrı Sayısı",
+     "description": "",
+     "data_type": "int",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "çağrı"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Calls"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "date",
+     "business_name": "Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Date"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "datekey",
+     "business_name": "Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DateKey"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "factcallcenterid",
+     "business_name": "Fact Call Center ID",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "FactCallCenterID"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "issuesraised",
+     "business_name": "Sorun Sayısı",
+     "description": "",
+     "data_type": "smallint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "şikayet",
+      "sorun"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "IssuesRaised"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "leveloneoperators",
+     "business_name": "Level One Operators",
+     "description": "",
+     "data_type": "smallint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "LevelOneOperators"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "leveltwooperators",
+     "business_name": "Level Two Operators",
+     "description": "",
+     "data_type": "smallint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "LevelTwoOperators"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "orders",
+     "business_name": "Sipariş Sayısı",
+     "description": "Çağrı merkezinden alınan sipariş",
+     "data_type": "int",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "sipariş"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Orders"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "servicegrade",
+     "business_name": "Servis Seviyesi",
+     "description": "0-1 arası servis skoru",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "servis kalitesi",
+      "sla"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ServiceGrade"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "shift",
+     "business_name": "Vardiya",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [
+      "vardiya"
+     ],
+     "is_pii": false,
+     "sample_values": "AM, midnight, PM1, PM2",
+     "display_name": "Shift"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "totaloperators",
+     "business_name": "Toplam Operatör",
+     "description": "",
+     "data_type": "smallint",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "operatör"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "TotalOperators"
+    },
+    {
+     "table": "dbo.factcallcenter",
+     "name": "wagetype",
+     "business_name": "Gün Tipi",
+     "description": "weekday / holiday",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "holiday, weekday",
+     "display_name": "WageType"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factcurrencyrate",
+   "business_name": "Döviz Kurları",
+   "description": "Günlük ortalama ve gün sonu döviz kurları (USD bazlı).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = para birimi × gün",
+   "row_count": 14264,
+   "display_name": "dbo.FactCurrencyRate",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factcurrencyrate",
+     "name": "averagerate",
+     "business_name": "Ortalama Kur",
+     "description": "",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "kur"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "AverageRate"
+    },
+    {
+     "table": "dbo.factcurrencyrate",
+     "name": "currencykey",
+     "business_name": "Currency Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CurrencyKey"
+    },
+    {
+     "table": "dbo.factcurrencyrate",
+     "name": "date",
+     "business_name": "Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Date"
+    },
+    {
+     "table": "dbo.factcurrencyrate",
+     "name": "datekey",
+     "business_name": "Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DateKey"
+    },
+    {
+     "table": "dbo.factcurrencyrate",
+     "name": "endofdayrate",
+     "business_name": "Gün Sonu Kur",
+     "description": "",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "last",
+     "synonyms": [
+      "kur"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "EndOfDayRate"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factfinance",
+   "business_name": "Finans",
+   "description": "Genel muhasebe tutarları: hesap, organizasyon, departman ve senaryo (gerçekleşen/bütçe/tahmin) bazında.",
+   "subject_area": "Finans",
+   "grain": "Bir satır = hesap × organizasyon × departman × senaryo × ay",
+   "row_count": 39409,
+   "display_name": "dbo.FactFinance",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factfinance",
+     "name": "accountkey",
+     "business_name": "Account Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "AccountKey"
+    },
+    {
+     "table": "dbo.factfinance",
+     "name": "amount",
+     "business_name": "Tutar",
+     "description": "Hesap tutarı (senaryoya göre gerçekleşen/bütçe)",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "tutar",
+      "gider",
+      "gelir",
+      "bütçe"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Amount"
+    },
+    {
+     "table": "dbo.factfinance",
+     "name": "date",
+     "business_name": "Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Date"
+    },
+    {
+     "table": "dbo.factfinance",
+     "name": "datekey",
+     "business_name": "Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DateKey"
+    },
+    {
+     "table": "dbo.factfinance",
+     "name": "departmentgroupkey",
+     "business_name": "Department Group Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DepartmentGroupKey"
+    },
+    {
+     "table": "dbo.factfinance",
+     "name": "financekey",
+     "business_name": "Finance Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "FinanceKey"
+    },
+    {
+     "table": "dbo.factfinance",
+     "name": "organizationkey",
+     "business_name": "Organization Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrganizationKey"
+    },
+    {
+     "table": "dbo.factfinance",
+     "name": "scenariokey",
+     "business_name": "Scenario Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ScenarioKey"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factinternetsales",
+   "business_name": "İnternet Satışları",
+   "description": "Web sitesi üzerinden bireysel müşterilere yapılan satışlar (sipariş satırı bazında). Ciro, adet, maliyet, kâr analizleri için ana tablo.",
+   "subject_area": "Satış",
+   "grain": "Bir satır = bir sipariş satırı",
+   "row_count": 60398,
+   "display_name": "dbo.FactInternetSales",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factinternetsales",
+     "name": "carriertrackingnumber",
+     "business_name": "Kargo Takip No",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CarrierTrackingNumber"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "currencykey",
+     "business_name": "Currency Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CurrencyKey"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "customerkey",
+     "business_name": "Müşteri Anahtarı",
+     "description": "DimCustomer ile ilişkili; tekil müşteri için COUNT(DISTINCT)",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": "count_distinct",
+     "synonyms": [
+      "müşteri sayısı",
+      "aktif müşteri"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CustomerKey"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "customerponumber",
+     "business_name": "Müşteri PO No",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CustomerPONumber"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "discountamount",
+     "business_name": "İndirim Tutarı",
+     "description": "",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "indirim",
+      "iskonto"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DiscountAmount"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "duedate",
+     "business_name": "Vade Tarihi",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "teslim tarihi"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DueDate"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "duedatekey",
+     "business_name": "Due Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DueDateKey"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "extendedamount",
+     "business_name": "Brüt Tutar",
+     "description": "İndirim öncesi tutar (adet × birim fiyat)",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "brüt satış"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ExtendedAmount"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "freight",
+     "business_name": "Kargo Ücreti",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "nakliye",
+      "kargo"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Freight"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "orderdate",
+     "business_name": "Sipariş Tarihi",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "tarih",
+      "sipariş tarihi"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrderDate"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "orderdatekey",
+     "business_name": "Sipariş Tarihi Anahtarı",
+     "description": "DimDate.DateKey ile ilişkili (YYYYMMDD)",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrderDateKey"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "orderquantity",
+     "business_name": "Sipariş Adedi (ürün)",
+     "description": "Satılan ürün adedi",
+     "data_type": "smallint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "adet",
+      "miktar",
+      "satış adedi",
+      "quantity"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrderQuantity"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "productkey",
+     "business_name": "Product Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductKey"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "productstandardcost",
+     "business_name": "Birim Standart Maliyet",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "birim maliyet"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductStandardCost"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "promotionkey",
+     "business_name": "Promotion Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "PromotionKey"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "revisionnumber",
+     "business_name": "Revision Number",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "RevisionNumber"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "salesamount",
+     "business_name": "Satış Tutarı (USD)",
+     "description": "İndirim sonrası net satış tutarı",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "ciro",
+      "satış",
+      "gelir",
+      "hasılat",
+      "revenue",
+      "tutar",
+      "hacim"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesAmount"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "salesorderlinenumber",
+     "business_name": "Sales Order Line Number",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesOrderLineNumber"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "salesordernumber",
+     "business_name": "Sipariş No",
+     "description": "Aynı siparişin satırları aynı numarayı taşır; sipariş sayısı için COUNT(DISTINCT)",
+     "data_type": "nvarchar",
+     "role": "key",
+     "default_aggregation": "count_distinct",
+     "synonyms": [
+      "sipariş sayısı",
+      "sipariş adedi",
+      "order"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesOrderNumber"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesTerritoryKey"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "shipdate",
+     "business_name": "Sevk Tarihi",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "kargo tarihi",
+      "sevkiyat"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ShipDate"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "shipdatekey",
+     "business_name": "Ship Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ShipDateKey"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "taxamt",
+     "business_name": "Vergi Tutarı",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "vergi",
+      "kdv"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "TaxAmt"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "totalproductcost",
+     "business_name": "Toplam Ürün Maliyeti",
+     "description": "Satılan ürünlerin standart maliyeti",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "maliyet",
+      "cost",
+      "smm"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "TotalProductCost"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "unitprice",
+     "business_name": "Birim Fiyat",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "fiyat"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "UnitPrice"
+    },
+    {
+     "table": "dbo.factinternetsales",
+     "name": "unitpricediscountpct",
+     "business_name": "İndirim Oranı",
+     "description": "0-1 arası",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "indirim yüzdesi"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "UnitPriceDiscountPct"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factinternetsalesreason",
+   "business_name": "İnternet Satış Nedenleri",
+   "description": "İnternet siparişlerinin satın alma nedenleri (köprü tablo).",
+   "subject_area": "Satış",
+   "grain": "Bir satır = sipariş satırı × neden",
+   "row_count": 64515,
+   "display_name": "dbo.FactInternetSalesReason",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factinternetsalesreason",
+     "name": "salesorderlinenumber",
+     "business_name": "Sales Order Line Number",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesOrderLineNumber"
+    },
+    {
+     "table": "dbo.factinternetsalesreason",
+     "name": "salesordernumber",
+     "business_name": "Sales Order Number",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "SO43697, SO43702, SO43703, SO43706, SO43707, SO43709, SO43710, SO43711",
+     "display_name": "SalesOrderNumber"
+    },
+    {
+     "table": "dbo.factinternetsalesreason",
+     "name": "salesreasonkey",
+     "business_name": "Sales Reason Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesReasonKey"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factproductinventory",
+   "business_name": "Ürün Stok Hareketleri",
+   "description": "Ürün bazında günlük stok giriş/çıkış ve bakiye.",
+   "subject_area": "Operasyon",
+   "grain": "Bir satır = ürün × gün",
+   "row_count": 776286,
+   "display_name": "dbo.FactProductInventory",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factproductinventory",
+     "name": "datekey",
+     "business_name": "Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DateKey"
+    },
+    {
+     "table": "dbo.factproductinventory",
+     "name": "movementdate",
+     "business_name": "Movement Date",
+     "description": "",
+     "data_type": "date",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "MovementDate"
+    },
+    {
+     "table": "dbo.factproductinventory",
+     "name": "productkey",
+     "business_name": "Product Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductKey"
+    },
+    {
+     "table": "dbo.factproductinventory",
+     "name": "unitcost",
+     "business_name": "Birim Maliyet",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "UnitCost"
+    },
+    {
+     "table": "dbo.factproductinventory",
+     "name": "unitsbalance",
+     "business_name": "Stok Bakiyesi",
+     "description": "Gün sonu stok adedi (toplanmaz; dönem sonu değeri alınır)",
+     "data_type": "int",
+     "role": "measure",
+     "default_aggregation": "last",
+     "synonyms": [
+      "stok",
+      "envanter"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "UnitsBalance"
+    },
+    {
+     "table": "dbo.factproductinventory",
+     "name": "unitsin",
+     "business_name": "Stok Girişi",
+     "description": "",
+     "data_type": "int",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "giriş"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "UnitsIn"
+    },
+    {
+     "table": "dbo.factproductinventory",
+     "name": "unitsout",
+     "business_name": "Stok Çıkışı",
+     "description": "",
+     "data_type": "int",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "çıkış"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "UnitsOut"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factresellersales",
+   "business_name": "Bayi Satışları",
+   "description": "Bayilere (reseller) yapılan satışlar, satış temsilcisi bilgisiyle.",
+   "subject_area": "Satış",
+   "grain": "Bir satır = bir sipariş satırı",
+   "row_count": 60855,
+   "display_name": "dbo.FactResellerSales",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factresellersales",
+     "name": "carriertrackingnumber",
+     "business_name": "Kargo Takip No",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CarrierTrackingNumber"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "currencykey",
+     "business_name": "Currency Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CurrencyKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "customerponumber",
+     "business_name": "Müşteri PO No",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CustomerPONumber"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "discountamount",
+     "business_name": "İndirim Tutarı",
+     "description": "",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "indirim",
+      "iskonto"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DiscountAmount"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "duedate",
+     "business_name": "Vade Tarihi",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "teslim tarihi"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DueDate"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "duedatekey",
+     "business_name": "Due Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DueDateKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "employeekey",
+     "business_name": "Satış Temsilcisi Anahtarı",
+     "description": "DimEmployee ile ilişkili",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [
+      "temsilci",
+      "satışçı"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "EmployeeKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "extendedamount",
+     "business_name": "Brüt Tutar",
+     "description": "İndirim öncesi tutar (adet × birim fiyat)",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "brüt satış"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ExtendedAmount"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "freight",
+     "business_name": "Kargo Ücreti",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "nakliye",
+      "kargo"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Freight"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "orderdate",
+     "business_name": "Sipariş Tarihi",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "tarih",
+      "sipariş tarihi"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrderDate"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "orderdatekey",
+     "business_name": "Sipariş Tarihi Anahtarı",
+     "description": "DimDate.DateKey ile ilişkili (YYYYMMDD)",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrderDateKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "orderquantity",
+     "business_name": "Sipariş Adedi (ürün)",
+     "description": "Satılan ürün adedi",
+     "data_type": "smallint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "adet",
+      "miktar",
+      "satış adedi",
+      "quantity"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "OrderQuantity"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "productkey",
+     "business_name": "Product Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "productstandardcost",
+     "business_name": "Birim Standart Maliyet",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "birim maliyet"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductStandardCost"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "promotionkey",
+     "business_name": "Promotion Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "PromotionKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "resellerkey",
+     "business_name": "Bayi Anahtarı",
+     "description": "DimReseller ile ilişkili",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": "count_distinct",
+     "synonyms": [
+      "bayi sayısı"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ResellerKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "revisionnumber",
+     "business_name": "Revision Number",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "RevisionNumber"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "salesamount",
+     "business_name": "Satış Tutarı (USD)",
+     "description": "İndirim sonrası net satış tutarı",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "ciro",
+      "satış",
+      "gelir",
+      "hasılat",
+      "revenue",
+      "tutar",
+      "hacim"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesAmount"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "salesorderlinenumber",
+     "business_name": "Sales Order Line Number",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesOrderLineNumber"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "salesordernumber",
+     "business_name": "Sipariş No",
+     "description": "Aynı siparişin satırları aynı numarayı taşır; sipariş sayısı için COUNT(DISTINCT)",
+     "data_type": "nvarchar",
+     "role": "key",
+     "default_aggregation": "count_distinct",
+     "synonyms": [
+      "sipariş sayısı",
+      "sipariş adedi",
+      "order"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesOrderNumber"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesTerritoryKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "shipdate",
+     "business_name": "Sevk Tarihi",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [
+      "kargo tarihi",
+      "sevkiyat"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ShipDate"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "shipdatekey",
+     "business_name": "Ship Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ShipDateKey"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "taxamt",
+     "business_name": "Vergi Tutarı",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "vergi",
+      "kdv"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "TaxAmt"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "totalproductcost",
+     "business_name": "Toplam Ürün Maliyeti",
+     "description": "Satılan ürünlerin standart maliyeti",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "maliyet",
+      "cost",
+      "smm"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "TotalProductCost"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "unitprice",
+     "business_name": "Birim Fiyat",
+     "description": "",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "fiyat"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "UnitPrice"
+    },
+    {
+     "table": "dbo.factresellersales",
+     "name": "unitpricediscountpct",
+     "business_name": "İndirim Oranı",
+     "description": "0-1 arası",
+     "data_type": "float",
+     "role": "measure",
+     "default_aggregation": "avg",
+     "synonyms": [
+      "indirim yüzdesi"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "UnitPriceDiscountPct"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factsalesquota",
+   "business_name": "Satış Kotaları",
+   "description": "Satış temsilcilerinin çeyreklik satış hedefleri.",
+   "subject_area": "Satış",
+   "grain": "Bir satır = temsilci × çeyrek",
+   "row_count": 163,
+   "display_name": "dbo.FactSalesQuota",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factsalesquota",
+     "name": "calendarquarter",
+     "business_name": "Çeyrek",
+     "description": "",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "1, 2, 3, 4",
+     "display_name": "CalendarQuarter"
+    },
+    {
+     "table": "dbo.factsalesquota",
+     "name": "calendaryear",
+     "business_name": "Yıl",
+     "description": "",
+     "data_type": "smallint",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "2010, 2011, 2012, 2013",
+     "display_name": "CalendarYear"
+    },
+    {
+     "table": "dbo.factsalesquota",
+     "name": "date",
+     "business_name": "Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Date"
+    },
+    {
+     "table": "dbo.factsalesquota",
+     "name": "datekey",
+     "business_name": "Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DateKey"
+    },
+    {
+     "table": "dbo.factsalesquota",
+     "name": "employeekey",
+     "business_name": "Employee Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "EmployeeKey"
+    },
+    {
+     "table": "dbo.factsalesquota",
+     "name": "salesamountquota",
+     "business_name": "Satış Kotası",
+     "description": "Temsilcinin çeyrek hedefi",
+     "data_type": "money",
+     "role": "measure",
+     "default_aggregation": "sum",
+     "synonyms": [
+      "hedef",
+      "kota",
+      "bütçe"
+     ],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesAmountQuota"
+    },
+    {
+     "table": "dbo.factsalesquota",
+     "name": "salesquotakey",
+     "business_name": "Sales Quota Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SalesQuotaKey"
+    }
+   ]
+  },
+  {
+   "name": "dbo.factsurveyresponse",
+   "business_name": "Anket Yanıtları",
+   "description": "Müşteri anketlerinde ilgilenilen ürün kategorileri.",
+   "subject_area": "Pazarlama",
+   "grain": "Bir satır = bir anket yanıtı",
+   "row_count": 2727,
+   "display_name": "dbo.FactSurveyResponse",
+   "table_type": "",
+   "columns": [
+    {
+     "table": "dbo.factsurveyresponse",
+     "name": "customerkey",
+     "business_name": "Customer Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "CustomerKey"
+    },
+    {
+     "table": "dbo.factsurveyresponse",
+     "name": "date",
+     "business_name": "Date",
+     "description": "",
+     "data_type": "datetime",
+     "role": "date",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "Date"
+    },
+    {
+     "table": "dbo.factsurveyresponse",
+     "name": "datekey",
+     "business_name": "Date Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "DateKey"
+    },
+    {
+     "table": "dbo.factsurveyresponse",
+     "name": "englishproductcategoryname",
+     "business_name": "Product Category Name",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Accessories, Clothing",
+     "display_name": "EnglishProductCategoryName"
+    },
+    {
+     "table": "dbo.factsurveyresponse",
+     "name": "englishproductsubcategoryname",
+     "business_name": "Product Subcategory Name",
+     "description": "",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "Bib-Shorts, Bike Racks, Bike Stands, Bottles and Cages, Caps, Cleaners, Fenders, Gloves",
+     "display_name": "EnglishProductSubcategoryName"
+    },
+    {
+     "table": "dbo.factsurveyresponse",
+     "name": "productcategorykey",
+     "business_name": "Product Category Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductCategoryKey"
+    },
+    {
+     "table": "dbo.factsurveyresponse",
+     "name": "productsubcategorykey",
+     "business_name": "Product Subcategory Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "ProductSubcategoryKey"
+    },
+    {
+     "table": "dbo.factsurveyresponse",
+     "name": "surveyresponsekey",
+     "business_name": "Survey Response Key",
+     "description": "",
+     "data_type": "int",
+     "role": "key",
+     "default_aggregation": null,
+     "synonyms": [],
+     "is_pii": false,
+     "sample_values": "",
+     "display_name": "SurveyResponseKey"
+    }
+   ]
+  }
+ ],
+ "relationships": [
+  {
+   "id": "FK_FactFinance_DimAccount",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimaccount",
+   "pairs": [
+    [
+     "accountkey",
+     "accountkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimOrganization_DimCurrency",
+   "from_table": "dbo.dimorganization",
+   "to_table": "dbo.dimcurrency",
+   "pairs": [
+    [
+     "currencykey",
+     "currencykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactCurrencyRate_DimCurrency",
+   "from_table": "dbo.factcurrencyrate",
+   "to_table": "dbo.dimcurrency",
+   "pairs": [
+    [
+     "currencykey",
+     "currencykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimCurrency",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimcurrency",
+   "pairs": [
+    [
+     "currencykey",
+     "currencykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimCurrency",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimcurrency",
+   "pairs": [
+    [
+     "currencykey",
+     "currencykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimCustomer",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimcustomer",
+   "pairs": [
+    [
+     "customerkey",
+     "customerkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactSurveyResponse_CustomerKey",
+   "from_table": "dbo.factsurveyresponse",
+   "to_table": "dbo.dimcustomer",
+   "pairs": [
+    [
+     "customerkey",
+     "customerkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactCallCenter_DimDate",
+   "from_table": "dbo.factcallcenter",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "datekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactCurrencyRate_DimDate",
+   "from_table": "dbo.factcurrencyrate",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "datekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactFinance_DimDate",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "datekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimDate",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "orderdatekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Sipariş tarihi",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimDate1",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "duedatekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Vade tarihi",
+   "description": "",
+   "active": false
+  },
+  {
+   "id": "FK_FactInternetSales_DimDate2",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "shipdatekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Sevk tarihi",
+   "description": "",
+   "active": false
+  },
+  {
+   "id": "FK_FactProductInventory_DimDate",
+   "from_table": "dbo.factproductinventory",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "datekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimDate",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "orderdatekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Sipariş tarihi",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimDate1",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "duedatekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Vade tarihi",
+   "description": "",
+   "active": false
+  },
+  {
+   "id": "FK_FactResellerSales_DimDate2",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "shipdatekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Sevk tarihi",
+   "description": "",
+   "active": false
+  },
+  {
+   "id": "FK_FactSalesQuota_DimDate",
+   "from_table": "dbo.factsalesquota",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "datekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactSurveyResponse_DateKey",
+   "from_table": "dbo.factsurveyresponse",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "datekey",
+     "datekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactFinance_DimDepartmentGroup",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimdepartmentgroup",
+   "pairs": [
+    [
+     "departmentgroupkey",
+     "departmentgroupkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimEmployee",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimemployee",
+   "pairs": [
+    [
+     "employeekey",
+     "employeekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactSalesQuota_DimEmployee",
+   "from_table": "dbo.factsalesquota",
+   "to_table": "dbo.dimemployee",
+   "pairs": [
+    [
+     "employeekey",
+     "employeekey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimCustomer_DimGeography",
+   "from_table": "dbo.dimcustomer",
+   "to_table": "dbo.dimgeography",
+   "pairs": [
+    [
+     "geographykey",
+     "geographykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimReseller_DimGeography",
+   "from_table": "dbo.dimreseller",
+   "to_table": "dbo.dimgeography",
+   "pairs": [
+    [
+     "geographykey",
+     "geographykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactFinance_DimOrganization",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimorganization",
+   "pairs": [
+    [
+     "organizationkey",
+     "organizationkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimProduct",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimproduct",
+   "pairs": [
+    [
+     "productkey",
+     "productkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactProductInventory_DimProduct",
+   "from_table": "dbo.factproductinventory",
+   "to_table": "dbo.dimproduct",
+   "pairs": [
+    [
+     "productkey",
+     "productkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimProduct",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimproduct",
+   "pairs": [
+    [
+     "productkey",
+     "productkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimProductSubcategory_DimProductCategory",
+   "from_table": "dbo.dimproductsubcategory",
+   "to_table": "dbo.dimproductcategory",
+   "pairs": [
+    [
+     "productcategorykey",
+     "productcategorykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimProduct_DimProductSubcategory",
+   "from_table": "dbo.dimproduct",
+   "to_table": "dbo.dimproductsubcategory",
+   "pairs": [
+    [
+     "productsubcategorykey",
+     "productsubcategorykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimPromotion",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimpromotion",
+   "pairs": [
+    [
+     "promotionkey",
+     "promotionkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimPromotion",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimpromotion",
+   "pairs": [
+    [
+     "promotionkey",
+     "promotionkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimReseller",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimreseller",
+   "pairs": [
+    [
+     "resellerkey",
+     "resellerkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSalesReason_DimSalesReason",
+   "from_table": "dbo.factinternetsalesreason",
+   "to_table": "dbo.dimsalesreason",
+   "pairs": [
+    [
+     "salesreasonkey",
+     "salesreasonkey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimEmployee_DimSalesTerritory",
+   "from_table": "dbo.dimemployee",
+   "to_table": "dbo.dimsalesterritory",
+   "pairs": [
+    [
+     "salesterritorykey",
+     "salesterritorykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimGeography_DimSalesTerritory",
+   "from_table": "dbo.dimgeography",
+   "to_table": "dbo.dimsalesterritory",
+   "pairs": [
+    [
+     "salesterritorykey",
+     "salesterritorykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimSalesTerritory",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimsalesterritory",
+   "pairs": [
+    [
+     "salesterritorykey",
+     "salesterritorykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimSalesTerritory",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimsalesterritory",
+   "pairs": [
+    [
+     "salesterritorykey",
+     "salesterritorykey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactFinance_DimScenario",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimscenario",
+   "pairs": [
+    [
+     "scenariokey",
+     "scenariokey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSalesReason_FactInternetSales",
+   "from_table": "dbo.factinternetsalesreason",
+   "to_table": "dbo.factinternetsales",
+   "pairs": [
+    [
+     "salesordernumber",
+     "salesordernumber"
+    ],
+    [
+     "salesorderlinenumber",
+     "salesorderlinenumber"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "description": "",
+   "active": true
+  }
+ ],
+ "metrics": [
+  {
+   "name": "active_customers",
+   "business_name": "Aktif Müşteri",
+   "description": "Dönemde alışveriş yapan tekil müşteri",
+   "expression_sql": "COUNT(DISTINCT f.CustomerKey)",
+   "base_table": "dbo.factinternetsales",
+   "value_format": "number",
+   "synonyms": [
+    "müşteri sayısı"
+   ]
+  },
+  {
+   "name": "avg_order_value",
+   "business_name": "Ortalama Sipariş Tutarı",
+   "description": "Sipariş başına satış",
+   "expression_sql": "SUM(f.SalesAmount) / NULLIF(COUNT(DISTINCT f.SalesOrderNumber), 0)",
+   "base_table": "dbo.factinternetsales",
+   "value_format": "currency",
+   "synonyms": [
+    "sepet",
+    "ortalama sepet"
+   ]
+  },
+  {
+   "name": "gross_margin_pct",
+   "business_name": "Brüt Kâr Marjı",
+   "description": "(Satış - maliyet) / satış",
+   "expression_sql": "SUM(f.SalesAmount - f.TotalProductCost) / NULLIF(SUM(f.SalesAmount), 0)",
+   "base_table": "dbo.factinternetsales",
+   "value_format": "percent",
+   "synonyms": [
+    "kâr marjı",
+    "kar oranı"
+   ]
+  },
+  {
+   "name": "gross_profit",
+   "business_name": "Brüt Kâr",
+   "description": "Satış - ürün maliyeti",
+   "expression_sql": "SUM(f.SalesAmount - f.TotalProductCost)",
+   "base_table": "dbo.factinternetsales",
+   "value_format": "currency",
+   "synonyms": [
+    "kâr",
+    "kar",
+    "marj"
+   ]
+  },
+  {
+   "name": "internet_sales_amount",
+   "business_name": "İnternet Satış Tutarı",
+   "description": "İnternet kanalı net satış",
+   "expression_sql": "SUM(f.SalesAmount)",
+   "base_table": "dbo.factinternetsales",
+   "value_format": "currency",
+   "synonyms": [
+    "internet ciro",
+    "online satış"
+   ]
+  },
+  {
+   "name": "order_count",
+   "business_name": "Sipariş Sayısı",
+   "description": "Tekil sipariş sayısı",
+   "expression_sql": "COUNT(DISTINCT f.SalesOrderNumber)",
+   "base_table": "dbo.factinternetsales",
+   "value_format": "number",
+   "synonyms": [
+    "sipariş adedi"
+   ]
+  },
+  {
+   "name": "quota_attainment",
+   "business_name": "Kota Gerçekleşme Oranı",
+   "description": "Bayi satışı / satış kotası (temsilci × çeyrek)",
+   "expression_sql": "SUM(r.SalesAmount) / NULLIF(SUM(q.SalesAmountQuota), 0)",
+   "base_table": "dbo.factsalesquota",
+   "value_format": "percent",
+   "synonyms": [
+    "hedef gerçekleşme"
+   ]
+  },
+  {
+   "name": "reseller_sales_amount",
+   "business_name": "Bayi Satış Tutarı",
+   "description": "Bayi kanalı net satış",
+   "expression_sql": "SUM(r.SalesAmount)",
+   "base_table": "dbo.factresellersales",
+   "value_format": "currency",
+   "synonyms": [
+    "bayi ciro"
+   ]
+  },
+  {
+   "name": "yoy_growth",
+   "business_name": "Yıllık Büyüme (YoY)",
+   "description": "(bu yıl - geçen yıl) / geçen yıl",
+   "expression_sql": "(cur - prev) / NULLIF(prev, 0)",
+   "base_table": "",
+   "value_format": "percent",
+   "synonyms": [
+    "büyüme",
+    "geçen yıla göre"
+   ]
+  }
+ ]
+}

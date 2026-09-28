@@ -1,404 +1,1810 @@
 {
  "tables": [
   {
-   "id": "dwh.fact_card_transaction",
-   "name": "dwh.fact_card_transaction",
-   "schema": "dwh",
-   "short_name": "fact_card_transaction",
-   "business_name": "Kredi Kartı İşlemleri",
-   "description": "Kredi kartlarıyla yapılan her harcama işlemi (satış). Ciro, işlem adedi, taksit analizleri için ana tablo.",
-   "subject_area": "Kartlı Ödemeler",
-   "grain": "Bir satır = bir kart işlemi",
-   "row_count": 400000,
-   "kind": "fact",
-   "columns": [
-    {
-     "name": "transaction_id",
-     "id": "transaction_id",
-     "business_name": "İşlem No",
-     "data_type": "BIGINT",
-     "role": "key",
-     "is_pii": false,
-     "is_key": false,
-     "description": "İşlem benzersiz anahtarı"
-    },
-    {
-     "name": "date_key",
-     "id": "date_key",
-     "business_name": "Tarih Anahtarı",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "dim_date.date_key ile ilişkili"
-    },
-    {
-     "name": "customer_id",
-     "id": "customer_id",
-     "business_name": "Müşteri No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "dim_customer ile ilişkili"
-    },
-    {
-     "name": "product_id",
-     "id": "product_id",
-     "business_name": "Ürün No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "dim_product ile ilişkili"
-    },
-    {
-     "name": "branch_id",
-     "id": "branch_id",
-     "business_name": "Şube No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "dim_branch ile ilişkili (kartın bağlı şubesi)"
-    },
-    {
-     "name": "mcc_id",
-     "id": "mcc_id",
-     "business_name": "Kategori No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "dim_merchant_category ile ilişkili"
-    },
-    {
-     "name": "channel_id",
-     "id": "channel_id",
-     "business_name": "Kanal No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "dim_channel ile ilişkili"
-    },
-    {
-     "name": "amount_try",
-     "id": "amount_try",
-     "business_name": "İşlem Tutarı (TL)",
-     "data_type": "DECIMAL",
-     "role": "measure",
-     "is_pii": false,
-     "is_key": false,
-     "description": "Harcama tutarı, Türk Lirası"
-    },
-    {
-     "name": "installment_count",
-     "id": "installment_count",
-     "business_name": "Taksit Sayısı",
-     "data_type": "INTEGER",
-     "role": "measure",
-     "is_pii": false,
-     "is_key": false,
-     "description": "1 = peşin"
-    },
-    {
-     "name": "is_international",
-     "id": "is_international",
-     "business_name": "Yurt Dışı İşlem",
-     "data_type": "BOOLEAN",
-     "role": "attribute",
-     "is_pii": false,
-     "is_key": false,
-     "description": "İşlem yurt dışında/yabancı işyerinde mi"
-    }
-   ]
-  },
-  {
-   "id": "dwh.fact_card_application",
-   "name": "dwh.fact_card_application",
-   "schema": "dwh",
-   "short_name": "fact_card_application",
-   "business_name": "Kart Başvuruları",
-   "description": "Yeni kredi kartı başvuruları ve sonuçları (onay/red).",
-   "subject_area": "Kartlı Ödemeler",
-   "grain": "Bir satır = bir başvuru",
-   "row_count": 60000,
-   "kind": "fact",
-   "columns": [
-    {
-     "name": "application_id",
-     "id": "application_id",
-     "business_name": "Başvuru No",
-     "data_type": "BIGINT",
-     "role": "key",
-     "is_pii": false,
-     "is_key": false,
-     "description": "Başvuru anahtarı"
-    },
-    {
-     "name": "date_key",
-     "id": "date_key",
-     "business_name": "Tarih Anahtarı",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "Başvuru tarihi"
-    },
-    {
-     "name": "branch_id",
-     "id": "branch_id",
-     "business_name": "Şube No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": ""
-    },
-    {
-     "name": "product_id",
-     "id": "product_id",
-     "business_name": "Ürün No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "Başvurulan kart ürünü"
-    },
-    {
-     "name": "channel_id",
-     "id": "channel_id",
-     "business_name": "Kanal No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "Başvuru kanalı"
-    },
-    {
-     "name": "application_status",
-     "id": "application_status",
-     "business_name": "Başvuru Durumu",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": "Onaylandı / Reddedildi / Beklemede"
-    },
-    {
-     "name": "requested_limit_try",
-     "id": "requested_limit_try",
-     "business_name": "Talep Edilen Limit (TL)",
-     "data_type": "DECIMAL",
-     "role": "measure",
-     "is_pii": false,
-     "is_key": false,
-     "description": ""
-    }
-   ]
-  },
-  {
-   "id": "dwh.fact_loan_disbursement",
-   "name": "dwh.fact_loan_disbursement",
-   "schema": "dwh",
-   "short_name": "fact_loan_disbursement",
-   "business_name": "Kredi Kullandırımları",
-   "description": "Bireysel ve KOBİ kredilerinin kullandırım kayıtları.",
-   "subject_area": "Krediler",
-   "grain": "Bir satır = bir kredi kullandırımı",
-   "row_count": 45000,
-   "kind": "fact",
-   "columns": [
-    {
-     "name": "loan_id",
-     "id": "loan_id",
-     "business_name": "Kredi No",
-     "data_type": "BIGINT",
-     "role": "key",
-     "is_pii": false,
-     "is_key": false,
-     "description": ""
-    },
-    {
-     "name": "date_key",
-     "id": "date_key",
-     "business_name": "Tarih Anahtarı",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "Kullandırım tarihi"
-    },
-    {
-     "name": "customer_id",
-     "id": "customer_id",
-     "business_name": "Müşteri No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": ""
-    },
-    {
-     "name": "branch_id",
-     "id": "branch_id",
-     "business_name": "Şube No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": ""
-    },
-    {
-     "name": "loan_type",
-     "id": "loan_type",
-     "business_name": "Kredi Türü",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": "İhtiyaç / Taşıt / Konut / KOBİ"
-    },
-    {
-     "name": "amount_try",
-     "id": "amount_try",
-     "business_name": "Kredi Tutarı (TL)",
-     "data_type": "DECIMAL",
-     "role": "measure",
-     "is_pii": false,
-     "is_key": false,
-     "description": "Kullandırılan anapara"
-    },
-    {
-     "name": "term_months",
-     "id": "term_months",
-     "business_name": "Vade (Ay)",
-     "data_type": "INTEGER",
-     "role": "measure",
-     "is_pii": false,
-     "is_key": false,
-     "description": ""
-    },
-    {
-     "name": "monthly_interest_rate",
-     "id": "monthly_interest_rate",
-     "business_name": "Aylık Faiz (%)",
-     "data_type": "DECIMAL",
-     "role": "measure",
-     "is_pii": false,
-     "is_key": false,
-     "description": ""
-    }
-   ]
-  },
-  {
-   "id": "dwh.dim_date",
-   "name": "dwh.dim_date",
-   "schema": "dwh",
-   "short_name": "dim_date",
-   "business_name": "Tarih",
-   "description": "Takvim boyutu: yıl, çeyrek, ay, hafta, gün.",
-   "subject_area": "Ortak",
-   "grain": "Bir satır = bir gün",
-   "row_count": 974,
+   "id": "dbo.dimaccount",
+   "name": "dbo.DimAccount",
+   "schema": "dbo",
+   "short_name": "DimAccount",
+   "business_name": "Hesap Planı",
+   "description": "Muhasebe hesap planı (hiyerarşik).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = bir hesap",
+   "row_count": 99,
    "kind": "dimension",
    "columns": [
     {
-     "name": "date_key",
-     "id": "date_key",
-     "business_name": "Tarih Anahtarı",
-     "data_type": "INTEGER",
+     "name": "AccountCodeAlternateKey",
+     "id": "accountcodealternatekey",
+     "business_name": "Account Code Alternate Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "AccountDescription",
+     "id": "accountdescription",
+     "business_name": "Hesap Adı",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "AccountKey",
+     "id": "accountkey",
+     "business_name": "Account Key",
+     "data_type": "int",
      "role": "key",
      "is_pii": false,
      "is_key": true,
-     "description": "YYYYMMDD"
+     "description": ""
     },
     {
-     "name": "full_date",
-     "id": "full_date",
-     "business_name": "Tarih",
-     "data_type": "DATE",
+     "name": "AccountType",
+     "id": "accounttype",
+     "business_name": "Hesap Tipi",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Assets, Liabilities, Revenue, Expenditures ..."
+    },
+    {
+     "name": "CustomMemberOptions",
+     "id": "custommemberoptions",
+     "business_name": "Custom Member Options",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "CustomMembers",
+     "id": "custommembers",
+     "business_name": "Custom Members",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Operator",
+     "id": "operator",
+     "business_name": "Operator",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ParentAccountCodeAlternateKey",
+     "id": "parentaccountcodealternatekey",
+     "business_name": "Parent Account Code Alternate Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ParentAccountKey",
+     "id": "parentaccountkey",
+     "business_name": "Parent Account Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ValueType",
+     "id": "valuetype",
+     "business_name": "Value Type",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimcurrency",
+   "name": "dbo.DimCurrency",
+   "schema": "dbo",
+   "short_name": "DimCurrency",
+   "business_name": "Para Birimi",
+   "description": "Para birimi kodları ve adları.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir para birimi",
+   "row_count": 105,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "CurrencyAlternateKey",
+     "id": "currencyalternatekey",
+     "business_name": "Para Birimi Kodu",
+     "data_type": "nchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "USD, EUR ..."
+    },
+    {
+     "name": "CurrencyKey",
+     "id": "currencykey",
+     "business_name": "Currency Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "CurrencyName",
+     "id": "currencyname",
+     "business_name": "Para Birimi",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimcustomer",
+   "name": "dbo.DimCustomer",
+   "schema": "dbo",
+   "short_name": "DimCustomer",
+   "business_name": "Müşteri",
+   "description": "Bireysel (internet) müşteriler: demografi ve iletişim. Kimlik/iletişim alanları kişisel veridir.",
+   "subject_area": "Müşteri",
+   "grain": "Bir satır = bir müşteri",
+   "row_count": 18484,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "AddressLine1",
+     "id": "addressline1",
+     "business_name": "Adres 1",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "AddressLine2",
+     "id": "addressline2",
+     "business_name": "Adres 2",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "BirthDate",
+     "id": "birthdate",
+     "business_name": "Doğum Tarihi",
+     "data_type": "date",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "CommuteDistance",
+     "id": "commutedistance",
+     "business_name": "İşe Uzaklık",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "CustomerAlternateKey",
+     "id": "customeralternatekey",
+     "business_name": "Müşteri No",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Müşteriyi tekil tanımlar"
+    },
+    {
+     "name": "CustomerKey",
+     "id": "customerkey",
+     "business_name": "Customer Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "DateFirstPurchase",
+     "id": "datefirstpurchase",
+     "business_name": "İlk Alışveriş Tarihi",
+     "data_type": "date",
      "role": "date",
      "is_pii": false,
      "is_key": false,
      "description": ""
     },
     {
-     "name": "year",
-     "id": "year",
-     "business_name": "Yıl",
-     "data_type": "INTEGER",
+     "name": "EmailAddress",
+     "id": "emailaddress",
+     "business_name": "E-posta",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "EnglishEducation",
+     "id": "englisheducation",
+     "business_name": "Eğitim",
+     "data_type": "nvarchar",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
      "description": ""
     },
     {
-     "name": "quarter",
-     "id": "quarter",
+     "name": "EnglishOccupation",
+     "id": "englishoccupation",
+     "business_name": "Meslek",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "FirstName",
+     "id": "firstname",
+     "business_name": "Ad",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "Gender",
+     "id": "gender",
+     "business_name": "Cinsiyet",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "M / F"
+    },
+    {
+     "name": "GeographyKey",
+     "id": "geographykey",
+     "business_name": "Geography Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "HouseOwnerFlag",
+     "id": "houseownerflag",
+     "business_name": "Ev Sahibi mi",
+     "data_type": "nchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "1/0"
+    },
+    {
+     "name": "LastName",
+     "id": "lastname",
+     "business_name": "Soyad",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "MaritalStatus",
+     "id": "maritalstatus",
+     "business_name": "Medeni Durum",
+     "data_type": "nchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "M=Evli, S=Bekar"
+    },
+    {
+     "name": "MiddleName",
+     "id": "middlename",
+     "business_name": "İkinci Ad",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "NameStyle",
+     "id": "namestyle",
+     "business_name": "Name Style",
+     "data_type": "bit",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "NumberCarsOwned",
+     "id": "numbercarsowned",
+     "business_name": "Araç Sayısı",
+     "data_type": "tinyint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "NumberChildrenAtHome",
+     "id": "numberchildrenathome",
+     "business_name": "Number Children At Home",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Phone",
+     "id": "phone",
+     "business_name": "Telefon",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "Suffix",
+     "id": "suffix",
+     "business_name": "Ek",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Title",
+     "id": "title",
+     "business_name": "Unvan",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "TotalChildren",
+     "id": "totalchildren",
+     "business_name": "Çocuk Sayısı",
+     "data_type": "tinyint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "YearlyIncome",
+     "id": "yearlyincome",
+     "business_name": "Yıllık Gelir",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimdate",
+   "name": "dbo.DimDate",
+   "schema": "dbo",
+   "short_name": "DimDate",
+   "business_name": "Tarih",
+   "description": "Takvim ve mali takvim boyutu.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir gün",
+   "row_count": 3652,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "CalendarQuarter",
+     "id": "calendarquarter",
      "business_name": "Çeyrek",
-     "data_type": "INTEGER",
+     "data_type": "tinyint",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
      "description": "1-4"
     },
     {
-     "name": "month",
-     "id": "month",
+     "name": "CalendarSemester",
+     "id": "calendarsemester",
+     "business_name": "Yarıyıl",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "1-2"
+    },
+    {
+     "name": "CalendarYear",
+     "id": "calendaryear",
+     "business_name": "Yıl",
+     "data_type": "smallint",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Takvim yılı"
+    },
+    {
+     "name": "DateKey",
+     "id": "datekey",
+     "business_name": "Tarih Anahtarı",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "YYYYMMDD"
+    },
+    {
+     "name": "DayNumberOfMonth",
+     "id": "daynumberofmonth",
+     "business_name": "Day Number Of Month",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DayNumberOfWeek",
+     "id": "daynumberofweek",
+     "business_name": "Day Number Of Week",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DayNumberOfYear",
+     "id": "daynumberofyear",
+     "business_name": "Day Number Of Year",
+     "data_type": "smallint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EnglishDayNameOfWeek",
+     "id": "englishdaynameofweek",
+     "business_name": "Gün Adı (İng.)",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EnglishMonthName",
+     "id": "englishmonthname",
+     "business_name": "Ay Adı (İng.)",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "FiscalQuarter",
+     "id": "fiscalquarter",
+     "business_name": "Mali Çeyrek",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "FiscalSemester",
+     "id": "fiscalsemester",
+     "business_name": "Fiscal Semester",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "FiscalYear",
+     "id": "fiscalyear",
+     "business_name": "Mali Yıl",
+     "data_type": "smallint",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "FullDateAlternateKey",
+     "id": "fulldatealternatekey",
+     "business_name": "Tarih",
+     "data_type": "date",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Takvim günü (date)"
+    },
+    {
+     "name": "MonthNumberOfYear",
+     "id": "monthnumberofyear",
      "business_name": "Ay No",
-     "data_type": "INTEGER",
+     "data_type": "tinyint",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
      "description": "1-12"
     },
     {
-     "name": "month_name",
-     "id": "month_name",
-     "business_name": "Ay Adı",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": "Türkçe ay adı"
-    },
-    {
-     "name": "year_month",
-     "id": "year_month",
-     "business_name": "Yıl-Ay",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": "YYYY-MM, aylık trendler için"
-    },
-    {
-     "name": "week_of_year",
-     "id": "week_of_year",
+     "name": "WeekNumberOfYear",
+     "id": "weeknumberofyear",
      "business_name": "Hafta",
-     "data_type": "INTEGER",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimdepartmentgroup",
+   "name": "dbo.DimDepartmentGroup",
+   "schema": "dbo",
+   "short_name": "DimDepartmentGroup",
+   "business_name": "Departman Grubu",
+   "description": "Departman grupları (hiyerarşik).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = bir departman grubu",
+   "row_count": 7,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "DepartmentGroupKey",
+     "id": "departmentgroupkey",
+     "business_name": "Department Group Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "DepartmentGroupName",
+     "id": "departmentgroupname",
+     "business_name": "Departman Grubu",
+     "data_type": "nvarchar",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
      "description": ""
     },
     {
-     "name": "day_name",
-     "id": "day_name",
-     "business_name": "Gün Adı",
-     "data_type": "VARCHAR",
+     "name": "ParentDepartmentGroupKey",
+     "id": "parentdepartmentgroupkey",
+     "business_name": "Parent Department Group Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimemployee",
+   "name": "dbo.DimEmployee",
+   "schema": "dbo",
+   "short_name": "DimEmployee",
+   "business_name": "Çalışan",
+   "description": "Çalışanlar ve satış temsilcileri. Kişisel bilgiler (kimlik, doğum tarihi, iletişim, ücret) hassastır.",
+   "subject_area": "İK",
+   "grain": "Bir satır = bir çalışan kaydı",
+   "row_count": 296,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "BaseRate",
+     "id": "baserate",
+     "business_name": "Saatlik Ücret",
+     "data_type": "money",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Ücret bilgisi — hassas"
+    },
+    {
+     "name": "BirthDate",
+     "id": "birthdate",
+     "business_name": "Doğum Tarihi",
+     "data_type": "date",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "CurrentFlag",
+     "id": "currentflag",
+     "business_name": "Current Flag",
+     "data_type": "bit",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
      "description": ""
     },
     {
-     "name": "is_weekend",
-     "id": "is_weekend",
-     "business_name": "Hafta Sonu",
-     "data_type": "BOOLEAN",
+     "name": "DepartmentName",
+     "id": "departmentname",
+     "business_name": "Departman",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EmailAddress",
+     "id": "emailaddress",
+     "business_name": "E-posta",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "EmergencyContactName",
+     "id": "emergencycontactname",
+     "business_name": "Acil Durum Kişisi",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "EmergencyContactPhone",
+     "id": "emergencycontactphone",
+     "business_name": "Acil Durum Telefonu",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "EmployeeKey",
+     "id": "employeekey",
+     "business_name": "Employee Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "EmployeeNationalIDAlternateKey",
+     "id": "employeenationalidalternatekey",
+     "business_name": "Kimlik No",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "EndDate",
+     "id": "enddate",
+     "business_name": "End Date",
+     "data_type": "date",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "FirstName",
+     "id": "firstname",
+     "business_name": "Ad",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Satış temsilcisi raporlarında kullanılabilir"
+    },
+    {
+     "name": "Gender",
+     "id": "gender",
+     "business_name": "Cinsiyet",
+     "data_type": "nchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri (İK)"
+    },
+    {
+     "name": "HireDate",
+     "id": "hiredate",
+     "business_name": "İşe Giriş Tarihi",
+     "data_type": "date",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "LastName",
+     "id": "lastname",
+     "business_name": "Soyad",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Satış temsilcisi raporlarında kullanılabilir"
+    },
+    {
+     "name": "LoginID",
+     "id": "loginid",
+     "business_name": "Kullanıcı Adı",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "MaritalStatus",
+     "id": "maritalstatus",
+     "business_name": "Medeni Durum",
+     "data_type": "nchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "MiddleName",
+     "id": "middlename",
+     "business_name": "İkinci Ad",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "NameStyle",
+     "id": "namestyle",
+     "business_name": "Name Style",
+     "data_type": "bit",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ParentEmployeeKey",
+     "id": "parentemployeekey",
+     "business_name": "Parent Employee Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ParentEmployeeNationalIDAlternateKey",
+     "id": "parentemployeenationalidalternatekey",
+     "business_name": "Yönetici Kimlik No",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "PayFrequency",
+     "id": "payfrequency",
+     "business_name": "Pay Frequency",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Phone",
+     "id": "phone",
+     "business_name": "Telefon",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri"
+    },
+    {
+     "name": "SalariedFlag",
+     "id": "salariedflag",
+     "business_name": "Salaried Flag",
+     "data_type": "bit",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SalesPersonFlag",
+     "id": "salespersonflag",
+     "business_name": "Satış Temsilcisi mi",
+     "data_type": "bit",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "1 = satış temsilcisi"
+    },
+    {
+     "name": "SalesTerritoryKey",
+     "id": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "SickLeaveHours",
+     "id": "sickleavehours",
+     "business_name": "Hastalık İzni Saatleri",
+     "data_type": "smallint",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "StartDate",
+     "id": "startdate",
+     "business_name": "Start Date",
+     "data_type": "date",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Status",
+     "id": "status",
+     "business_name": "Status",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Title",
+     "id": "title",
+     "business_name": "Görev",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "VacationHours",
+     "id": "vacationhours",
+     "business_name": "İzin Saatleri",
+     "data_type": "smallint",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimgeography",
+   "name": "dbo.DimGeography",
+   "schema": "dbo",
+   "short_name": "DimGeography",
+   "business_name": "Coğrafya",
+   "description": "Şehir, eyalet/il, ülke ve posta kodu.",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir şehir/posta kodu",
+   "row_count": 655,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "City",
+     "id": "city",
+     "business_name": "Şehir",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "CountryRegionCode",
+     "id": "countryregioncode",
+     "business_name": "Country Region Code",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EnglishCountryRegionName",
+     "id": "englishcountryregionname",
+     "business_name": "Ülke",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "GeographyKey",
+     "id": "geographykey",
+     "business_name": "Geography Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "IpAddressLocator",
+     "id": "ipaddresslocator",
+     "business_name": "IP Adresi",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": "Kişisel veri sayılabilir"
+    },
+    {
+     "name": "PostalCode",
+     "id": "postalcode",
+     "business_name": "Posta Kodu",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SalesTerritoryKey",
+     "id": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "StateProvinceCode",
+     "id": "stateprovincecode",
+     "business_name": "State Province Code",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "StateProvinceName",
+     "id": "stateprovincename",
+     "business_name": "Eyalet/İl",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimorganization",
+   "name": "dbo.DimOrganization",
+   "schema": "dbo",
+   "short_name": "DimOrganization",
+   "business_name": "Organizasyon",
+   "description": "Şirket organizasyon birimleri (hiyerarşik).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = bir birim",
+   "row_count": 14,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "CurrencyKey",
+     "id": "currencykey",
+     "business_name": "Currency Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "OrganizationKey",
+     "id": "organizationkey",
+     "business_name": "Organization Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "OrganizationName",
+     "id": "organizationname",
+     "business_name": "Organizasyon",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ParentOrganizationKey",
+     "id": "parentorganizationkey",
+     "business_name": "Parent Organization Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "PercentageOfOwnership",
+     "id": "percentageofownership",
+     "business_name": "Percentage Of Ownership",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimproduct",
+   "name": "dbo.DimProduct",
+   "schema": "dbo",
+   "short_name": "DimProduct",
+   "business_name": "Ürün",
+   "description": "Ürün kartı: ad, renk, boyut, model, fiyat, maliyet.",
+   "subject_area": "Ürün",
+   "grain": "Bir satır = bir ürün versiyonu",
+   "row_count": 606,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "Class",
+     "id": "class",
+     "business_name": "Sınıf",
+     "data_type": "nchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "H=High, M=Medium, L=Low"
+    },
+    {
+     "name": "Color",
+     "id": "color",
+     "business_name": "Renk",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DaysToManufacture",
+     "id": "daystomanufacture",
+     "business_name": "Days To Manufacture",
+     "data_type": "int",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DealerPrice",
+     "id": "dealerprice",
+     "business_name": "Dealer Price",
+     "data_type": "money",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EndDate",
+     "id": "enddate",
+     "business_name": "End Date",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EnglishDescription",
+     "id": "englishdescription",
+     "business_name": "Description",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EnglishProductName",
+     "id": "englishproductname",
+     "business_name": "Ürün Adı",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "FinishedGoodsFlag",
+     "id": "finishedgoodsflag",
+     "business_name": "Finished Goods Flag",
+     "data_type": "bit",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ListPrice",
+     "id": "listprice",
+     "business_name": "Liste Fiyatı",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ModelName",
+     "id": "modelname",
+     "business_name": "Model",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductAlternateKey",
+     "id": "productalternatekey",
+     "business_name": "Product Alternate Key",
+     "data_type": "nvarchar",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductKey",
+     "id": "productkey",
+     "business_name": "Product Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ProductLine",
+     "id": "productline",
+     "business_name": "Ürün Hattı",
+     "data_type": "nchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "R=Road, M=Mountain, T=Touring, S=Standard"
+    },
+    {
+     "name": "ProductSubcategoryKey",
+     "id": "productsubcategorykey",
+     "business_name": "Product Subcategory Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ReorderPoint",
+     "id": "reorderpoint",
+     "business_name": "Reorder Point",
+     "data_type": "smallint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SafetyStockLevel",
+     "id": "safetystocklevel",
+     "business_name": "Safety Stock Level",
+     "data_type": "smallint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Size",
+     "id": "size",
+     "business_name": "Beden/Boyut",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SizeRange",
+     "id": "sizerange",
+     "business_name": "Size Range",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SizeUnitMeasureCode",
+     "id": "sizeunitmeasurecode",
+     "business_name": "Size Unit Measure Code",
+     "data_type": "nchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "StandardCost",
+     "id": "standardcost",
+     "business_name": "Standart Maliyet",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "StartDate",
+     "id": "startdate",
+     "business_name": "Start Date",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Status",
+     "id": "status",
+     "business_name": "Status",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Style",
+     "id": "style",
+     "business_name": "Style",
+     "data_type": "nchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "TurkishDescription",
+     "id": "turkishdescription",
+     "business_name": "Turkish Description",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Weight",
+     "id": "weight",
+     "business_name": "Weight",
+     "data_type": "float",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "WeightUnitMeasureCode",
+     "id": "weightunitmeasurecode",
+     "business_name": "Weight Unit Measure Code",
+     "data_type": "nchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimproductcategory",
+   "name": "dbo.DimProductCategory",
+   "schema": "dbo",
+   "short_name": "DimProductCategory",
+   "business_name": "Ürün Kategorisi",
+   "description": "Ana ürün kategorileri: Bikes, Components, Clothing, Accessories.",
+   "subject_area": "Ürün",
+   "grain": "Bir satır = bir kategori",
+   "row_count": 4,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "EnglishProductCategoryName",
+     "id": "englishproductcategoryname",
+     "business_name": "Kategori",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Bikes, Components, Clothing, Accessories"
+    },
+    {
+     "name": "ProductCategoryAlternateKey",
+     "id": "productcategoryalternatekey",
+     "business_name": "Product Category Alternate Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductCategoryKey",
+     "id": "productcategorykey",
+     "business_name": "Product Category Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimproductsubcategory",
+   "name": "dbo.DimProductSubcategory",
+   "schema": "dbo",
+   "short_name": "DimProductSubcategory",
+   "business_name": "Ürün Alt Kategorisi",
+   "description": "Ürün alt kategorileri (ör. Mountain Bikes, Helmets).",
+   "subject_area": "Ürün",
+   "grain": "Bir satır = bir alt kategori",
+   "row_count": 37,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "EnglishProductSubcategoryName",
+     "id": "englishproductsubcategoryname",
+     "business_name": "Alt Kategori",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductCategoryKey",
+     "id": "productcategorykey",
+     "business_name": "Product Category Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ProductSubcategoryAlternateKey",
+     "id": "productsubcategoryalternatekey",
+     "business_name": "Product Subcategory Alternate Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductSubcategoryKey",
+     "id": "productsubcategorykey",
+     "business_name": "Product Subcategory Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimpromotion",
+   "name": "dbo.DimPromotion",
+   "schema": "dbo",
+   "short_name": "DimPromotion",
+   "business_name": "Promosyon",
+   "description": "Kampanya ve indirim tanımları.",
+   "subject_area": "Pazarlama",
+   "grain": "Bir satır = bir promosyon",
+   "row_count": 16,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "DiscountPct",
+     "id": "discountpct",
+     "business_name": "İndirim Oranı",
+     "data_type": "float",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "0-1"
+    },
+    {
+     "name": "EndDate",
+     "id": "enddate",
+     "business_name": "End Date",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EnglishPromotionCategory",
+     "id": "englishpromotioncategory",
+     "business_name": "Promosyon Kategorisi",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Customer / Reseller / No Discount"
+    },
+    {
+     "name": "EnglishPromotionName",
+     "id": "englishpromotionname",
+     "business_name": "Promosyon Adı",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EnglishPromotionType",
+     "id": "englishpromotiontype",
+     "business_name": "Promosyon Tipi",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "MaxQty",
+     "id": "maxqty",
+     "business_name": "Max Qty",
+     "data_type": "int",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "MinQty",
+     "id": "minqty",
+     "business_name": "Min Qty",
+     "data_type": "int",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "PromotionAlternateKey",
+     "id": "promotionalternatekey",
+     "business_name": "Promotion Alternate Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "PromotionKey",
+     "id": "promotionkey",
+     "business_name": "Promotion Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "StartDate",
+     "id": "startdate",
+     "business_name": "Start Date",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimreseller",
+   "name": "dbo.DimReseller",
+   "schema": "dbo",
+   "short_name": "DimReseller",
+   "business_name": "Bayi",
+   "description": "Bayi firmalar: iş tipi, çalışan sayısı, yıllık satış.",
+   "subject_area": "Satış",
+   "grain": "Bir satır = bir bayi",
+   "row_count": 701,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "AddressLine1",
+     "id": "addressline1",
+     "business_name": "Adres 1",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "AddressLine2",
+     "id": "addressline2",
+     "business_name": "Adres 2",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "AnnualRevenue",
+     "id": "annualrevenue",
+     "business_name": "Yıllık Gelir",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "AnnualSales",
+     "id": "annualsales",
+     "business_name": "Yıllık Satış",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Bayinin beyan ettiği yıllık satış"
+    },
+    {
+     "name": "BankName",
+     "id": "bankname",
+     "business_name": "Banka",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "BusinessType",
+     "id": "businesstype",
+     "business_name": "İş Tipi",
+     "data_type": "varchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Specialty Bike Shop / Value Added Reseller / Warehouse"
+    },
+    {
+     "name": "FirstOrderYear",
+     "id": "firstorderyear",
+     "business_name": "First Order Year",
+     "data_type": "int",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "GeographyKey",
+     "id": "geographykey",
+     "business_name": "Geography Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "LastOrderYear",
+     "id": "lastorderyear",
+     "business_name": "Last Order Year",
+     "data_type": "int",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "MinPaymentAmount",
+     "id": "minpaymentamount",
+     "business_name": "Min Payment Amount",
+     "data_type": "money",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "MinPaymentType",
+     "id": "minpaymenttype",
+     "business_name": "Min Payment Type",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "NumberEmployees",
+     "id": "numberemployees",
+     "business_name": "Çalışan Sayısı",
+     "data_type": "int",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "OrderFrequency",
+     "id": "orderfrequency",
+     "business_name": "Order Frequency",
+     "data_type": "char",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "OrderMonth",
+     "id": "ordermonth",
+     "business_name": "Order Month",
+     "data_type": "tinyint",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Phone",
+     "id": "phone",
+     "business_name": "Telefon",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": true,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductLine",
+     "id": "productline",
+     "business_name": "Product Line",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ResellerAlternateKey",
+     "id": "reselleralternatekey",
+     "business_name": "Reseller Alternate Key",
+     "data_type": "nvarchar",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ResellerKey",
+     "id": "resellerkey",
+     "business_name": "Reseller Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ResellerName",
+     "id": "resellername",
+     "business_name": "Bayi Adı",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "YearOpened",
+     "id": "yearopened",
+     "business_name": "Year Opened",
+     "data_type": "int",
      "role": "attribute",
      "is_pii": false,
      "is_key": false,
@@ -407,116 +1813,368 @@
    ]
   },
   {
-   "id": "dwh.dim_branch",
-   "name": "dwh.dim_branch",
-   "schema": "dwh",
-   "short_name": "dim_branch",
-   "business_name": "Şube",
-   "description": "Şube, il ve bölge bilgisi.",
-   "subject_area": "Ortak",
-   "grain": "Bir satır = bir şube",
-   "row_count": 63,
+   "id": "dbo.dimsalesreason",
+   "name": "dbo.DimSalesReason",
+   "schema": "dbo",
+   "short_name": "DimSalesReason",
+   "business_name": "Satış Nedeni",
+   "description": "Müşterinin satın alma nedeni (fiyat, kalite, promosyon ...).",
+   "subject_area": "Satış",
+   "grain": "Bir satır = bir neden",
+   "row_count": 10,
    "kind": "dimension",
    "columns": [
     {
-     "name": "branch_id",
-     "id": "branch_id",
-     "business_name": "Şube No",
-     "data_type": "INTEGER",
+     "name": "SalesReasonAlternateKey",
+     "id": "salesreasonalternatekey",
+     "business_name": "Sales Reason Alternate Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SalesReasonKey",
+     "id": "salesreasonkey",
+     "business_name": "Sales Reason Key",
+     "data_type": "int",
      "role": "key",
      "is_pii": false,
      "is_key": true,
      "description": ""
     },
     {
-     "name": "branch_name",
-     "id": "branch_name",
-     "business_name": "Şube Adı",
-     "data_type": "VARCHAR",
+     "name": "SalesReasonName",
+     "id": "salesreasonname",
+     "business_name": "Satış Nedeni",
+     "data_type": "nvarchar",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
      "description": ""
     },
     {
-     "name": "city",
-     "id": "city",
-     "business_name": "İl",
-     "data_type": "VARCHAR",
+     "name": "SalesReasonReasonType",
+     "id": "salesreasonreasontype",
+     "business_name": "Neden Tipi",
+     "data_type": "nvarchar",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
      "description": ""
-    },
-    {
-     "name": "region",
-     "id": "region",
-     "business_name": "Bölge",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": "Coğrafi bölge"
     }
    ]
   },
   {
-   "id": "dwh.dim_product",
-   "name": "dwh.dim_product",
-   "schema": "dwh",
-   "short_name": "dim_product",
-   "business_name": "Kart Ürünü",
-   "description": "Kredi kartı ürünleri: kart tipi (bireysel/ticari) ve seviyesi.",
-   "subject_area": "Kartlı Ödemeler",
-   "grain": "Bir satır = bir ürün",
-   "row_count": 6,
+   "id": "dbo.dimsalesterritory",
+   "name": "dbo.DimSalesTerritory",
+   "schema": "dbo",
+   "short_name": "DimSalesTerritory",
+   "business_name": "Satış Bölgesi",
+   "description": "Satış bölgesi, ülke ve bölge grubu (North America, Europe, Pacific).",
+   "subject_area": "Ortak",
+   "grain": "Bir satır = bir satış bölgesi",
+   "row_count": 11,
    "kind": "dimension",
    "columns": [
     {
-     "name": "product_id",
-     "id": "product_id",
-     "business_name": "Ürün No",
-     "data_type": "INTEGER",
+     "name": "SalesTerritoryAlternateKey",
+     "id": "salesterritoryalternatekey",
+     "business_name": "Sales Territory Alternate Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SalesTerritoryCountry",
+     "id": "salesterritorycountry",
+     "business_name": "Bölge Ülkesi",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SalesTerritoryGroup",
+     "id": "salesterritorygroup",
+     "business_name": "Bölge Grubu",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "North America / Europe / Pacific"
+    },
+    {
+     "name": "SalesTerritoryKey",
+     "id": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "data_type": "int",
      "role": "key",
      "is_pii": false,
      "is_key": true,
      "description": ""
     },
     {
-     "name": "product_name",
-     "id": "product_name",
-     "business_name": "Ürün Adı",
-     "data_type": "VARCHAR",
+     "name": "SalesTerritoryRegion",
+     "id": "salesterritoryregion",
+     "business_name": "Satış Bölgesi",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "ör. Northwest, Canada, France"
+    }
+   ]
+  },
+  {
+   "id": "dbo.dimscenario",
+   "name": "dbo.DimScenario",
+   "schema": "dbo",
+   "short_name": "DimScenario",
+   "business_name": "Senaryo",
+   "description": "Finans senaryosu: Actual (gerçekleşen), Budget (bütçe), Forecast (tahmin).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = bir senaryo",
+   "row_count": 3,
+   "kind": "dimension",
+   "columns": [
+    {
+     "name": "ScenarioKey",
+     "id": "scenariokey",
+     "business_name": "Scenario Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ScenarioName",
+     "id": "scenarioname",
+     "business_name": "Senaryo",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Actual / Budget / Forecast"
+    }
+   ]
+  },
+  {
+   "id": "dbo.factcallcenter",
+   "name": "dbo.FactCallCenter",
+   "schema": "dbo",
+   "short_name": "FactCallCenter",
+   "business_name": "Çağrı Merkezi",
+   "description": "Çağrı merkezi günlük vardiya performansı: çağrı, sipariş, sorun, servis seviyesi.",
+   "subject_area": "Operasyon",
+   "grain": "Bir satır = gün × vardiya",
+   "row_count": 120,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "AutomaticResponses",
+     "id": "automaticresponses",
+     "business_name": "Automatic Responses",
+     "data_type": "int",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "AverageTimePerIssue",
+     "id": "averagetimeperissue",
+     "business_name": "Sorun Başına Ortalama Süre (dk)",
+     "data_type": "smallint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Calls",
+     "id": "calls",
+     "business_name": "Çağrı Sayısı",
+     "data_type": "int",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Date",
+     "id": "date",
+     "business_name": "Date",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DateKey",
+     "id": "datekey",
+     "business_name": "Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "FactCallCenterID",
+     "id": "factcallcenterid",
+     "business_name": "Fact Call Center ID",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "IssuesRaised",
+     "id": "issuesraised",
+     "business_name": "Sorun Sayısı",
+     "data_type": "smallint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "LevelOneOperators",
+     "id": "leveloneoperators",
+     "business_name": "Level One Operators",
+     "data_type": "smallint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "LevelTwoOperators",
+     "id": "leveltwooperators",
+     "business_name": "Level Two Operators",
+     "data_type": "smallint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Orders",
+     "id": "orders",
+     "business_name": "Sipariş Sayısı",
+     "data_type": "int",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Çağrı merkezinden alınan sipariş"
+    },
+    {
+     "name": "ServiceGrade",
+     "id": "servicegrade",
+     "business_name": "Servis Seviyesi",
+     "data_type": "float",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "0-1 arası servis skoru"
+    },
+    {
+     "name": "Shift",
+     "id": "shift",
+     "business_name": "Vardiya",
+     "data_type": "nvarchar",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
      "description": ""
     },
     {
-     "name": "card_type",
-     "id": "card_type",
-     "business_name": "Kart Tipi",
-     "data_type": "VARCHAR",
+     "name": "TotalOperators",
+     "id": "totaloperators",
+     "business_name": "Toplam Operatör",
+     "data_type": "smallint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "WageType",
+     "id": "wagetype",
+     "business_name": "Gün Tipi",
+     "data_type": "nvarchar",
      "role": "dimension",
      "is_pii": false,
      "is_key": false,
-     "description": "Bireysel / Ticari"
-    },
+     "description": "weekday / holiday"
+    }
+   ]
+  },
+  {
+   "id": "dbo.factcurrencyrate",
+   "name": "dbo.FactCurrencyRate",
+   "schema": "dbo",
+   "short_name": "FactCurrencyRate",
+   "business_name": "Döviz Kurları",
+   "description": "Günlük ortalama ve gün sonu döviz kurları (USD bazlı).",
+   "subject_area": "Finans",
+   "grain": "Bir satır = para birimi × gün",
+   "row_count": 14264,
+   "kind": "fact",
+   "columns": [
     {
-     "name": "card_tier",
-     "id": "card_tier",
-     "business_name": "Kart Seviyesi",
-     "data_type": "VARCHAR",
-     "role": "dimension",
+     "name": "AverageRate",
+     "id": "averagerate",
+     "business_name": "Ortalama Kur",
+     "data_type": "float",
+     "role": "measure",
      "is_pii": false,
      "is_key": false,
-     "description": "Classic / Gold / Platinum / Business"
+     "description": ""
     },
     {
-     "name": "annual_fee_try",
-     "id": "annual_fee_try",
-     "business_name": "Yıllık Aidat (TL)",
-     "data_type": "DECIMAL",
+     "name": "CurrencyKey",
+     "id": "currencykey",
+     "business_name": "Currency Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "Date",
+     "id": "date",
+     "business_name": "Date",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DateKey",
+     "id": "datekey",
+     "business_name": "Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "EndOfDayRate",
+     "id": "endofdayrate",
+     "business_name": "Gün Sonu Kur",
+     "data_type": "float",
      "role": "measure",
      "is_pii": false,
      "is_key": false,
@@ -525,171 +2183,957 @@
    ]
   },
   {
-   "id": "dwh.dim_merchant_category",
-   "name": "dwh.dim_merchant_category",
-   "schema": "dwh",
-   "short_name": "dim_merchant_category",
-   "business_name": "İşyeri Kategorisi (MCC)",
-   "description": "Harcamanın yapıldığı işyeri sektörü.",
-   "subject_area": "Kartlı Ödemeler",
-   "grain": "Bir satır = bir kategori",
-   "row_count": 10,
-   "kind": "dimension",
+   "id": "dbo.factfinance",
+   "name": "dbo.FactFinance",
+   "schema": "dbo",
+   "short_name": "FactFinance",
+   "business_name": "Finans",
+   "description": "Genel muhasebe tutarları: hesap, organizasyon, departman ve senaryo (gerçekleşen/bütçe/tahmin) bazında.",
+   "subject_area": "Finans",
+   "grain": "Bir satır = hesap × organizasyon × departman × senaryo × ay",
+   "row_count": 39409,
+   "kind": "fact",
    "columns": [
     {
-     "name": "mcc_id",
-     "id": "mcc_id",
-     "business_name": "Kategori No",
-     "data_type": "INTEGER",
+     "name": "AccountKey",
+     "id": "accountkey",
+     "business_name": "Account Key",
+     "data_type": "int",
      "role": "key",
      "is_pii": false,
      "is_key": true,
      "description": ""
     },
     {
-     "name": "category_name",
-     "id": "category_name",
-     "business_name": "İşyeri Kategorisi",
-     "data_type": "VARCHAR",
-     "role": "dimension",
+     "name": "Amount",
+     "id": "amount",
+     "business_name": "Tutar",
+     "data_type": "float",
+     "role": "measure",
      "is_pii": false,
      "is_key": false,
-     "description": "Sektör adı"
-    }
-   ]
-  },
-  {
-   "id": "dwh.dim_channel",
-   "name": "dwh.dim_channel",
-   "schema": "dwh",
-   "short_name": "dim_channel",
-   "business_name": "Kanal",
-   "description": "İşlemin/başvurunun gerçekleştiği kanal.",
-   "subject_area": "Ortak",
-   "grain": "Bir satır = bir kanal",
-   "row_count": 4,
-   "kind": "dimension",
-   "columns": [
-    {
-     "name": "channel_id",
-     "id": "channel_id",
-     "business_name": "Kanal No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": ""
+     "description": "Hesap tutarı (senaryoya göre gerçekleşen/bütçe)"
     },
     {
-     "name": "channel_name",
-     "id": "channel_name",
-     "business_name": "Kanal Adı",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": "Fiziki POS / Sanal POS / Mobil Ödeme / Temassız"
-    }
-   ]
-  },
-  {
-   "id": "dwh.dim_customer",
-   "name": "dwh.dim_customer",
-   "schema": "dwh",
-   "short_name": "dim_customer",
-   "business_name": "Müşteri",
-   "description": "Müşteri demografisi ve segmenti. Kimlik bilgileri kişisel veridir (KVKK/GDPR).",
-   "subject_area": "Ortak",
-   "grain": "Bir satır = bir müşteri",
-   "row_count": 40000,
-   "kind": "dimension",
-   "columns": [
-    {
-     "name": "customer_id",
-     "id": "customer_id",
-     "business_name": "Müşteri No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": ""
-    },
-    {
-     "name": "segment",
-     "id": "segment",
-     "business_name": "Müşteri Segmenti",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": "Bireysel / Affluent / Private / KOBİ"
-    },
-    {
-     "name": "age_band",
-     "id": "age_band",
-     "business_name": "Yaş Grubu",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": ""
-    },
-    {
-     "name": "gender",
-     "id": "gender",
-     "business_name": "Cinsiyet",
-     "data_type": "VARCHAR",
-     "role": "dimension",
-     "is_pii": false,
-     "is_key": false,
-     "description": ""
-    },
-    {
-     "name": "home_branch_id",
-     "id": "home_branch_id",
-     "business_name": "Ana Şube No",
-     "data_type": "INTEGER",
-     "role": "key",
-     "is_pii": false,
-     "is_key": true,
-     "description": "dim_branch ile ilişkili"
-    },
-    {
-     "name": "customer_name",
-     "id": "customer_name",
-     "business_name": "Müşteri Adı",
-     "data_type": "VARCHAR",
-     "role": "attribute",
-     "is_pii": true,
-     "is_key": false,
-     "description": "Kişisel veri"
-    },
-    {
-     "name": "national_id",
-     "id": "national_id",
-     "business_name": "TCKN",
-     "data_type": "VARCHAR",
-     "role": "attribute",
-     "is_pii": true,
-     "is_key": false,
-     "description": "Kişisel veri"
-    },
-    {
-     "name": "phone_number",
-     "id": "phone_number",
-     "business_name": "Telefon",
-     "data_type": "VARCHAR",
-     "role": "attribute",
-     "is_pii": true,
-     "is_key": false,
-     "description": "Kişisel veri"
-    },
-    {
-     "name": "customer_since",
-     "id": "customer_since",
-     "business_name": "Müşteri Olma Tarihi",
-     "data_type": "DATE",
+     "name": "Date",
+     "id": "date",
+     "business_name": "Date",
+     "data_type": "datetime",
      "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DateKey",
+     "id": "datekey",
+     "business_name": "Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "DepartmentGroupKey",
+     "id": "departmentgroupkey",
+     "business_name": "Department Group Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "FinanceKey",
+     "id": "financekey",
+     "business_name": "Finance Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "OrganizationKey",
+     "id": "organizationkey",
+     "business_name": "Organization Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ScenarioKey",
+     "id": "scenariokey",
+     "business_name": "Scenario Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.factinternetsales",
+   "name": "dbo.FactInternetSales",
+   "schema": "dbo",
+   "short_name": "FactInternetSales",
+   "business_name": "İnternet Satışları",
+   "description": "Web sitesi üzerinden bireysel müşterilere yapılan satışlar (sipariş satırı bazında). Ciro, adet, maliyet, kâr analizleri için ana tablo.",
+   "subject_area": "Satış",
+   "grain": "Bir satır = bir sipariş satırı",
+   "row_count": 60398,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "CarrierTrackingNumber",
+     "id": "carriertrackingnumber",
+     "business_name": "Kargo Takip No",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "CurrencyKey",
+     "id": "currencykey",
+     "business_name": "Currency Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "CustomerKey",
+     "id": "customerkey",
+     "business_name": "Müşteri Anahtarı",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "DimCustomer ile ilişkili; tekil müşteri için COUNT(DISTINCT)"
+    },
+    {
+     "name": "CustomerPONumber",
+     "id": "customerponumber",
+     "business_name": "Müşteri PO No",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DiscountAmount",
+     "id": "discountamount",
+     "business_name": "İndirim Tutarı",
+     "data_type": "float",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DueDate",
+     "id": "duedate",
+     "business_name": "Vade Tarihi",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DueDateKey",
+     "id": "duedatekey",
+     "business_name": "Due Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ExtendedAmount",
+     "id": "extendedamount",
+     "business_name": "Brüt Tutar",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "İndirim öncesi tutar (adet × birim fiyat)"
+    },
+    {
+     "name": "Freight",
+     "id": "freight",
+     "business_name": "Kargo Ücreti",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "OrderDate",
+     "id": "orderdate",
+     "business_name": "Sipariş Tarihi",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "OrderDateKey",
+     "id": "orderdatekey",
+     "business_name": "Sipariş Tarihi Anahtarı",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "DimDate.DateKey ile ilişkili (YYYYMMDD)"
+    },
+    {
+     "name": "OrderQuantity",
+     "id": "orderquantity",
+     "business_name": "Sipariş Adedi (ürün)",
+     "data_type": "smallint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Satılan ürün adedi"
+    },
+    {
+     "name": "ProductKey",
+     "id": "productkey",
+     "business_name": "Product Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ProductStandardCost",
+     "id": "productstandardcost",
+     "business_name": "Birim Standart Maliyet",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "PromotionKey",
+     "id": "promotionkey",
+     "business_name": "Promotion Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "RevisionNumber",
+     "id": "revisionnumber",
+     "business_name": "Revision Number",
+     "data_type": "tinyint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SalesAmount",
+     "id": "salesamount",
+     "business_name": "Satış Tutarı (USD)",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "İndirim sonrası net satış tutarı"
+    },
+    {
+     "name": "SalesOrderLineNumber",
+     "id": "salesorderlinenumber",
+     "business_name": "Sales Order Line Number",
+     "data_type": "tinyint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "SalesOrderNumber",
+     "id": "salesordernumber",
+     "business_name": "Sipariş No",
+     "data_type": "nvarchar",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "Aynı siparişin satırları aynı numarayı taşır; sipariş sayısı için COUNT(DISTINCT)"
+    },
+    {
+     "name": "SalesTerritoryKey",
+     "id": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ShipDate",
+     "id": "shipdate",
+     "business_name": "Sevk Tarihi",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ShipDateKey",
+     "id": "shipdatekey",
+     "business_name": "Ship Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "TaxAmt",
+     "id": "taxamt",
+     "business_name": "Vergi Tutarı",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "TotalProductCost",
+     "id": "totalproductcost",
+     "business_name": "Toplam Ürün Maliyeti",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Satılan ürünlerin standart maliyeti"
+    },
+    {
+     "name": "UnitPrice",
+     "id": "unitprice",
+     "business_name": "Birim Fiyat",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "UnitPriceDiscountPct",
+     "id": "unitpricediscountpct",
+     "business_name": "İndirim Oranı",
+     "data_type": "float",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "0-1 arası"
+    }
+   ]
+  },
+  {
+   "id": "dbo.factinternetsalesreason",
+   "name": "dbo.FactInternetSalesReason",
+   "schema": "dbo",
+   "short_name": "FactInternetSalesReason",
+   "business_name": "İnternet Satış Nedenleri",
+   "description": "İnternet siparişlerinin satın alma nedenleri (köprü tablo).",
+   "subject_area": "Satış",
+   "grain": "Bir satır = sipariş satırı × neden",
+   "row_count": 64515,
+   "kind": "bridge",
+   "columns": [
+    {
+     "name": "SalesOrderLineNumber",
+     "id": "salesorderlinenumber",
+     "business_name": "Sales Order Line Number",
+     "data_type": "tinyint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "SalesOrderNumber",
+     "id": "salesordernumber",
+     "business_name": "Sales Order Number",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "SalesReasonKey",
+     "id": "salesreasonkey",
+     "business_name": "Sales Reason Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.factproductinventory",
+   "name": "dbo.FactProductInventory",
+   "schema": "dbo",
+   "short_name": "FactProductInventory",
+   "business_name": "Ürün Stok Hareketleri",
+   "description": "Ürün bazında günlük stok giriş/çıkış ve bakiye.",
+   "subject_area": "Operasyon",
+   "grain": "Bir satır = ürün × gün",
+   "row_count": 776286,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "DateKey",
+     "id": "datekey",
+     "business_name": "Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "MovementDate",
+     "id": "movementdate",
+     "business_name": "Movement Date",
+     "data_type": "date",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductKey",
+     "id": "productkey",
+     "business_name": "Product Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "UnitCost",
+     "id": "unitcost",
+     "business_name": "Birim Maliyet",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "UnitsBalance",
+     "id": "unitsbalance",
+     "business_name": "Stok Bakiyesi",
+     "data_type": "int",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Gün sonu stok adedi (toplanmaz; dönem sonu değeri alınır)"
+    },
+    {
+     "name": "UnitsIn",
+     "id": "unitsin",
+     "business_name": "Stok Girişi",
+     "data_type": "int",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "UnitsOut",
+     "id": "unitsout",
+     "business_name": "Stok Çıkışı",
+     "data_type": "int",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.factresellersales",
+   "name": "dbo.FactResellerSales",
+   "schema": "dbo",
+   "short_name": "FactResellerSales",
+   "business_name": "Bayi Satışları",
+   "description": "Bayilere (reseller) yapılan satışlar, satış temsilcisi bilgisiyle.",
+   "subject_area": "Satış",
+   "grain": "Bir satır = bir sipariş satırı",
+   "row_count": 60855,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "CarrierTrackingNumber",
+     "id": "carriertrackingnumber",
+     "business_name": "Kargo Takip No",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "CurrencyKey",
+     "id": "currencykey",
+     "business_name": "Currency Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "CustomerPONumber",
+     "id": "customerponumber",
+     "business_name": "Müşteri PO No",
+     "data_type": "nvarchar",
+     "role": "attribute",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DiscountAmount",
+     "id": "discountamount",
+     "business_name": "İndirim Tutarı",
+     "data_type": "float",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DueDate",
+     "id": "duedate",
+     "business_name": "Vade Tarihi",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DueDateKey",
+     "id": "duedatekey",
+     "business_name": "Due Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "EmployeeKey",
+     "id": "employeekey",
+     "business_name": "Satış Temsilcisi Anahtarı",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "DimEmployee ile ilişkili"
+    },
+    {
+     "name": "ExtendedAmount",
+     "id": "extendedamount",
+     "business_name": "Brüt Tutar",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "İndirim öncesi tutar (adet × birim fiyat)"
+    },
+    {
+     "name": "Freight",
+     "id": "freight",
+     "business_name": "Kargo Ücreti",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "OrderDate",
+     "id": "orderdate",
+     "business_name": "Sipariş Tarihi",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "OrderDateKey",
+     "id": "orderdatekey",
+     "business_name": "Sipariş Tarihi Anahtarı",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "DimDate.DateKey ile ilişkili (YYYYMMDD)"
+    },
+    {
+     "name": "OrderQuantity",
+     "id": "orderquantity",
+     "business_name": "Sipariş Adedi (ürün)",
+     "data_type": "smallint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Satılan ürün adedi"
+    },
+    {
+     "name": "ProductKey",
+     "id": "productkey",
+     "business_name": "Product Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ProductStandardCost",
+     "id": "productstandardcost",
+     "business_name": "Birim Standart Maliyet",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "PromotionKey",
+     "id": "promotionkey",
+     "business_name": "Promotion Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ResellerKey",
+     "id": "resellerkey",
+     "business_name": "Bayi Anahtarı",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": "DimReseller ile ilişkili"
+    },
+    {
+     "name": "RevisionNumber",
+     "id": "revisionnumber",
+     "business_name": "Revision Number",
+     "data_type": "tinyint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SalesAmount",
+     "id": "salesamount",
+     "business_name": "Satış Tutarı (USD)",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "İndirim sonrası net satış tutarı"
+    },
+    {
+     "name": "SalesOrderLineNumber",
+     "id": "salesorderlinenumber",
+     "business_name": "Sales Order Line Number",
+     "data_type": "tinyint",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SalesOrderNumber",
+     "id": "salesordernumber",
+     "business_name": "Sipariş No",
+     "data_type": "nvarchar",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Aynı siparişin satırları aynı numarayı taşır; sipariş sayısı için COUNT(DISTINCT)"
+    },
+    {
+     "name": "SalesTerritoryKey",
+     "id": "salesterritorykey",
+     "business_name": "Sales Territory Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "ShipDate",
+     "id": "shipdate",
+     "business_name": "Sevk Tarihi",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ShipDateKey",
+     "id": "shipdatekey",
+     "business_name": "Ship Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "TaxAmt",
+     "id": "taxamt",
+     "business_name": "Vergi Tutarı",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "TotalProductCost",
+     "id": "totalproductcost",
+     "business_name": "Toplam Ürün Maliyeti",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Satılan ürünlerin standart maliyeti"
+    },
+    {
+     "name": "UnitPrice",
+     "id": "unitprice",
+     "business_name": "Birim Fiyat",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "UnitPriceDiscountPct",
+     "id": "unitpricediscountpct",
+     "business_name": "İndirim Oranı",
+     "data_type": "float",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "0-1 arası"
+    }
+   ]
+  },
+  {
+   "id": "dbo.factsalesquota",
+   "name": "dbo.FactSalesQuota",
+   "schema": "dbo",
+   "short_name": "FactSalesQuota",
+   "business_name": "Satış Kotaları",
+   "description": "Satış temsilcilerinin çeyreklik satış hedefleri.",
+   "subject_area": "Satış",
+   "grain": "Bir satır = temsilci × çeyrek",
+   "row_count": 163,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "CalendarQuarter",
+     "id": "calendarquarter",
+     "business_name": "Çeyrek",
+     "data_type": "tinyint",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "CalendarYear",
+     "id": "calendaryear",
+     "business_name": "Yıl",
+     "data_type": "smallint",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "Date",
+     "id": "date",
+     "business_name": "Date",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DateKey",
+     "id": "datekey",
+     "business_name": "Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "EmployeeKey",
+     "id": "employeekey",
+     "business_name": "Employee Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "SalesAmountQuota",
+     "id": "salesamountquota",
+     "business_name": "Satış Kotası",
+     "data_type": "money",
+     "role": "measure",
+     "is_pii": false,
+     "is_key": false,
+     "description": "Temsilcinin çeyrek hedefi"
+    },
+    {
+     "name": "SalesQuotaKey",
+     "id": "salesquotakey",
+     "business_name": "Sales Quota Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    }
+   ]
+  },
+  {
+   "id": "dbo.factsurveyresponse",
+   "name": "dbo.FactSurveyResponse",
+   "schema": "dbo",
+   "short_name": "FactSurveyResponse",
+   "business_name": "Anket Yanıtları",
+   "description": "Müşteri anketlerinde ilgilenilen ürün kategorileri.",
+   "subject_area": "Pazarlama",
+   "grain": "Bir satır = bir anket yanıtı",
+   "row_count": 2727,
+   "kind": "fact",
+   "columns": [
+    {
+     "name": "CustomerKey",
+     "id": "customerkey",
+     "business_name": "Customer Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "Date",
+     "id": "date",
+     "business_name": "Date",
+     "data_type": "datetime",
+     "role": "date",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "DateKey",
+     "id": "datekey",
+     "business_name": "Date Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": true,
+     "description": ""
+    },
+    {
+     "name": "EnglishProductCategoryName",
+     "id": "englishproductcategoryname",
+     "business_name": "Product Category Name",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "EnglishProductSubcategoryName",
+     "id": "englishproductsubcategoryname",
+     "business_name": "Product Subcategory Name",
+     "data_type": "nvarchar",
+     "role": "dimension",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductCategoryKey",
+     "id": "productcategorykey",
+     "business_name": "Product Category Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "ProductSubcategoryKey",
+     "id": "productsubcategorykey",
+     "business_name": "Product Subcategory Key",
+     "data_type": "int",
+     "role": "key",
+     "is_pii": false,
+     "is_key": false,
+     "description": ""
+    },
+    {
+     "name": "SurveyResponseKey",
+     "id": "surveyresponsekey",
+     "business_name": "Survey Response Key",
+     "data_type": "int",
+     "role": "key",
      "is_pii": false,
      "is_key": false,
      "description": ""
@@ -699,283 +3143,849 @@
  ],
  "relationships": [
   {
-   "id": "tx_date",
-   "from_table": "dwh.fact_card_transaction",
-   "to_table": "dwh.dim_date",
+   "id": "FK_FactFinance_DimAccount",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimaccount",
    "pairs": [
     [
-     "date_key",
-     "date_key"
+     "accountkey",
+     "accountkey"
     ]
    ],
    "pairs_display": [
     [
-     "date_key",
-     "date_key"
+     "AccountKey",
+     "AccountKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": "İşlem tarihi"
+   "role": "",
+   "active": true
   },
   {
-   "id": "tx_customer",
-   "from_table": "dwh.fact_card_transaction",
-   "to_table": "dwh.dim_customer",
+   "id": "FK_DimOrganization_DimCurrency",
+   "from_table": "dbo.dimorganization",
+   "to_table": "dbo.dimcurrency",
    "pairs": [
     [
-     "customer_id",
-     "customer_id"
+     "currencykey",
+     "currencykey"
     ]
    ],
    "pairs_display": [
     [
-     "customer_id",
-     "customer_id"
+     "CurrencyKey",
+     "CurrencyKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "",
+   "active": true
   },
   {
-   "id": "tx_product",
-   "from_table": "dwh.fact_card_transaction",
-   "to_table": "dwh.dim_product",
+   "id": "FK_FactCurrencyRate_DimCurrency",
+   "from_table": "dbo.factcurrencyrate",
+   "to_table": "dbo.dimcurrency",
    "pairs": [
     [
-     "product_id",
-     "product_id"
+     "currencykey",
+     "currencykey"
     ]
    ],
    "pairs_display": [
     [
-     "product_id",
-     "product_id"
+     "CurrencyKey",
+     "CurrencyKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "",
+   "active": true
   },
   {
-   "id": "tx_branch",
-   "from_table": "dwh.fact_card_transaction",
-   "to_table": "dwh.dim_branch",
+   "id": "FK_FactInternetSales_DimCurrency",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimcurrency",
    "pairs": [
     [
-     "branch_id",
-     "branch_id"
+     "currencykey",
+     "currencykey"
     ]
    ],
    "pairs_display": [
     [
-     "branch_id",
-     "branch_id"
+     "CurrencyKey",
+     "CurrencyKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": "Kartın bağlı şubesi"
+   "role": "",
+   "active": true
   },
   {
-   "id": "tx_mcc",
-   "from_table": "dwh.fact_card_transaction",
-   "to_table": "dwh.dim_merchant_category",
+   "id": "FK_FactResellerSales_DimCurrency",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimcurrency",
    "pairs": [
     [
-     "mcc_id",
-     "mcc_id"
+     "currencykey",
+     "currencykey"
     ]
    ],
    "pairs_display": [
     [
-     "mcc_id",
-     "mcc_id"
+     "CurrencyKey",
+     "CurrencyKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "",
+   "active": true
   },
   {
-   "id": "tx_channel",
-   "from_table": "dwh.fact_card_transaction",
-   "to_table": "dwh.dim_channel",
+   "id": "FK_FactInternetSales_DimCustomer",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimcustomer",
    "pairs": [
     [
-     "channel_id",
-     "channel_id"
+     "customerkey",
+     "customerkey"
     ]
    ],
    "pairs_display": [
     [
-     "channel_id",
-     "channel_id"
+     "CustomerKey",
+     "CustomerKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "",
+   "active": true
   },
   {
-   "id": "app_date",
-   "from_table": "dwh.fact_card_application",
-   "to_table": "dwh.dim_date",
+   "id": "FK_FactSurveyResponse_CustomerKey",
+   "from_table": "dbo.factsurveyresponse",
+   "to_table": "dbo.dimcustomer",
    "pairs": [
     [
-     "date_key",
-     "date_key"
+     "customerkey",
+     "customerkey"
     ]
    ],
    "pairs_display": [
     [
-     "date_key",
-     "date_key"
+     "CustomerKey",
+     "CustomerKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": "Başvuru tarihi"
+   "role": "",
+   "active": true
   },
   {
-   "id": "app_branch",
-   "from_table": "dwh.fact_card_application",
-   "to_table": "dwh.dim_branch",
+   "id": "FK_FactCallCenter_DimDate",
+   "from_table": "dbo.factcallcenter",
+   "to_table": "dbo.dimdate",
    "pairs": [
     [
-     "branch_id",
-     "branch_id"
+     "datekey",
+     "datekey"
     ]
    ],
    "pairs_display": [
     [
-     "branch_id",
-     "branch_id"
+     "DateKey",
+     "DateKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "",
+   "active": true
   },
   {
-   "id": "app_product",
-   "from_table": "dwh.fact_card_application",
-   "to_table": "dwh.dim_product",
+   "id": "FK_FactCurrencyRate_DimDate",
+   "from_table": "dbo.factcurrencyrate",
+   "to_table": "dbo.dimdate",
    "pairs": [
     [
-     "product_id",
-     "product_id"
+     "datekey",
+     "datekey"
     ]
    ],
    "pairs_display": [
     [
-     "product_id",
-     "product_id"
+     "DateKey",
+     "DateKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "",
+   "active": true
   },
   {
-   "id": "app_channel",
-   "from_table": "dwh.fact_card_application",
-   "to_table": "dwh.dim_channel",
+   "id": "FK_FactFinance_DimDate",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimdate",
    "pairs": [
     [
-     "channel_id",
-     "channel_id"
+     "datekey",
+     "datekey"
     ]
    ],
    "pairs_display": [
     [
-     "channel_id",
-     "channel_id"
+     "DateKey",
+     "DateKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "",
+   "active": true
   },
   {
-   "id": "loan_date",
-   "from_table": "dwh.fact_loan_disbursement",
-   "to_table": "dwh.dim_date",
+   "id": "FK_FactInternetSales_DimDate",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimdate",
    "pairs": [
     [
-     "date_key",
-     "date_key"
+     "orderdatekey",
+     "datekey"
     ]
    ],
    "pairs_display": [
     [
-     "date_key",
-     "date_key"
+     "OrderDateKey",
+     "DateKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": "Kullandırım tarihi"
+   "role": "Sipariş tarihi",
+   "active": true
   },
   {
-   "id": "loan_customer",
-   "from_table": "dwh.fact_loan_disbursement",
-   "to_table": "dwh.dim_customer",
+   "id": "FK_FactInternetSales_DimDate1",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimdate",
    "pairs": [
     [
-     "customer_id",
-     "customer_id"
+     "duedatekey",
+     "datekey"
     ]
    ],
    "pairs_display": [
     [
-     "customer_id",
-     "customer_id"
+     "DueDateKey",
+     "DateKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "Vade tarihi",
+   "active": false
   },
   {
-   "id": "loan_branch",
-   "from_table": "dwh.fact_loan_disbursement",
-   "to_table": "dwh.dim_branch",
+   "id": "FK_FactInternetSales_DimDate2",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimdate",
    "pairs": [
     [
-     "branch_id",
-     "branch_id"
+     "shipdatekey",
+     "datekey"
     ]
    ],
    "pairs_display": [
     [
-     "branch_id",
-     "branch_id"
+     "ShipDateKey",
+     "DateKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": ""
+   "role": "Sevk tarihi",
+   "active": false
   },
   {
-   "id": "cust_branch",
-   "from_table": "dwh.dim_customer",
-   "to_table": "dwh.dim_branch",
+   "id": "FK_FactProductInventory_DimDate",
+   "from_table": "dbo.factproductinventory",
+   "to_table": "dbo.dimdate",
    "pairs": [
     [
-     "home_branch_id",
-     "branch_id"
+     "datekey",
+     "datekey"
     ]
    ],
    "pairs_display": [
     [
-     "home_branch_id",
-     "branch_id"
+     "DateKey",
+     "DateKey"
     ]
    ],
    "cardinality": "N:1",
-   "role": "Müşterinin ana şubesi"
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimDate",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "orderdatekey",
+     "datekey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "OrderDateKey",
+     "DateKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Sipariş tarihi",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimDate1",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "duedatekey",
+     "datekey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "DueDateKey",
+     "DateKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Vade tarihi",
+   "active": false
+  },
+  {
+   "id": "FK_FactResellerSales_DimDate2",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "shipdatekey",
+     "datekey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "ShipDateKey",
+     "DateKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "Sevk tarihi",
+   "active": false
+  },
+  {
+   "id": "FK_FactSalesQuota_DimDate",
+   "from_table": "dbo.factsalesquota",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "datekey",
+     "datekey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "DateKey",
+     "DateKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactSurveyResponse_DateKey",
+   "from_table": "dbo.factsurveyresponse",
+   "to_table": "dbo.dimdate",
+   "pairs": [
+    [
+     "datekey",
+     "datekey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "DateKey",
+     "DateKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactFinance_DimDepartmentGroup",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimdepartmentgroup",
+   "pairs": [
+    [
+     "departmentgroupkey",
+     "departmentgroupkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "DepartmentGroupKey",
+     "DepartmentGroupKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimEmployee",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimemployee",
+   "pairs": [
+    [
+     "employeekey",
+     "employeekey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "EmployeeKey",
+     "EmployeeKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactSalesQuota_DimEmployee",
+   "from_table": "dbo.factsalesquota",
+   "to_table": "dbo.dimemployee",
+   "pairs": [
+    [
+     "employeekey",
+     "employeekey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "EmployeeKey",
+     "EmployeeKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimCustomer_DimGeography",
+   "from_table": "dbo.dimcustomer",
+   "to_table": "dbo.dimgeography",
+   "pairs": [
+    [
+     "geographykey",
+     "geographykey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "GeographyKey",
+     "GeographyKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimReseller_DimGeography",
+   "from_table": "dbo.dimreseller",
+   "to_table": "dbo.dimgeography",
+   "pairs": [
+    [
+     "geographykey",
+     "geographykey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "GeographyKey",
+     "GeographyKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactFinance_DimOrganization",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimorganization",
+   "pairs": [
+    [
+     "organizationkey",
+     "organizationkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "OrganizationKey",
+     "OrganizationKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimProduct",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimproduct",
+   "pairs": [
+    [
+     "productkey",
+     "productkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "ProductKey",
+     "ProductKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactProductInventory_DimProduct",
+   "from_table": "dbo.factproductinventory",
+   "to_table": "dbo.dimproduct",
+   "pairs": [
+    [
+     "productkey",
+     "productkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "ProductKey",
+     "ProductKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimProduct",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimproduct",
+   "pairs": [
+    [
+     "productkey",
+     "productkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "ProductKey",
+     "ProductKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimProductSubcategory_DimProductCategory",
+   "from_table": "dbo.dimproductsubcategory",
+   "to_table": "dbo.dimproductcategory",
+   "pairs": [
+    [
+     "productcategorykey",
+     "productcategorykey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "ProductCategoryKey",
+     "ProductCategoryKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimProduct_DimProductSubcategory",
+   "from_table": "dbo.dimproduct",
+   "to_table": "dbo.dimproductsubcategory",
+   "pairs": [
+    [
+     "productsubcategorykey",
+     "productsubcategorykey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "ProductSubcategoryKey",
+     "ProductSubcategoryKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimPromotion",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimpromotion",
+   "pairs": [
+    [
+     "promotionkey",
+     "promotionkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "PromotionKey",
+     "PromotionKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimPromotion",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimpromotion",
+   "pairs": [
+    [
+     "promotionkey",
+     "promotionkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "PromotionKey",
+     "PromotionKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimReseller",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimreseller",
+   "pairs": [
+    [
+     "resellerkey",
+     "resellerkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "ResellerKey",
+     "ResellerKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSalesReason_DimSalesReason",
+   "from_table": "dbo.factinternetsalesreason",
+   "to_table": "dbo.dimsalesreason",
+   "pairs": [
+    [
+     "salesreasonkey",
+     "salesreasonkey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "SalesReasonKey",
+     "SalesReasonKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimEmployee_DimSalesTerritory",
+   "from_table": "dbo.dimemployee",
+   "to_table": "dbo.dimsalesterritory",
+   "pairs": [
+    [
+     "salesterritorykey",
+     "salesterritorykey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "SalesTerritoryKey",
+     "SalesTerritoryKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_DimGeography_DimSalesTerritory",
+   "from_table": "dbo.dimgeography",
+   "to_table": "dbo.dimsalesterritory",
+   "pairs": [
+    [
+     "salesterritorykey",
+     "salesterritorykey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "SalesTerritoryKey",
+     "SalesTerritoryKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSales_DimSalesTerritory",
+   "from_table": "dbo.factinternetsales",
+   "to_table": "dbo.dimsalesterritory",
+   "pairs": [
+    [
+     "salesterritorykey",
+     "salesterritorykey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "SalesTerritoryKey",
+     "SalesTerritoryKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactResellerSales_DimSalesTerritory",
+   "from_table": "dbo.factresellersales",
+   "to_table": "dbo.dimsalesterritory",
+   "pairs": [
+    [
+     "salesterritorykey",
+     "salesterritorykey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "SalesTerritoryKey",
+     "SalesTerritoryKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactFinance_DimScenario",
+   "from_table": "dbo.factfinance",
+   "to_table": "dbo.dimscenario",
+   "pairs": [
+    [
+     "scenariokey",
+     "scenariokey"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "ScenarioKey",
+     "ScenarioKey"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
+  },
+  {
+   "id": "FK_FactInternetSalesReason_FactInternetSales",
+   "from_table": "dbo.factinternetsalesreason",
+   "to_table": "dbo.factinternetsales",
+   "pairs": [
+    [
+     "salesordernumber",
+     "salesordernumber"
+    ],
+    [
+     "salesorderlinenumber",
+     "salesorderlinenumber"
+    ]
+   ],
+   "pairs_display": [
+    [
+     "SalesOrderNumber",
+     "SalesOrderNumber"
+    ],
+    [
+     "SalesOrderLineNumber",
+     "SalesOrderLineNumber"
+    ]
+   ],
+   "cardinality": "N:1",
+   "role": "",
+   "active": true
   }
  ],
  "used_tables": {
-  "dwh.fact_card_transaction": [
+  "dbo.dimdate": [
    "kpi_summary",
-   "monthly_trend"
+   "monthly_trend",
+   "country_sales",
+   "category_sales",
+   "channel_monthly",
+   "top_products"
   ],
-  "dwh.dim_date": [
-   "kpi_summary"
+  "dbo.factinternetsales": [
+   "kpi_summary",
+   "monthly_trend",
+   "country_sales",
+   "category_sales",
+   "channel_monthly",
+   "top_products"
   ],
-  "dwh.dim_branch": [
-   "region_sales"
+  "dbo.dimsalesterritory": [
+   "country_sales",
+   "category_sales"
+  ],
+  "dbo.dimproduct": [
+   "category_sales",
+   "top_products"
+  ],
+  "dbo.dimproductcategory": [
+   "category_sales"
+  ],
+  "dbo.dimproductsubcategory": [
+   "category_sales",
+   "top_products"
+  ],
+  "dbo.factresellersales": [
+   "channel_monthly"
   ]
  },
- "dialect": "duckdb"
+ "dialect": "tsql"
 }

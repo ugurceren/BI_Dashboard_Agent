@@ -236,7 +236,7 @@ function DictionarySearch({ api }: { api: Api }) {
     <div className="dict">
       <div className="dict-input">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M7 12.5a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11Zm4-1.5 3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Veri sözlüğünde ara… (ör. kart işlem tutarı, şube, bölge)" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Veri sözlüğünde ara… (ör. internet satış, ülke, ürün kategorisi)" />
         {loading ? <span className="spinner" /> : null}
       </div>
       {err ? <div className="banner-error">{err}</div> : null}

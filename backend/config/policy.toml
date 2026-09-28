@@ -1,22 +1,21 @@
 # Rol bazlı veri erişim politikası. SQL doğrulayıcı her sorguyu buna göre kontrol eder.
-# Gerçek ortamda rol AD/Entra ID grubundan eşlenir.
+# Sözlükte olmayan tablolar zaten sorgulanamaz. Gerçek ortamda rol AD/Entra ID grubundan eşlenir.
 
 [roles.analyst]
-allowed_schemas = ["dwh"]          # sadece bu şemalardaki tablolar sorgulanabilir
-denied_tables = []                  # ör. ["dwh.fact_salary"]
-allow_pii = false                   # sözlükte is_pii=true olan kolonlar engellenir
+allowed_schemas = ["dbo"]
+denied_tables = []                  # ör. ["dbo.factfinance"]
+allow_pii = false
 max_rows = 5000
 
 [roles.admin]
-allowed_schemas = ["dwh"]
+allowed_schemas = ["dbo"]
 denied_tables = []
 allow_pii = true
 max_rows = 20000
 
 [sql]
-# Hiçbir rol için izin verilmeyen fonksiyonlar (dosya/ağ erişimi, sistem bilgisi)
 denied_functions = [
-  "read_csv", "read_csv_auto", "read_parquet", "read_json", "read_json_auto", "read_text", "read_blob",
-  "glob", "parquet_scan", "csv_scan", "sniff_csv", "httpfs", "getenv", "current_setting",
-  "openrowset", "opendatasource", "openquery", "xp_cmdshell", "sp_executesql",
+  "openrowset", "opendatasource", "openquery", "openxml", "xp_cmdshell", "sp_executesql",
+  "bulk", "db_name", "db_id", "suser_sname", "suser_name", "system_user", "current_user", "session_user",
+  "user_name", "host_name", "app_name", "serverproperty", "databasepropertyex", "has_perms_by_name",
 ]

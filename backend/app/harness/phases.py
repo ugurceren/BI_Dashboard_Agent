@@ -12,8 +12,6 @@ from typing import Any
 from app.harness.session import Session
 
 DIALECT_NOTES = {
-    "duckdb": "SQL lehçesi DuckDB: LIMIT kullan; tarih için d.year, d.month, d.year_month gibi dim_date kolonlarını tercih et; "
-              "oran hesaplarında bölmeden önce * 1.0 ile ondalığa çevir; NULLIF ile sıfıra bölmeyi engelle.",
     "tsql": "SQL lehçesi Microsoft SQL Server (T-SQL): LIMIT kullanma, TOP N kullan; ORDER BY'ı alt sorguda değil en dışta kullan; "
             "ay etiketi için CONVERT(char(7), tarih, 126) → 'YYYY-MM'; yıl/çeyrek için tarih boyutunun kolonlarını tercih et; "
             "money kolonlarını CAST(... AS float) ile ondalığa çevir, tamsayı oranlarında * 1.0 kullan; NULLIF ile sıfıra bölmeyi engelle; "

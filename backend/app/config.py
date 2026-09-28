@@ -39,10 +39,9 @@ class Settings(BaseSettings):
     vision_api_key: str | None = None
     vision_model: str | None = None
 
-    # --- Veri kaynağı
-    data_dialect: Literal["duckdb", "tsql"] = "duckdb"
-    duckdb_path: Path = BACKEND_DIR / "data" / "demo.duckdb"
-    sqlserver_odbc: str | None = None  # "DRIVER={ODBC Driver 18 for SQL Server};SERVER=...;DATABASE=...;Trusted_Connection=yes;"
+    # --- Veri kaynağı: Microsoft SQL Server (salt-okunur kullanıcı önerilir)
+    sqlserver_odbc: str = ("DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=AdventureWorksDW2025;"
+                           "Trusted_Connection=yes;TrustServerCertificate=yes;")
     query_timeout_s: float = 30
     preview_rows: int = 50
     max_rows: int = 5000
@@ -61,7 +60,7 @@ class Settings(BaseSettings):
     demo_spec: Path = BACKEND_DIR.parent / "docs" / "demo_spec.json"  # "Demo dashboard yükle" butonu
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-    @field_validator("duckdb_path", "dictionary_config", "policy_config", "sessions_dir", "audit_log",
+    @field_validator("dictionary_config", "policy_config", "sessions_dir", "audit_log",
                      "viewer_html", "demo_spec", mode="after")
     @classmethod
     def _relative_to_backend(cls, v: Path) -> Path:

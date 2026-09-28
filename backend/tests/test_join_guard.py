@@ -1,30 +1,36 @@
-"""JOIN doğrulayıcı: kardinalite, bileşik anahtar, fan-out ve chasm trap."""
+"""JOIN doğrulayıcı: kardinalite, bileşik anahtar, fan-out ve chasm trap (AdventureWorks sözlüğü)."""
 
 import pytest
 import sqlglot
 
 from app.data.join_guard import JoinGuard
 from app.data.validator import RolePolicy
-from app.dictionary.repository import DDColumn, DDRelationship, DDTable, _group_relationships
+from app.dictionary.repository import DDColumn, DDTable, _group_relationships
 
-ANALYST = RolePolicy("analyst", ["dwh"])
+ANALYST = RolePolicy("analyst", ["dbo"])
 
 
-# --------------------------------------------------------------------------- DuckDB demo sözlüğüyle (gerçek veri)
 @pytest.mark.parametrize("sql", [
-    # fact → boyut (N:1) zinciri
-    "SELECT b.region, SUM(f.amount_try) FROM dwh.fact_card_transaction f JOIN dwh.dim_branch b ON b.branch_id = f.branch_id GROUP BY b.region",
-    # USING ile
-    "SELECT region, SUM(amount_try) FROM dwh.fact_card_transaction JOIN dwh.dim_branch USING (branch_id) GROUP BY region",
-    # iki fact, önce CTE'de toplanmış
-    """WITH t AS (SELECT branch_id, SUM(amount_try) s FROM dwh.fact_card_transaction GROUP BY branch_id),
-            l AS (SELECT branch_id, SUM(amount_try) s FROM dwh.fact_loan_disbursement GROUP BY branch_id)
-       SELECT b.region, SUM(t.s), SUM(l.s) FROM dwh.dim_branch b JOIN t ON t.branch_id = b.branch_id
-       JOIN l ON l.branch_id = b.branch_id GROUP BY b.region""",
-    # çoğalan tarafta sadece COUNT(DISTINCT) / MAX
-    "SELECT b.region, COUNT(DISTINCT f.customer_id), MAX(f.amount_try) FROM dwh.dim_branch b JOIN dwh.fact_card_transaction f ON f.branch_id = b.branch_id GROUP BY b.region",
+    # fact → boyut → alt boyut zinciri (N:1)
+    """SELECT pc.EnglishProductCategoryName, SUM(f.SalesAmount) FROM dbo.FactInternetSales f
+       JOIN dbo.DimProduct p ON p.ProductKey = f.ProductKey
+       JOIN dbo.DimProductSubcategory ps ON ps.ProductSubcategoryKey = p.ProductSubcategoryKey
+       JOIN dbo.DimProductCategory pc ON pc.ProductCategoryKey = ps.ProductCategoryKey
+       GROUP BY pc.EnglishProductCategoryName""",
+    # iki fact, önce CTE'lerde toplanmış
+    """WITH i AS (SELECT OrderDateKey k, SUM(SalesAmount) s FROM dbo.FactInternetSales GROUP BY OrderDateKey),
+            r AS (SELECT OrderDateKey k, SUM(SalesAmount) s FROM dbo.FactResellerSales GROUP BY OrderDateKey)
+       SELECT d.CalendarYear, SUM(i.s), SUM(r.s) FROM dbo.DimDate d
+       LEFT JOIN i ON i.k = d.DateKey LEFT JOIN r ON r.k = d.DateKey GROUP BY d.CalendarYear""",
+    # çoğalan tarafta yalnız COUNT(DISTINCT) / MAX
+    """SELECT sr.SalesReasonName, COUNT(DISTINCT f.SalesOrderNumber), MAX(f.SalesAmount) FROM dbo.FactInternetSales f
+       JOIN dbo.FactInternetSalesReason r ON r.SalesOrderNumber = f.SalesOrderNumber AND r.SalesOrderLineNumber = f.SalesOrderLineNumber
+       JOIN dbo.DimSalesReason sr ON sr.SalesReasonKey = r.SalesReasonKey GROUP BY sr.SalesReasonName""",
     # WHERE ile eski usul birleştirme
-    "SELECT b.region, SUM(f.amount_try) FROM dwh.fact_card_transaction f, dwh.dim_branch b WHERE b.branch_id = f.branch_id GROUP BY b.region",
+    """SELECT t.SalesTerritoryGroup, SUM(f.SalesAmount) FROM dbo.FactInternetSales f, dbo.DimSalesTerritory t
+       WHERE t.SalesTerritoryKey = f.SalesTerritoryKey GROUP BY t.SalesTerritoryGroup""",
+    # rol yapan tarih: sevk tarihi
+    "SELECT d.CalendarYear, SUM(f.SalesAmount) FROM dbo.FactInternetSales f JOIN dbo.DimDate d ON d.DateKey = f.ShipDateKey GROUP BY d.CalendarYear",
 ])
 def test_safe_joins(services, sql):
     r = services.validator.validate(sql, ANALYST)
@@ -33,16 +39,19 @@ def test_safe_joins(services, sql):
 
 
 @pytest.mark.parametrize("sql", [
-    # chasm trap: iki fact ortak boyut üzerinden
-    """SELECT b.region, SUM(t.amount_try), SUM(l.amount_try) FROM dwh.dim_branch b
-       JOIN dwh.fact_card_transaction t ON t.branch_id = b.branch_id
-       JOIN dwh.fact_loan_disbursement l ON l.branch_id = b.branch_id GROUP BY b.region""",
+    # köprü tablo: çok nedenli siparişlerin tutarı birden çok sayılır
+    """SELECT sr.SalesReasonName, SUM(f.SalesAmount) FROM dbo.FactInternetSales f
+       JOIN dbo.FactInternetSalesReason r ON r.SalesOrderNumber = f.SalesOrderNumber AND r.SalesOrderLineNumber = f.SalesOrderLineNumber
+       JOIN dbo.DimSalesReason sr ON sr.SalesReasonKey = r.SalesReasonKey GROUP BY sr.SalesReasonName""",
+    # chasm trap: iki fact ortak tarih boyutu üzerinden
+    """SELECT d.CalendarYear, SUM(f.SalesAmount), SUM(r.SalesAmount) FROM dbo.FactInternetSales f
+       JOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey JOIN dbo.FactResellerSales r ON r.OrderDateKey = d.DateKey GROUP BY d.CalendarYear""",
     # boyut kolonunu fact satırları üzerinden toplamak
-    "SELECT SUM(p.annual_fee_try) FROM dwh.dim_product p JOIN dwh.fact_card_transaction f ON f.product_id = p.product_id",
-    # müşteri üzerinden işlem + kredi
-    """SELECT c.segment, SUM(l.amount_try) FROM dwh.fact_loan_disbursement l
-       JOIN dwh.dim_customer c ON c.customer_id = l.customer_id
-       JOIN dwh.fact_card_transaction t ON t.customer_id = c.customer_id GROUP BY c.segment""",
+    "SELECT SUM(p.ListPrice) FROM dbo.DimProduct p JOIN dbo.FactInternetSales f ON f.ProductKey = p.ProductKey",
+    # bayi satışı + kota, çalışan üzerinden
+    """SELECT e.LastName, SUM(r.SalesAmount), SUM(q.SalesAmountQuota) FROM dbo.DimEmployee e
+       JOIN dbo.FactResellerSales r ON r.EmployeeKey = e.EmployeeKey JOIN dbo.FactSalesQuota q ON q.EmployeeKey = e.EmployeeKey
+       GROUP BY e.LastName""",
 ])
 def test_fanout_rejected(services, sql):
     r = services.validator.validate(sql, ANALYST)
@@ -50,15 +59,36 @@ def test_fanout_rejected(services, sql):
     assert any("Satır çoğalması" in e for e in r.errors), r.errors
 
 
+def test_partial_composite_key_rejected(services):
+    r = services.validator.validate(
+        """SELECT COUNT(DISTINCT r.SalesReasonKey) FROM dbo.FactInternetSales f
+           JOIN dbo.FactInternetSalesReason r ON r.SalesOrderNumber = f.SalesOrderNumber""", ANALYST)
+    assert not r.ok and any("Bileşik anahtar eksik" in e and "salesorderlinenumber" in e for e in r.errors), r.errors
+
+
 def test_undefined_join_is_warning(services):
     r = services.validator.validate(
-        "SELECT SUM(f.amount_try) FROM dwh.fact_card_transaction f JOIN dwh.dim_channel c ON c.channel_id = f.mcc_id", ANALYST)
+        """SELECT c.Gender, SUM(f.SalesAmount) FROM dbo.FactInternetSales f
+           JOIN dbo.DimCustomer c ON c.GeographyKey = f.SalesTerritoryKey GROUP BY c.Gender""", ANALYST)
     assert r.ok and any("sözlükte tanımlı değil" in w for w in r.warnings)
 
 
 def test_table_details_show_cardinality_and_role(services):
-    joins = services.dictionary.table_details("dwh.fact_card_transaction", False)["joins"]
-    assert any("[N:1" in j and "rol: İşlem tarihi" in j for j in joins)
+    joins = services.dictionary.table_details("dbo.FactInternetSales", False)["joins"]
+    assert any("[N:1" in j and "rol: Sevk tarihi" in j and "pasif" in j for j in joins)
+    assert any("rol: Sipariş tarihi" in j and "pasif" not in j for j in joins)
+
+
+def test_model_for_ui(services):
+    m = services.dictionary.model()
+    kinds = {t["id"]: t["kind"] for t in m["tables"]}
+    assert kinds["dbo.factinternetsales"] == "fact" and kinds["dbo.factinternetsalesreason"] == "bridge"
+    assert kinds["dbo.dimdate"] == "dimension" and kinds["dbo.dimcustomer"] == "dimension"
+    fis = next(t for t in m["tables"] if t["id"] == "dbo.factinternetsales")
+    assert fis["name"] == "dbo.FactInternetSales"
+    assert any(c["id"] == "productkey" and c["is_key"] for c in fis["columns"])
+    ship = next(r for r in m["relationships"] if r["from_table"] == "dbo.factinternetsales" and r["role"] == "Sevk tarihi")
+    assert ship["cardinality"] == "N:1" and ship["active"] is False
 
 
 # --------------------------------------------------------------------------- elle kurulmuş sözlük: bileşik anahtar, 1:1, N:N
@@ -90,7 +120,7 @@ def guard():
 
 
 def _check(guard, sql):
-    return guard.check(sqlglot.parse_one(sql, read="duckdb"))
+    return guard.check(sqlglot.parse_one(sql, read="tsql"))
 
 
 def test_composite_key_grouped_and_partial_rejected(guard):
@@ -98,9 +128,9 @@ def test_composite_key_grouped_and_partial_rejected(guard):
     assert rel.pairs == [("order_no", "order_no"), ("line_no", "line_no")]
     rep = _check(guard, "SELECT COUNT(DISTINCT t.tag) FROM s.orders o JOIN s.order_tags t ON t.order_no = o.order_no")
     assert any("Bileşik anahtar eksik" in e and "line_no" in e for e in rep.errors), rep.errors
-    full = _check(guard, "SELECT t.tag, SUM(t.w) FROM s.orders o JOIN s.order_tags t ON t.order_no = o.order_no AND t.line_no = o.line_no GROUP BY 1")
+    full = _check(guard, "SELECT t.tag, SUM(t.w) FROM s.orders o JOIN s.order_tags t ON t.order_no = o.order_no AND t.line_no = o.line_no GROUP BY t.tag")
     assert not full.errors, full.errors  # ölçü 'çok' taraftan: güvenli
-    bad = _check(guard, "SELECT t.tag, SUM(o.amount) FROM s.orders o JOIN s.order_tags t ON t.order_no = o.order_no AND t.line_no = o.line_no GROUP BY 1")
+    bad = _check(guard, "SELECT t.tag, SUM(o.amount) FROM s.orders o JOIN s.order_tags t ON t.order_no = o.order_no AND t.line_no = o.line_no GROUP BY t.tag")
     assert any("Satır çoğalması" in e for e in bad.errors)
 
 
@@ -119,11 +149,8 @@ def test_one_to_many_is_normalized():
     assert (r.from_table, r.to_table, r.cardinality) == ("d.fact", "d.dim", "N:1")
 
 
-def test_model_for_ui(services):
-    m = services.dictionary.model()
-    kinds = {t["id"]: t["kind"] for t in m["tables"]}
-    assert kinds["dwh.fact_card_transaction"] == "fact" and kinds["dwh.dim_branch"] == "dimension"
-    tx = next(t for t in m["tables"] if t["id"] == "dwh.fact_card_transaction")
-    assert any(c["id"] == "branch_id" and c["is_key"] for c in tx["columns"])
-    rel = next(r for r in m["relationships"] if r["id"] == "tx_date")
-    assert rel["cardinality"] == "N:1" and rel["role"] == "İşlem tarihi"
+def test_live_cardinality_inference(sql_services):
+    """Gerçek SQL Server: kardinalite unique index metadatasından çıkarılır."""
+    rel = next(r for r in sql_services.dictionary.relationships
+               if r.from_table == "dbo.factinternetsalesreason" and r.to_table == "dbo.factinternetsales")
+    assert rel.cardinality == "N:1" and len(rel.pairs) == 2

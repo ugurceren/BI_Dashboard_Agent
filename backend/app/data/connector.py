@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
-import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -64,46 +63,6 @@ class Connector(Protocol):
     def ping(self) -> None: ...
 
 
-class DuckDBConnector:
-    dialect = "duckdb"
-
-    def __init__(self, path: str, timeout_s: float):
-        import duckdb
-
-        # Salt-okunur + dış erişim kapalı: agent SQL'i dosya okuyamaz, eklenti yükleyemez.
-        self._con = duckdb.connect(path, read_only=True, config={"enable_external_access": False})
-        self._timeout_s = timeout_s
-        self._lock = threading.Lock()
-
-    def execute(self, sql: str, max_rows: int) -> QueryResult:
-        with self._lock:
-            cur = self._con.cursor()
-        timer = threading.Timer(self._timeout_s, cur.interrupt)
-        t0 = time.perf_counter()
-        timer.start()
-        try:
-            cur.execute(sql)
-            desc = cur.description or []
-            raw = cur.fetchmany(max_rows + 1)
-        except Exception as e:  # duckdb.Error alt sınıfları
-            msg = str(e)
-            if "INTERRUPT" in msg.upper():
-                msg = f"Sorgu {self._timeout_s:.0f} sn zaman aşımına uğradı."
-            raise QueryError(msg) from e
-        finally:
-            timer.cancel()
-            cur.close()
-        truncated = len(raw) > max_rows
-        raw = raw[:max_rows]
-        cols = [d[0] for d in desc]
-        types = [_field_type([r[i] for r in raw[:50]], str(d[1])) for i, d in enumerate(desc)]
-        rows = [[_json_value(v) for v in r] for r in raw]
-        return QueryResult(cols, types, rows, truncated, int((time.perf_counter() - t0) * 1000))
-
-    def ping(self) -> None:
-        self.execute("SELECT 1", 1)
-
-
 class SqlServerConnector:
     """SQL Server (pyodbc). Bağlantı kullanıcısı mutlaka salt-okunur (db_datareader) olmalı."""
 
@@ -113,7 +72,7 @@ class SqlServerConnector:
         try:
             import pyodbc  # noqa: F401
         except ImportError as e:  # pragma: no cover
-            raise RuntimeError("SQL Server için `pip install pyodbc` ve ODBC Driver 18 gerekli.") from e
+            raise RuntimeError("`pip install pyodbc` ve Microsoft ODBC Driver 18 for SQL Server gerekli.") from e
         self._odbc = odbc
         self._timeout_s = timeout_s
 
@@ -142,8 +101,6 @@ class SqlServerConnector:
 
 
 def create_connector(settings: Settings) -> Connector:
-    if settings.data_dialect == "tsql":
-        if not settings.sqlserver_odbc:
-            raise RuntimeError("DATA_DIALECT=tsql için SQLSERVER_ODBC tanımlanmalı.")
-        return SqlServerConnector(settings.sqlserver_odbc, settings.query_timeout_s)
-    return DuckDBConnector(str(settings.duckdb_path), settings.query_timeout_s)
+    if not settings.sqlserver_odbc:
+        raise RuntimeError("SQLSERVER_ODBC tanımlanmalı (backend/.env).")
+    return SqlServerConnector(settings.sqlserver_odbc, settings.query_timeout_s)

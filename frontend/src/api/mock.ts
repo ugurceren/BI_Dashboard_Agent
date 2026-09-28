@@ -22,24 +22,24 @@ function item(role: TranscriptItem["role"], content: string, phase: Phase, extra
 
 function demoTranscript(): TranscriptItem[] {
   return [
-    item("user", "Kredi kartı satış performansı için yönetim dashboard'u istiyorum.", "requirements"),
+    item("user", "İnternet satış performansı için yönetim dashboard'u istiyorum.", "requirements"),
     item(
       "assistant",
       "Harika. Netleştirmek için birkaç soru:\n\n1. **Hedef kitle** kim? (Genel müdürlük, bölge müdürleri…)\n2. Hangi **KPI**'lar öncelikli: satış tutarı, işlem adedi, ortalama sepet, aktif müşteri?\n3. **Zaman aralığı**: yılbaşından bugüne mi, son 12 ay mı?",
       "requirements",
     ),
-    item("user", "Genel müdürlük. Dört KPI da olsun, 2026 YTD ve geçen yıl karşılaştırması.", "requirements"),
+    item("user", "Satış yönetimi için. Dört KPI olsun, 2013 ve 2012 karşılaştırmalı.", "requirements"),
     item("tool", "Gereksinimler kaydedildi", "requirements", {
-      tool: { name: "save_requirements", arguments: { report_title: "Kredi Kartı Satış Performansı", kpis: ["satış tutarı", "işlem adedi", "ortalama sepet", "aktif müşteri"], time_range: "2026 YTD" }, ok: true, summary: "Gereksinimler kaydedildi", durationMs: 12 },
+      tool: { name: "save_requirements", arguments: { report_title: "AdventureWorks Satış Performansı", kpis: ["satış tutarı", "sipariş sayısı", "brüt kâr marjı", "aktif müşteri"], time_range: "2013" }, ok: true, summary: "Gereksinimler kaydedildi", durationMs: 12 },
     }),
     item("tool", "4 tablo bulundu", "data", {
-      tool: { name: "search_dictionary", arguments: { query: "kredi kartı işlem tutarı" }, ok: true, summary: "4 tablo bulundu: fact_card_transaction, dim_date, dim_branch, dim_channel", durationMs: 184 },
+      tool: { name: "search_dictionary", arguments: { query: "internet satış tutarı ülke" }, ok: true, summary: "4 tablo bulundu: FactInternetSales, DimDate, DimSalesTerritory, DimProduct", durationMs: 184 },
     }),
     item("tool", "SQL hatası: kolon bulunamadı", "data", {
-      tool: { name: "run_sql", arguments: { sql: "SELECT region, SUM(amount) FROM dwh.fact_card_transaction GROUP BY region" }, ok: false, summary: "Hata: \"amount\" kolonu yok (amount_try olabilir)", durationMs: 96 },
+      tool: { name: "run_sql", arguments: { sql: "SELECT SalesTerritoryCountry, SUM(Amount) FROM dbo.FactInternetSales GROUP BY SalesTerritoryCountry" }, ok: false, summary: "Hata: \"Amount\" kolonu yok (SalesAmount olabilir)", durationMs: 96 },
     }),
     item("tool", "6 dataset kaydedildi", "data", {
-      tool: { name: "save_dataset", arguments: { id: "region_sales", sql: demoSpec.datasets[2].sql }, ok: true, summary: "region_sales kaydedildi · 7 satır", durationMs: 241 },
+      tool: { name: "save_dataset", arguments: { id: "country_sales", sql: demoSpec.datasets[2].sql }, ok: true, summary: "country_sales kaydedildi · 6 satır", durationMs: 241 },
     }),
     item(
       "assistant",
@@ -91,9 +91,9 @@ function applyDemo(s: MockSession) {
   applyDemo(s);
   s.transcript = demoTranscript();
   s.requirements = {
-    report_title: demoSpec.title, business_goal: "Kart satış performansını izlemek", audience: "Genel müdürlük",
-    kpis: ["Satış tutarı", "İşlem adedi", "Ortalama sepet", "Aktif müşteri"], dimensions: ["Bölge", "Kategori", "Kanal", "Şube"],
-    time_range: "2026 YTD", filters: ["Bölge"],
+    report_title: demoSpec.title, business_goal: "İnternet ve bayi satış performansını izlemek", audience: "Satış yönetimi",
+    kpis: ["Satış tutarı", "Sipariş sayısı", "Brüt kâr marjı", "Aktif müşteri"], dimensions: ["Ay", "Ülke", "Kategori", "Kanal", "Ürün"],
+    time_range: "2013, 2012 ile karşılaştırmalı", filters: ["Bölge grubu", "Ülke", "Ürün kategorisi"],
   };
 }
 
@@ -142,7 +142,7 @@ export const mockApi: Api = {
       ok: true,
       llm: { reachable: true, model: "mock-llm", base_url: "mock://" },
       vision: { configured: true, model: "mock-vision" },
-      data: { ok: true, dialect: "duckdb" },
+      data: { ok: true, dialect: "tsql" },
     };
   },
   async listSessions(): Promise<SessionSummary[]> {
@@ -263,17 +263,17 @@ export const mockApi: Api = {
   async searchDictionary(q): Promise<DictionaryHit[]> {
     await sleep(150);
     const all: DictionaryHit[] = [
-      { table: "dwh.fact_card_transaction", business_name: "Kart İşlemleri", description: "Kredi kartı işlem bazında satış tutarları", score: 0.92, columns: [
-        { name: "amount_try", business_name: "İşlem Tutarı (TL)", role: "measure" },
-        { name: "customer_id", business_name: "Müşteri", role: "key" },
-        { name: "date_key", business_name: "Tarih", role: "key" },
+      { table: "dbo.factinternetsales", business_name: "İnternet Satışları", description: "Web sitesi üzerinden bireysel müşterilere yapılan satışlar", score: 12.1, columns: [
+        { name: "salesamount", business_name: "Satış Tutarı (USD)", role: "measure" },
+        { name: "customerkey", business_name: "Müşteri Anahtarı", role: "key" },
+        { name: "orderdatekey", business_name: "Sipariş Tarihi Anahtarı", role: "key" },
       ] },
-      { table: "dwh.dim_branch", business_name: "Şube", description: "Şube, il ve bölge bilgileri", score: 0.71, columns: [
-        { name: "branch_name", business_name: "Şube Adı", role: "dimension" },
-        { name: "region", business_name: "Bölge", role: "dimension" },
+      { table: "dbo.dimsalesterritory", business_name: "Satış Bölgesi", description: "Satış bölgesi, ülke ve bölge grubu", score: 7.0, columns: [
+        { name: "salesterritorycountry", business_name: "Bölge Ülkesi", role: "dimension" },
+        { name: "salesterritorygroup", business_name: "Bölge Grubu", role: "dimension" },
       ] },
-      { table: "dwh.dim_date", business_name: "Tarih", description: "Takvim boyutu", score: 0.55, columns: [
-        { name: "year_month", business_name: "Yıl-Ay", role: "dimension" },
+      { table: "dbo.dimdate", business_name: "Tarih", description: "Takvim ve mali takvim boyutu", score: 5.2, columns: [
+        { name: "calendaryear", business_name: "Yıl", role: "dimension" },
       ] },
     ];
     const ql = q.toLocaleLowerCase("tr");

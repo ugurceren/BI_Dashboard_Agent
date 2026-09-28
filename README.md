@@ -1,6 +1,7 @@
 # BI Rapor Agent
 
 Kurum içinde (on-prem) çalışan, modelden bağımsız bir "Claude Code for BI" harness'i.
+Veri kaynağı ve veri sözlüğü **Microsoft SQL Server**'dadır (örnek: AdventureWorksDW2025 + Türkçe sözlük `BI_Meta`).
 
 1. **İhtiyaç** — rapordan ne beklediğinizi anlatırsınız; agent netleştirici sorular sorar.
 2. **Veri** — agent veri sözlüğünde tabloları bulur, SQL yazar, doğrulatır, çalıştırır ve dashboard dataset'lerini hazırlar.
@@ -26,17 +27,19 @@ Her şeyi harness doğrular.
 Proje klasöründeki **`start.bat`** dosyasına çift tıklayın. İlk çalıştırmada eksik kurulumu (Python ortamı, npm paketleri,
 `.env`, HTML export şablonu) kendisi yapar; sonra backend ve frontend'i ayrı pencerelerde başlatıp tarayıcıda
 http://localhost:5173 adresini açar. Kapatmak için "BI Agent - Backend" ve "BI Agent - Frontend" pencerelerini kapatın.
-Veri sözlüğü (`seed_*.py`) bat dosyası tarafından oluşturulmaz; aşağıdaki adımlarla bir kez oluşturulmalıdır.
+Veri sözlüğü bat dosyası tarafından oluşturulmaz; aşağıdaki adımlarla bir kez oluşturulmalıdır.
 
 ## Kurulum
+
+Ön koşul: SQL Server (örnek veri için AdventureWorksDW2025) ve **Microsoft ODBC Driver 18 for SQL Server**.
 
 ```bash
 # backend
 cd backend
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt        # Linux: .venv/bin/pip
-.venv/Scripts/python scripts/seed_synthetic.py        # sentetik banka verisi + sözlük (data/demo.duckdb)
-copy .env.example .env                                 # LLM_BASE_URL / LLM_MODEL'i kurum sunucunuza göre düzenleyin
+copy .env.example .env                                 # SQLSERVER_ODBC, LLM_BASE_URL / LLM_MODEL'i düzenleyin
+.venv/Scripts/python scripts/seed_adventureworks_dictionary.py --server localhost --source-db AdventureWorksDW2025
 .venv/Scripts/python scripts/check_llm.py             # sunucu tool calling destekliyor mu?
 .venv/Scripts/python -m uvicorn app.main:app --port 8000
 
@@ -47,7 +50,7 @@ npm run dev              # http://localhost:5173
 npm run build:viewer     # "HTML indir" için tek dosyalık viewer
 ```
 
-LLM olmadan denemek için arayüzde **Demo dashboard yükle** butonunu kullanın (spec + gerçek sentetik veri).
+LLM olmadan denemek için arayüzde **Demo dashboard yükle** butonunu kullanın (`docs/demo_spec.json`, AdventureWorks verisiyle).
 
 ## Model sunucusu
 
@@ -66,17 +69,14 @@ python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-VL-7B-Instruct
   güvenilir sonuç için 30B+ (Qwen3-32B, Qwen2.5-72B, Llama-3.3-70B) önerilir.
 - `VISION_MODEL` boşsa örnek görsellerden yalnızca renkler (piksel analizi) çıkarılır.
 
-## Ortamlar: AdventureWorks (SQL Server) ve DuckDB demo
+## Veri kaynağı ve sözlük
 
-`backend/.env` hangi ortamın aktif olduğunu belirler; iki blok arasında yorum satırıyla geçiş yapılır.
-
-| | AdventureWorks (varsayılan) | DuckDB demo |
+| | Nerede | Ayar |
 |---|---|---|
-| Veri | `localhost` / `AdventureWorksDW2025` | `backend/data/demo.duckdb` |
-| Sözlük | `localhost` / `BI_Meta.meta.dd_*` | `demo.duckdb` / `meta.dd_*` |
-| Sözlük ayarı | `config/dictionary.adventureworks.toml` | `config/dictionary.toml` |
-| Politika | `config/policy.adventureworks.toml` (şema `dbo`) | `config/policy.toml` (şema `dwh`) |
-| Demo | `docs/demo_spec_adventureworks.json` | `docs/demo_spec.json` |
+| Veri | SQL Server / `AdventureWorksDW2025` | `backend/.env` → `SQLSERVER_ODBC` |
+| Sözlük | SQL Server / `BI_Meta.meta.dd_*` | `backend/config/dictionary.toml` |
+| Erişim politikası | izinli şema `dbo`, PII kapalı | `backend/config/policy.toml` |
+| Demo dashboard | `docs/demo_spec.json` | `DEMO_SPEC` (isteğe bağlı) |
 
 AdventureWorks sözlüğünü (yeniden) oluşturmak — AdventureWorks'e dokunmaz, ayrı `BI_Meta` veritabanına yazar:
 
@@ -92,7 +92,7 @@ iletişim ve ücret bilgileri PII olarak işaretli (analyst rolü sorgulayamaz);
 
 1. `backend/config/dictionary.toml` → sorguları kendi sözlük tablolarınıza göre yazın (mantıksal kolon adlarıyla `AS ...`).
    Sözlük ayrı bir veritabanındaysa `source = "odbc"` + `odbc = "..."`.
-2. `.env` → `DATA_DIALECT=tsql`, `SQLSERVER_ODBC=...` (salt-okunur kullanıcı!). `pip install pyodbc`.
+2. `.env` → `SQLSERVER_ODBC=...` (salt-okunur kullanıcı!).
 3. `backend/config/policy.toml` → rol başına izinli şemalar, yasak tablolar, PII izni, satır limiti.
 4. `POST /api/dictionary/reload` ile sözlüğü yeniden yükleyin.
 
@@ -101,11 +101,11 @@ iletişim ve ücret bilgileri PII olarak işaretli (analyst rolü sorgulayamaz);
 | Katman | Ne yapar |
 |---|---|
 | Faz bazlı araçlar | Her fazda yalnızca o faza ait araçlar açık; model başka işe kalkışamaz |
-| SQL validator | Tek ifade; yalnız SELECT/WITH/UNION; DML/DDL/INTO/COPY/ATTACH/PRAGMA yasak; tablo fonksiyonları yasak; sadece sözlükteki + izinli şemadaki tablolar |
+| SQL validator | Tek ifade; yalnız SELECT/WITH/UNION; DML/DDL/INTO/EXEC yasak; OPENROWSET gibi tablo fonksiyonları, sistem fonksiyonları ve @/@@ değişkenleri yasak; başka veritabanı adıyla erişim yasak; sadece sözlükteki + izinli şemadaki tablolar |
 | PII | Sözlükte `is_pii` olan kolonlar ve PII içeren tablolarda `SELECT *` engellenir (rol izni yoksa) |
 | Model filtreleri | Dilimleyiciler bir model kolonuna bağlanır (ör. `dbo.DimSalesTerritory.SalesTerritoryGroup`); seçim, aktif ilişkiler üzerinden (boyut → fact, çok adımlı yollar dahil) her dataset'in SQL'ine eklenir. Görsellerde bir çubuğa/dilime tıklamak da diğer görselleri filtreler (Power BI çapraz filtresi) |
 | JOIN / kardinalite | Birleştirmeler sözlükteki ilişkilerle (N:1, 1:1, N:N, bileşik anahtar, rol) eşlenir. Eksik bileşik anahtar ve satır çoğalması (fan-out, iki fact'in ortak boyut üzerinden birleşmesi — chasm trap) reddedilir; sözlükte olmayan birleştirmeler uyarı olarak döner. Kardinalite sözlükte yoksa unique index / COUNT DISTINCT ile otomatik çıkarılır |
-| Bağlantı | DuckDB salt-okunur + dış erişim kapalı; SQL Server için salt-okunur kullanıcı, zaman aşımı, satır limiti |
+| Bağlantı | SQL Server'a salt-okunur (db_datareader) bir kullanıcıyla bağlanın; sorgu zaman aşımı ve satır limiti uygulanır. Yazma koruması veritabanı yetkisine dayanır, validator ek katmandır |
 | Spec | Pydantic şema + dataset/alan referans kontrolü; model hiçbir zaman kod üretmez |
 | Denetim | Her LLM çağrısı ve araç çalıştırması `logs/audit.jsonl`'a yazılır |
 
@@ -115,8 +115,13 @@ iletişim ve ücret bilgileri PII olarak işaretli (analyst rolü sorgulayamaz);
 cd backend && .venv/Scripts/python -m pytest -q
 ```
 
-Harness uçtan uca, senaryolu sahte bir modelle test edilir (`tests/test_harness.py`): faz geçişleri, bağlam sıfırlama,
-PII reddi, hatalı araç çağrısından toparlanma, adım sınırı, prompt-modu tool calling.
+Mantık testleri SQL Server olmadan da çalışır: AdventureWorks sözlüğünün sabit bir kopyası (`tests/fixtures/aw_dictionary.json`)
+ve sorgunun kolonlarına göre sahte satır üreten bir bağlantı kullanılır. Harness uçtan uca, senaryolu sahte bir modelle test
+edilir (`tests/test_harness.py`). Gerçek SQL Server'da çalışan entegrasyon testleri (filtrelenmiş toplamların elle yazılmış
+JOIN ile karşılaştırılması, kardinalite tespiti) sunucuya erişilemezse otomatik atlanır.
+
+Sözlük değişince sabit kopyayı yenilemek için:
+`python -c "import json; from app.main import build_services; json.dump(build_services().dictionary.to_snapshot(), open('tests/fixtures/aw_dictionary.json','w',encoding='utf-8'), ensure_ascii=False, indent=1)"`
 
 ## Klasörler
 
@@ -127,6 +132,8 @@ backend/app/harness/phases.py     faz prompt'ları ve durum aktarımı
 backend/app/harness/tools.py      araçlar ve doğrulamalar
 backend/app/harness/vision.py     örnek görselden tasarım özeti
 backend/app/data/validator.py     SQL güvenlik doğrulayıcı
+backend/app/data/join_guard.py    JOIN / kardinalite / satır çoğalması kontrolü
+backend/app/data/model_filters.py model tabanlı filtre yayılımı ve alan kökeni
 backend/app/dictionary/           veri sözlüğü yükleme + Türkçe arama
 backend/app/spec/models.py        Report Spec şeması
 frontend/src/dashboard/           Report Spec → dashboard renderer (ECharts)

@@ -1,7 +1,5 @@
 backend/.venv/
 backend/.env
-backend/data/*.duckdb
-backend/data/*.wal
 backend/sessions/
 backend/logs/
 __pycache__/
