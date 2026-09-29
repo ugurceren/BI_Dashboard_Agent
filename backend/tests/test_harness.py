@@ -382,3 +382,35 @@ def test_user_title_not_overwritten_by_agent(settings, services):
     s2 = m.state.store.create("analyst")  # adlandırılmamış yeni rapor: agent adı verir
     h_save_requirements(ToolContext(s2, services), {"report_title": "Agent Başlığı", "business_goal": "x", "kpis": ["Ciro"], "dimensions": []})
     assert s2.title == "Agent Başlığı" and not s2.title_locked
+
+
+def test_data_phase_shows_saved_dataset_sql(settings):
+    """Veri fazına geri dönülünce kayıtlı dataset'lerin SQL'i prompt'ta olmalı (model onları DB tablosu sanmasın)."""
+    from app.harness.phases import system_prompt
+    from app.harness.session import Session
+    from app.spec.models import Dataset, DatasetField
+
+    s = Session(user_role="analyst")
+    s.phase = "data"
+    s.datasets = [Dataset(id="promo_sales", description="Promosyon bazında satış",
+                          sql="SELECT PromotionKey, SUM(SalesAmount) AS sales FROM dbo.FactInternetSales GROUP BY PromotionKey",
+                          fields=[DatasetField(name="PromotionKey"), DatasetField(name="sales", type="number")])]
+    p = system_prompt(s, "tsql")
+    assert "promo_sales" in p and "GROUP BY PromotionKey" in p and "tablo DEĞİLDİR" in p and "AYNI id" in p
+
+
+def test_cross_filter_reaches_view_backed_dataset(settings, services):
+    """Onaylı view (yalnız bölge kırılımı) kategori filtresini taşıyamaz: kaynak SQL filtrelenerek çalışmalı."""
+    import app.main as m
+    from app.harness.session import Session
+    from app.spec.models import Dataset, DatasetField
+
+    m.state.services = services
+    src = ("SELECT t.SalesTerritoryRegion AS region, SUM(f.SalesAmount) AS sales_amount FROM dbo.FactResellerSales f "
+           "JOIN dbo.DimSalesTerritory t ON t.SalesTerritoryKey = f.SalesTerritoryKey GROUP BY t.SalesTerritoryRegion")
+    s = Session(user_role="analyst")
+    s.datasets = [Dataset(id="region_sales", sql="SELECT region, sales_amount FROM rpt.v_bolge", view="rpt.v_bolge", original_sql=src,
+                          fields=[DatasetField(name="region"), DatasetField(name="sales_amount", type="number")])]
+    key = "dbo.dimproductcategory.englishproductcategoryname"
+    out = m._dashboard_data(s, [{"key": key, "values": ["Bikes"]}])
+    assert out["applied"]["region_sales"] == [key]

@@ -480,3 +480,5 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .vp-script { max-height: 260px; overflow: auto; margin: 0; }
 .vp-ok { color: var(--ok); }
 .vp-open { margin-top: 6px; align-self: flex-start; }
+.step.is-reachable button { color: var(--accent); }
+.step.is-reachable .step-dot { border-color: var(--accent); color: var(--accent); }

@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { SessionSummary } from "../types";
 import { STATUSES, statusInfo, type ReportStatus } from "../lib/status";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { StatusPicker } from "./StatusPicker";
 import "./home.css";
 
 function relTime(iso?: string): string {
@@ -155,14 +156,7 @@ function useReportItem(r: SessionSummary, a: Actions) {
       <button type="button" className="btn btn-ghost btn-sm" onClick={cancel}>Vazgeç</button>
     </form>
   ) : null;
-  const statusSelect = (
-    <label className="rc-status" style={{ ["--st" as string]: statusInfo(r.status).color }} onClick={(e) => e.stopPropagation()} title={statusInfo(r.status).hint}>
-      <i className="st-dot" />
-      <select value={r.status ?? "idea"} onChange={(e) => a.onStatus(r.id, e.target.value as ReportStatus)} aria-label="Rapor statüsü">
-        {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-      </select>
-    </label>
-  );
+  const statusSelect = (align: "left" | "right") => <StatusPicker value={r.status} onChange={(st) => a.onStatus(r.id, st)} align={align} size="sm" />;
   const buttons = (compact: boolean): ReactNode => (
     <>
       <button type="button" className="btn btn-secondary btn-sm" onClick={() => a.onOpen(r.id)} title="Raporu aç"><Ico d={PATHS.open} />{compact ? null : "Aç"}</button>
@@ -196,7 +190,7 @@ function ReportCard({ r, ...a }: Actions & { r: SessionSummary }) {
       <div className="rc-body">
         <div className="rc-top">
           {it.renameForm ?? <h2 className="rc-title" title={r.title}>{r.title || "Başlıksız"}</h2>}
-          {it.statusSelect}
+          {it.statusSelect("right")}
         </div>
         {r.subtitle || r.business_goal ? <p className="rc-desc">{r.business_goal || r.subtitle}</p> : <p className="rc-desc muted">Henüz ihtiyaç tanımlanmadı.</p>}
 
@@ -232,7 +226,7 @@ function ReportRow({ r, ...a }: Actions & { r: SessionSummary }) {
   const it = useReportItem(r, a);
   return (
     <tr className="rl-row" onClick={() => !it.editing && a.onOpen(r.id)} style={{ ["--st" as string]: statusInfo(r.status).color }}>
-      <td className="rl-status">{it.statusSelect}</td>
+      <td className="rl-status">{it.statusSelect("left")}</td>
       <td className="rl-title">
         {it.renameForm ?? (
           <>

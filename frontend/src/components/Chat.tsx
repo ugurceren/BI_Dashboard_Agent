@@ -12,20 +12,24 @@ export const PHASES: { id: Phase; label: string; hint: string }[] = [
 
 // ---------- faz adımları ----------
 
-export function PhaseStepper({ phase, disabled, onBack }: { phase: Phase; disabled?: boolean; onBack: (p: Phase) => void }) {
+/** Geri: her zaman; ileri: o fazın ön koşulu hazırsa (veri → gereksinimler kayıtlı, tasarım → dataset'ler kayıtlı). */
+export function PhaseStepper({ phase, disabled, onBack, reachable = {} }: {
+  phase: Phase; disabled?: boolean; onBack: (p: Phase) => void; reachable?: Partial<Record<Phase, boolean>>;
+}) {
   const cur = PHASES.findIndex((p) => p.id === phase);
   return (
     <ol className="stepper" aria-label="Fazlar">
       {PHASES.map((p, i) => {
         const st = i < cur ? "done" : i === cur ? "current" : "todo";
-        const clickable = i < cur && !disabled;
+        const forward = i > cur && !!reachable[p.id];
+        const clickable = (i < cur || forward) && !disabled;
         return (
-          <li key={p.id} className={`step is-${st}`}>
+          <li key={p.id} className={`step is-${st}${forward ? " is-reachable" : ""}`}>
             <button
               type="button"
               disabled={!clickable}
               onClick={() => clickable && onBack(p.id)}
-              title={clickable ? `${p.label} fazına geri dön` : p.hint}
+              title={clickable ? (forward ? `${p.label} fazına geç (kayıtlı içerikle)` : `${p.label} fazına geri dön`) : p.hint}
               aria-current={st === "current" ? "step" : undefined}
             >
               <span className="step-dot">

@@ -4,7 +4,7 @@ import type { Health, Me } from "../types";
 import { HealthBadge } from "./HealthBadge";
 import "./sidebar.css";
 
-export type Page = "home" | "access" | "model" | "query" | "designer";
+export type Page = "home" | "access" | "model" | "query" | "designer" | "viewer";
 
 const ICONS: Record<string, ReactNode> = {
   home: <path d="M2.5 7 8 2.5 13.5 7v6.5h-3.8V9.5H6.3v4H2.5z" />,
@@ -38,7 +38,7 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, heal
   page: Page;
   collapsed: boolean;
   onToggle: () => void;
-  onNavigate: (p: Exclude<Page, "designer">) => void;
+  onNavigate: (p: Exclude<Page, "designer" | "viewer">) => void;
   onNew: () => void;
   me: Me | null;
   currentReport: { id: string; title: string } | null;
@@ -68,7 +68,7 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, heal
       <div className="sb-section sb-label">Raporlar</div>
       {item("home", "Rapor Envanteri", page === "home", () => onNavigate("home"), busy)}
       {item("new", "Yeni Rapor", false, onNew, busy)}
-      {currentReport ? item("designer", currentReport.title || "Açık rapor", page === "designer", () => { window.location.hash = `#/r/${currentReport.id}`; }, busy) : null}
+      {currentReport ? item("designer", currentReport.title || "Açık rapor", page === "designer" || page === "viewer", () => { window.location.hash = `#/${page === "viewer" ? "v" : "r"}/${currentReport.id}`; }, busy) : null}
 
       <div className="sb-section sb-label">Veri</div>
       {item("access", "Veri Erişimim", page === "access", () => onNavigate("access"), busy)}

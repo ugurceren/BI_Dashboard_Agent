@@ -4,6 +4,7 @@ import { httpApi, type Api } from "./api/client";
 import { mockApi } from "./api/mock";
 import { TopBar } from "./components/TopBar";
 import { QueryPage } from "./components/QueryPage";
+import { DashboardRenderer } from "./dashboard/DashboardRenderer";
 import { Composer, EmptyChat, PHASES, PhaseStepper, Transcript } from "./components/Chat";
 import { RightPanel, type Tab } from "./components/RightPanel";
 import { Home } from "./components/Home";
@@ -14,11 +15,13 @@ import type { Me } from "./types";
 import type { ThemePref } from "./components/TopBar";
 import { ApiError } from "./api/client";
 
-/** #/ envanter · #/access veri erişimi · #/model veri modeli · #/r/<id> rapor tasarımı */
+/** #/ envanter · #/access veri erişimi · #/model veri modeli · #/query sorgu · #/r/<id> rapor tasarımı · #/v/<id> canlı görünüm */
 function parseRoute(): { view: Page; id: string | null } {
   const h = window.location.hash;
   const m = /^#\/r\/([A-Za-z0-9]+)/.exec(h);
   if (m) return { view: "designer", id: m[1] };
+  const v = /^#\/v\/([A-Za-z0-9]+)/.exec(h);
+  if (v) return { view: "viewer", id: v[1] };
   if (h.startsWith("#/access")) return { view: "access", id: null };
   if (h.startsWith("#/model")) return { view: "model", id: null };
   if (h.startsWith("#/query")) return { view: "query", id: null };
@@ -61,7 +64,7 @@ export default function App() {
   }, [theme]);
   const [sidebarPref, setSidebarPref] = useState<boolean | null>(() => { const v = lsGet(LS_SIDEBAR); return v === null ? null : v === "1"; });
   // tercih yoksa: tasarım sayfasında daralt (sohbet + dashboard'a yer), diğer sayfalarda aç
-  const sidebarCollapsed = sidebarPref ?? route.view === "designer";
+  const sidebarCollapsed = sidebarPref ?? (route.view === "designer" || route.view === "viewer");
   const [state, setState] = useState<SessionState | null>(null);
   const [pending, setPending] = useState<TranscriptItem | null>(null);
   const [localItems, setLocalItems] = useState<TranscriptItem[]>([]);
@@ -169,13 +172,19 @@ export default function App() {
 
   // rota değişince: rapor sayfasıysa o oturumu aç, anasayfaysa listeyi tazele
   useEffect(() => {
-    if (route.view === "designer" && route.id && route.id !== sessionId) void openSession(route.id);
+    if ((route.view === "designer" || route.view === "viewer") && route.id && route.id !== sessionId) void openSession(route.id);
     if (route.view === "home") void refreshSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route]);
 
   const goHome = () => { window.location.hash = "#/"; };
   const goReport = (id: string) => { window.location.hash = `#/r/${id}`; };
+  /** envanterden açış: canlıdaki (dashboard'u olan) rapor tam sayfa görünümde, diğerleri tasarım modunda açılır */
+  const openFromInventory = (id: string) => {
+    const r = sessions.find((x) => x.id === id);
+    window.location.hash = r?.status === "live" && r.has_spec ? `#/v/${id}` : `#/r/${id}`;
+  };
+  const setMode = (m: "designer" | "viewer") => { if (sessionId) window.location.hash = `#/${m === "viewer" ? "v" : "r"}/${sessionId}`; };
 
   const setReportStatus = async (id: string, status: string) => {
     try {
@@ -376,7 +385,8 @@ export default function App() {
   const backToPhase = async (p: Phase) => {
     if (!state) return;
     const label = PHASES.find((x) => x.id === p)?.label ?? p;
-    if (!window.confirm(`"${label}" fazına geri dönülsün mü? Agent bu fazdan devam edecek.`)) return;
+    const fwd = PHASES.findIndex((x) => x.id === p) > PHASES.findIndex((x) => x.id === state.phase);
+    if (!window.confirm(fwd ? `"${label}" fazına geçilsin mi? Kayıtlı içerikle devam edilecek.` : `"${label}" fazına geri dönülsün mü? Agent bu fazdan devam edecek.`)) return;
     try {
       const s = await api.setPhase(state.id, p);
       setState(s);
@@ -440,7 +450,9 @@ export default function App() {
     <div className="app">
       <TopBar
         page={route.view}
-        view={route.view === "designer" ? "designer" : "home"}
+        view={route.view === "designer" || route.view === "viewer" ? route.view : "home"}
+        onMode={setMode}
+        canView={!!state?.spec}
         onHome={goHome}
         onRename={(t) => (sessionId ? renameReport(sessionId, t) : Promise.resolve(false))}
         status={state?.status ?? (state?.spec ? "design" : "idea")}
@@ -451,7 +463,7 @@ export default function App() {
         sessions={sessions}
         currentId={sessionId}
         currentTitle={state?.title}
-        onSelect={(id) => id !== sessionId && goReport(id)}
+        onSelect={(id) => { if (id !== sessionId) window.location.hash = `#/${route.view === "viewer" ? "v" : "r"}/${id}`; }}
         onDelete={(id) => void deleteSession(id)}
         busy={streaming}
       />
@@ -461,9 +473,33 @@ export default function App() {
         <main className="main"><QueryPage api={api} theme={theme} /></main>
       ) : route.view === "model" ? (
         <main className="main"><div className="page-model"><ModelTab api={api} state={null} /></div></main>
+      ) : route.view === "viewer" ? (
+        <main className="main main-viewer">
+          <div className="viewer-page">
+            {!state || state.id !== route.id ? (
+              <div className="panel-empty"><span className="spinner" /><p>Rapor yükleniyor…</p></div>
+            ) : !state.spec ? (
+              <div className="panel-empty">
+                <h3>Bu raporun henüz dashboard'u yok</h3>
+                <p>Canlı görünüm için önce tasarım modunda dashboard oluşturun.</p>
+                <button type="button" className="btn btn-primary" onClick={() => setMode("designer")}>Tasarım moduna geç</button>
+              </div>
+            ) : (
+              <>
+                {dataError ? <div className="banner-error">Veri alınamadı: {dataError}</div> : null}
+                {data ? (
+                  <DashboardRenderer spec={state.spec} data={data} loading={dataLoading} model={filterInfo ? {
+                    filters: filterInfo.filters, bindings: filterInfo.bindings, applied: data?.applied ?? {},
+                    selections, onSelections: setSelections, cross, onCross: setCross,
+                  } : undefined} />
+                ) : <div className="panel-empty"><span className="spinner" /><p>Veri yükleniyor…</p></div>}
+              </>
+            )}
+          </div>
+        </main>
       ) : route.view === "home" ? (
         <main className="main main-home">
-          <Home reports={sessions} loading={sessionsLoading} onOpen={goReport} onNew={() => void newSession()}
+          <Home reports={sessions} loading={sessionsLoading} onOpen={openFromInventory} onNew={() => void newSession()}
             onRename={renameReport} onDelete={(id) => void deleteSession(id)} onStatus={(id, st) => void setReportStatus(id, st)}
             exportUrl={(id) => api.exportUrl(id)} />
         </main>
@@ -471,7 +507,8 @@ export default function App() {
       <main className="main">
         <aside className="chat" ref={chatRef} style={{ width: chatWidth }}>
           <div className="chat-head">
-            <PhaseStepper phase={state?.phase ?? "requirements"} disabled={busy || !state} onBack={backToPhase} />
+            <PhaseStepper phase={state?.phase ?? "requirements"} disabled={busy || !state} onBack={backToPhase}
+              reachable={{ data: !!state?.requirements, design: !!state?.datasets?.length }} />
           </div>
           <Transcript
             items={items}

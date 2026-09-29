@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SessionSummary } from "../types";
 import { PHASES } from "./Chat";
-import { STATUSES, statusInfo } from "../lib/status";
+import { StatusPicker } from "./StatusPicker";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 export type ThemePref = "light" | "dark";
@@ -18,16 +18,18 @@ function relTime(iso: string): string {
 }
 
 const PAGE_CRUMBS: Record<string, [string, string]> = {
-  home: ["Raporlar", "Rapor Envanteri"], designer: ["Raporlar", "Rapor Envanteri"],
+  home: ["Raporlar", "Rapor Envanteri"], designer: ["Raporlar", "Rapor Envanteri"], viewer: ["Raporlar", "Rapor Envanteri"],
   access: ["Veri", "Veri Erişimim"], query: ["Veri", "Sorgu Çalıştır"], model: ["Veri", "Veri Modeli"],
 };
 
-export function TopBar({ page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme }: {
+export function TopBar({ onMode, canView, page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme }: {
   status?: string | null;
   onStatus: (s: string) => void;
   theme: ThemePref;
   onTheme: (t: ThemePref) => void;
-  view: "home" | "designer";
+  view: "home" | "designer" | "viewer";
+  onMode?: (m: "designer" | "viewer") => void;
+  canView?: boolean;
   onHome: () => void;
   onRename: (title: string) => Promise<boolean>;
   page: string;
@@ -57,7 +59,8 @@ export function TopBar({ page, mock, sessions, currentId, currentTitle, onSelect
   }, [open]);
 
   const [section, pageLabel] = PAGE_CRUMBS[page] ?? PAGE_CRUMBS.home;
-  const crumbs: { label: string; onClick?: () => void }[] = view === "designer"
+  const inReport = view === "designer" || view === "viewer";
+  const crumbs: { label: string; onClick?: () => void }[] = inReport
     ? [{ label: section }, { label: pageLabel, onClick: onHome }]
     : [{ label: section }, { label: pageLabel }];
   const title = currentTitle || sessions.find((s) => s.id === currentId)?.title || "Oturum";
@@ -77,13 +80,13 @@ export function TopBar({ page, mock, sessions, currentId, currentTitle, onSelect
           <span key={i} className="crumb">
             {i ? <span className="crumb-sep" aria-hidden="true">/</span> : null}
             {c.onClick ? <button type="button" className="crumb-link" onClick={c.onClick} disabled={busy}>{c.label}</button>
-              : <span className={i === crumbs.length - 1 && view !== "designer" ? "crumb-current" : "crumb-muted"}>{c.label}</span>}
+              : <span className={i === crumbs.length - 1 && !inReport ? "crumb-current" : "crumb-muted"}>{c.label}</span>}
           </span>
         ))}
-        {view === "designer" ? <span className="crumb-sep" aria-hidden="true">/</span> : null}
+        {inReport ? <span className="crumb-sep" aria-hidden="true">/</span> : null}
       </nav>
 
-      {view === "designer" && renaming ? (
+      {inReport && renaming ? (
         <form className="title-rename" onSubmit={async (e) => { e.preventDefault(); if (await onRename(draft.trim())) setRenaming(false); }}>
           <input autoFocus onFocus={(e) => e.currentTarget.select()} className="dict-input" value={draft} maxLength={120} onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setRenaming(false)} aria-label="Rapor adı" />
@@ -98,10 +101,10 @@ export function TopBar({ page, mock, sessions, currentId, currentTitle, onSelect
           <span className="session-title">{title}</span>
           <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3 4.5 6 7.5l3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
-        <button type="button" className="btn btn-secondary btn-sm topbar-rename" onClick={() => { setDraft(title); setRenaming(true); }} disabled={busy || !currentId} title="Raporu yeniden adlandır">
+        {view === "viewer" ? null : <button type="button" className="btn btn-secondary btn-sm topbar-rename" onClick={() => { setDraft(title); setRenaming(true); }} disabled={busy || !currentId} title="Raporu yeniden adlandır">
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 11.5V13h1.5l7-7L10 4.5l-7 7ZM9.5 5 11 6.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
           <span>Adlandır</span>
-        </button>
+        </button>}
         {open ? (
           <div className="menu" role="menu">
             <div className="menu-head">Oturumlar</div>
@@ -132,15 +135,22 @@ export function TopBar({ page, mock, sessions, currentId, currentTitle, onSelect
         ) : null}
       </div>
 
-      {view === "designer" && currentId ? (
-        <label className="rc-status topbar-status" style={{ ["--st" as string]: statusInfo(status).color }} title="Rapor statüsü">
-          <i className="st-dot" />
-          <select value={status ?? "idea"} onChange={(e) => onStatus(e.target.value)} disabled={busy} aria-label="Rapor statüsü">
-            {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
-        </label>
+      {inReport && currentId && onMode ? (
+        <div className="mode-seg" role="group" aria-label="Rapor görünümü">
+          <button type="button" className={view === "designer" ? "is-on" : undefined} onClick={() => onMode("designer")} disabled={busy} aria-pressed={view === "designer"}
+            title="Tasarım modu: agent ile sohbet, İhtiyaç / Veri / Tasarım adımları">
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11.5V13h1.5l7-7L10 4.5l-7 7ZM9.5 5 11 6.5" /></svg>
+            <span className="mode-label">Tasarım</span>
+          </button>
+          <button type="button" className={view === "viewer" ? "is-on" : undefined} onClick={() => onMode("viewer")} disabled={busy || !canView} aria-pressed={view === "viewer"}
+            title={canView ? "Canlı görünüm: raporu tam sayfa gör" : "Henüz dashboard yok"}>
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" /><circle cx="8" cy="8" r="2" /></svg>
+            <span className="mode-label">Canlı</span>
+          </button>
+        </div>
       ) : null}
       <div className="topbar-spacer" />
+      {inReport && currentId ? <StatusPicker value={status} onChange={(s) => onStatus(s)} disabled={busy} align="right" /> : null}
       <div className="theme-seg" role="group" aria-label="Görünüm">
         {([["light", "Gündüz modu", <path key="l" d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6ZM8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />],
            ["dark", "Gece modu", <path key="d" d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6Z" />]] as [ThemePref, string, ReactNode][]).map(([k, l, icon]) => (

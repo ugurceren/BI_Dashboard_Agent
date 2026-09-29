@@ -350,10 +350,16 @@ def set_phase(sid: str, body: PhaseIn) -> dict[str, Any]:
             raise HTTPException(409, "Önce gereksinimler kaydedilmeli.")
         if body.phase == "design" and not s.datasets:
             raise HTTPException(409, "Önce dataset'ler kaydedilmeli.")
+        forward = PHASES.index(body.phase) > PHASES.index(s.phase)
         s.set_phase(body.phase)  # type: ignore[arg-type]
 
-        s.add(TranscriptItem(role="system", content=f"Kullanıcı '{body.phase}' fazına döndü"))
-        s.llm_messages.append({"role": "user", "content": "[HARNESS] Kullanıcı bu faza geri döndü. Mevcut durumu kısaca özetle ve ne değiştirmek istediğini sor."})
+        if forward:
+            s.add(TranscriptItem(role="system", content=f"Kullanıcı '{body.phase}' fazına geçti (kayıtlı içerikle)"))
+            s.llm_messages.append({"role": "user", "content": "[HARNESS] Kullanıcı kayıtlı içerikle bu faza ileri geçti. "
+                                   "Kayıtlı dataset'ler/dashboard ile devam et; durumu kısaca özetle ve ne yapmak istediğini sor."})
+        else:
+            s.add(TranscriptItem(role="system", content=f"Kullanıcı '{body.phase}' fazına döndü"))
+            s.llm_messages.append({"role": "user", "content": "[HARNESS] Kullanıcı bu faza geri döndü. Mevcut durumu kısaca özetle ve ne değiştirmek istediğini sor."})
         state.store.save(s)
         return s.public()
 
@@ -508,6 +514,15 @@ def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[s
             except Exception as e:  # noqa: BLE001 — filtre uygulanamazsa filtresiz göster
                 log.warning("Filtre uygulanamadı (%s): %s", did, e)
                 applied[did] = []
+            # onaylı view'a bağlı dataset: view toplulaştırılmış olduğundan (ör. yalnız bölge) filtre ona ulaşamayabilir.
+            # Bu durumda view'ın kaynak SQL'i filtrelenerek çalıştırılır (kolonlar aynı; filtresizken view kullanılır).
+            if d.view and d.original_sql and len(applied.get(did, [])) < len({f.key for f in active}):
+                try:
+                    alt_sql, alt_applied = eng.apply(d.original_sql, active)
+                    if len(alt_applied) > len(applied.get(did, [])):
+                        sql, applied[did] = alt_sql, alt_applied
+                except Exception as e:  # noqa: BLE001
+                    log.warning("View kaynağına filtre uygulanamadı (%s): %s", did, e)
         out[did] = _dataset_payload(sql, s.user_role)
     return {"datasets": out, "applied": applied}
 

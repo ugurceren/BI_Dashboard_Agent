@@ -141,7 +141,23 @@ def _state_block(s: Session) -> str:
         else:
             parts.append("## Mevcut dashboard\nHenüz oluşturulmadı.")
     elif s.phase == "data" and s.datasets:
-        parts.append("## Daha önce kaydedilen dataset'ler\n" + ", ".join(d.id for d in s.datasets))
+        # veri fazına geri dönüldü: kayıtlı dataset'lerin SQL'i ve alanları agent'ın önünde olsun
+        # (yoksa model "kayıtlı dataset'leri" veritabanında bir tablo sanıp arıyor)
+        lines, budget = [], 9000
+        for d in s.datasets:
+            fields = ", ".join(f.name for f in d.fields)
+            block = f"### {d.id} — {d.description}\nalanlar: {fields}\n```sql\n{(d.original_sql or d.sql).strip()}\n```"
+            if budget - len(block) < 0:
+                lines.append(f"### {d.id} — {d.description}\nalanlar: {fields}\n(SQL uzun, kısaltıldı)")
+                continue
+            budget -= len(block)
+            lines.append(block)
+        parts.append(
+            "## Daha önce KAYDEDİLMİŞ dataset'ler (uygulama içinde saklanır; veritabanında tablo DEĞİLDİR, SQL ile aranmaz)\n"
+            + ("Dashboard zaten var; görseller bu dataset id'lerini kullanıyor.\n" if s.spec else "")
+            + "Kullanıcının istediği değişiklik için yalnızca ilgili dataset'lerin SQL'ini düzelt, run_sql ile test et ve "
+              "save_datasets ile AYNI id'lerle gönder (üstüne yazar; gönderilmeyen dataset'ler olduğu gibi kalır). "
+              "Kayıt başarılı olunca tasarım fazına geçilir.\n\n" + "\n\n".join(lines))
     return "\n\n".join(parts)
 
 

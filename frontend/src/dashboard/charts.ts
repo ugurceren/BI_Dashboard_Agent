@@ -575,8 +575,11 @@ function pie(ctx: ChartCtx): EOption {
     ],
   };
   if (isDonut) {
+    const centerFmt = (n: number) => formatAxisValue(n, fmt.format === "percent" ? fmt : fmt.format === "currency" ? fmt : { ...fmt });
+    // seçim vurgusunda (visuals.highlightSelection) orta değer seçili dilimlerin toplamına döner
+    Object.defineProperty(out, "__center", { value: centerFmt, enumerable: false });
     out.title = {
-      text: formatAxisValue(total, fmt.format === "percent" ? fmt : fmt.format === "currency" ? fmt : { ...fmt }),
+      text: centerFmt(total),
       subtext: "Toplam",
       left: cx,
       top: cy,

@@ -54,6 +54,16 @@ function highlightSelection(option: any, selected: CellValue): any {
   const names = new Set([formatCategory(selected), formatCategory(selected, false), keyOf(selected)]);
   out.series = series.map((s) => (Array.isArray(s.data)
     ? { ...s, data: s.data.map((d: any) => (d && typeof d === "object" && names.has(d.name) ? d : dimItem(d))) } : s));
+  // halka: ortadaki "Toplam" seçili dilimin değerini gösterir (rapor bu seçimle filtrelenmiştir)
+  const center = (option as { __center?: (n: number) => string }).__center;
+  if (center && option.title && !Array.isArray(option.title)) {
+    const hit = series.flatMap((s) => (Array.isArray(s.data) ? s.data : []))
+      .filter((d: any) => d && typeof d === "object" && names.has(d.name));
+    if (hit.length) {
+      const sum = hit.reduce((a: number, d: any) => a + (Number(d.value) || 0), 0);
+      out.title = { ...option.title, text: center(sum), subtext: hit.map((d: any) => d.name).join(", ") };
+    }
+  }
   return out;
 }
 
