@@ -5,6 +5,14 @@ import { mockApi } from "./api/mock";
 import { TopBar } from "./components/TopBar";
 import { Composer, EmptyChat, PHASES, PhaseStepper, Transcript } from "./components/Chat";
 import { RightPanel, type Tab } from "./components/RightPanel";
+import { Home } from "./components/Home";
+import { ApiError } from "./api/client";
+
+/** #/  → rapor envanteri,  #/r/<id>  → rapor tasarım sayfası */
+function parseRoute(): { view: "home" | "designer"; id: string | null } {
+  const m = /^#\/r\/([A-Za-z0-9]+)/.exec(window.location.hash);
+  return m ? { view: "designer", id: m[1] } : { view: "home", id: null };
+}
 
 const MOCK = new URLSearchParams(window.location.search).has("mock");
 const LS_SESSION = MOCK ? "bi.mock.session" : "bi.session";
@@ -25,6 +33,8 @@ export default function App() {
   const [healthError, setHealthError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [route, setRoute] = useState(parseRoute);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
   const [state, setState] = useState<SessionState | null>(null);
   const [pending, setPending] = useState<TranscriptItem | null>(null);
   const [localItems, setLocalItems] = useState<TranscriptItem[]>([]);
@@ -68,9 +78,11 @@ export default function App() {
   const refreshSessions = useCallback(async () => {
     try {
       const list = await api.listSessions();
+      setSessionsLoading(false);
       setSessions([...list].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")));
       return list;
     } catch (e) {
+      setSessionsLoading(false);
       showToast(`Oturumlar alınamadı: ${errMsg(e)}`);
       return null;
     }
@@ -104,6 +116,7 @@ export default function App() {
       setData(null);
       setTab("dashboard");
       lsSet(LS_SESSION, s.id);
+      window.location.hash = `#/r/${s.id}`;
       void refreshSessions();
     } catch (e) {
       showToast(`Oturum oluşturulamadı: ${errMsg(e)}`);
@@ -111,26 +124,58 @@ export default function App() {
   }, [api, refreshSessions, showToast]);
 
   useEffect(() => {
-    (async () => {
-      const list = await refreshSessions();
-      if (list === null) return;
-      const saved = lsGet(LS_SESSION);
-      const pick = list.find((s) => s.id === saved) ?? [...list].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
-      if (pick) await openSession(pick.id);
-      else await newSession();
-    })();
+    void refreshSessions();
+    const onHash = () => setRoute(parseRoute());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // rota değişince: rapor sayfasıysa o oturumu aç, anasayfaysa listeyi tazele
+  useEffect(() => {
+    if (route.view === "designer" && route.id && route.id !== sessionId) void openSession(route.id);
+    if (route.view === "home") void refreshSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route]);
+
+  const goHome = () => { window.location.hash = "#/"; };
+  const goReport = (id: string) => { window.location.hash = `#/r/${id}`; };
+
+  /** Yeniden adlandır; aynı isimde rapor varsa üstüne yazmak için onay ister. */
+  const renameReport = async (id: string, title: string): Promise<boolean> => {
+    try {
+      const s = await api.renameSession(id, title);
+      if (id === sessionId) setState(s);
+      await refreshSessions();
+      return true;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        if (!window.confirm(`"${title}" adında başka bir rapor var. Üstüne yazılsın mı? (Diğer rapor silinir.)`)) return false;
+        try {
+          const s = await api.renameSession(id, title, true);
+          if (id === sessionId) setState(s);
+          await refreshSessions();
+          return true;
+        } catch (e2) {
+          showToast(`Yeniden adlandırılamadı: ${errMsg(e2)}`);
+          return false;
+        }
+      }
+      showToast(`Yeniden adlandırılamadı: ${errMsg(e)}`);
+      return false;
+    }
+  };
 
   const deleteSession = async (id: string) => {
     try {
       await api.deleteSession(id);
       const list = await refreshSessions();
       if (id === sessionId) {
-        const next = list?.find((s) => s.id !== id);
-        if (next) await openSession(next.id);
-        else await newSession();
+        setState(null);
+        setSessionId(null);
+        goHome();
       }
+      void list;
     } catch (e) {
       showToast(`Silinemedi: ${errMsg(e)}`);
     }
@@ -335,17 +380,26 @@ export default function App() {
   return (
     <div className="app">
       <TopBar
+        view={route.view}
+        onHome={goHome}
+        onRename={(t) => (sessionId ? renameReport(sessionId, t) : Promise.resolve(false))}
         mock={MOCK}
         health={health}
         healthError={healthError}
         sessions={sessions}
         currentId={sessionId}
         currentTitle={state?.title}
-        onSelect={(id) => id !== sessionId && void openSession(id)}
+        onSelect={(id) => id !== sessionId && goReport(id)}
         onNew={() => void newSession()}
         onDelete={(id) => void deleteSession(id)}
         busy={streaming}
       />
+      {route.view === "home" ? (
+        <main className="main main-home">
+          <Home reports={sessions} loading={sessionsLoading} onOpen={goReport} onNew={() => void newSession()}
+            onRename={renameReport} onDelete={(id) => void deleteSession(id)} exportUrl={(id) => api.exportUrl(id)} />
+        </main>
+      ) : (
       <main className="main">
         <aside className="chat" ref={chatRef} style={{ width: chatWidth }}>
           <div className="chat-head">
@@ -376,6 +430,7 @@ export default function App() {
           } : undefined}
         />
       </main>
+      )}
       {toast ? (
         <div className="toast" role="alert" onClick={() => setToast(null)}>
           {toast}

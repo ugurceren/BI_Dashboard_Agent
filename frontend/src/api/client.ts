@@ -25,6 +25,7 @@ export interface Api {
   createSession(): Promise<SessionState>;
   getSession(id: string): Promise<SessionState>;
   deleteSession(id: string): Promise<void>;
+  renameSession(id: string, title: string, overwrite?: boolean): Promise<SessionState>;
   sendMessage(id: string, body: MessageBody, onEvent: (ev: StreamEvent) => void, signal?: AbortSignal): Promise<void>;
   setPhase(id: string, phase: Phase): Promise<SessionState>;
   putSpec(id: string, spec: ReportSpec): Promise<SessionState>;
@@ -158,6 +159,8 @@ export const httpApi: Api = {
     }
     await readSSE(res.body, onEvent);
   },
+  renameSession: (id, title, overwrite = false) =>
+    req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/title`, { method: "PUT", body: JSON.stringify({ title, overwrite }) }),
   setPhase: (id, phase) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/phase`, { method: "POST", body: JSON.stringify({ phase }) }),
   putSpec: (id, spec) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/spec`, { method: "PUT", body: JSON.stringify(spec) }),
   loadDemo: (id) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/demo`, { method: "POST" }),

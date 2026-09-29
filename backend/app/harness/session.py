@@ -28,6 +28,9 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+DEFAULT_TITLE = "Yeni rapor"
+
+
 class ToolInfo(BaseModel):
     name: str
     arguments: Any = None
@@ -70,7 +73,7 @@ class DesignBrief(BaseModel):
 
 class Session(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
-    title: str = "Yeni rapor"
+    title: str = "Yeni rapor"  # DEFAULT_TITLE
     phase: Phase = "requirements"
     transcript: list[TranscriptItem] = Field(default_factory=list)
     requirements: Requirements | None = None
@@ -109,6 +112,28 @@ class Session(BaseModel):
             self.title = spec.title
 
 
+def _summary(d: dict[str, Any]) -> dict[str, Any]:
+    """Rapor envanteri kartı için özet: amaç, kapsam, içerik ve görünüm bilgisi."""
+    req = d.get("requirements") or {}
+    spec = d.get("spec") or {}
+    visuals = spec.get("visuals") or []
+    theme = spec.get("theme") or {}
+    return {
+        "id": d["id"], "title": d.get("title", ""), "phase": d.get("phase"),
+        "updatedAt": d.get("updatedAt"), "createdAt": d.get("createdAt"),
+        "subtitle": spec.get("subtitle"), "business_goal": req.get("business_goal"), "audience": req.get("audience"),
+        "kpis": req.get("kpis") or [], "dimensions": req.get("dimensions") or [], "time_range": req.get("time_range"),
+        "visual_count": len(visuals), "dataset_count": len(d.get("datasets") or []),
+        "visual_types": sorted({v.get("type") for v in visuals if v.get("type")}),
+        "kpi_titles": [v.get("title") for v in visuals if v.get("type") == "kpi"][:6],
+        "filters": [f.get("label") for f in spec.get("filters") or []],
+        "views": sorted({ds.get("view") for ds in d.get("datasets") or [] if ds.get("view")}),
+        "theme": {"mode": theme.get("mode"), "accent": theme.get("accent"), "background": theme.get("background"),
+                  "palette": (theme.get("palette") or [])[:5]} if theme else None,
+        "has_spec": bool(spec),
+    }
+
+
 class SessionStore:
     def __init__(self, directory: Path):
         self.dir = directory
@@ -144,6 +169,48 @@ class SessionStore:
         tmp = self._path(s.id).with_suffix(".tmp")
         tmp.write_text(s.model_dump_json(), encoding="utf-8")
         tmp.replace(self._path(s.id))
+        self._enforce_unique_title(s)
+
+    @staticmethod
+    def _norm_title(t: str | None) -> str:
+        return " ".join((t or "").replace("İ", "i").replace("I", "ı").lower().split())
+
+    def _enforce_unique_title(self, s: Session) -> None:
+        """Aynı isimle tek rapor: bu oturum bir başlığı aldıysa aynı başlıklı diğer oturumlar silinir (üstüne yazma)."""
+        key = self._norm_title(s.title)
+        if not key or key == self._norm_title(DEFAULT_TITLE):
+            return
+        for p in self.dir.glob("*.json"):
+            if p.stem == s.id:
+                continue
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if self._norm_title(d.get("title")) == key and not self.lock(p.stem).locked():
+                p.unlink(missing_ok=True)
+
+    def title_taken(self, title: str, except_id: str) -> str | None:
+        """Başka bir raporda bu isim kullanılıyorsa o raporun id'si."""
+        key = self._norm_title(title)
+        for item in self.list():
+            if item["id"] != except_id and self._norm_title(item["title"]) == key:
+                return item["id"]
+        return None
+
+    def dedupe_titles(self) -> int:
+        """Başlangıçta: aynı başlıklı eski oturumlardan yalnız en son güncelleneni bırakır."""
+        seen: set[str] = set()
+        removed = 0
+        for item in self.list():  # en yeni önce
+            key = self._norm_title(item["title"])
+            if not key or key == self._norm_title(DEFAULT_TITLE):
+                continue
+            if key in seen:
+                self._path(item["id"]).unlink(missing_ok=True)
+                removed += 1
+            seen.add(key)
+        return removed
 
     def delete(self, sid: str) -> None:
         self._path(sid).unlink(missing_ok=True)
@@ -153,7 +220,7 @@ class SessionStore:
         for p in self.dir.glob("*.json"):
             try:
                 d = json.loads(p.read_text(encoding="utf-8"))
-                out.append({"id": d["id"], "title": d.get("title", ""), "phase": d.get("phase"), "updatedAt": d.get("updatedAt")})
+                out.append(_summary(d))
             except (json.JSONDecodeError, KeyError):
                 continue
         return sorted(out, key=lambda x: x.get("updatedAt") or "", reverse=True)

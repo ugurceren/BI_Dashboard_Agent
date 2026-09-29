@@ -285,3 +285,52 @@ def test_kpi_category_becomes_compare_field():
            "visuals": [{"id": "a", "type": "kpi", "datasetId": "k", "encoding": {"value": "s13", "category": "s12"}, "options": {}}]}
     _fix_axes(raw)
     assert raw["visuals"][0]["options"]["compareField"] == "s12" and raw["visuals"][0]["encoding"]["category"] is None
+
+
+def test_numeric_category_axis_uses_name_column():
+    from app.harness.tools import _fix_axes
+
+    raw = {"datasets": [{"id": "p", "fields": [{"name": "product_name", "type": "string"}, {"name": "order_count", "type": "number"},
+                                                 {"name": "product_count", "type": "number"}]}],
+           "visuals": [{"id": "b", "type": "bar", "datasetId": "p",
+                        "encoding": {"x": "order_count", "y": ["product_count"], "category": "product_name"}}]}
+    _fix_axes(raw)
+    e = raw["visuals"][0]["encoding"]
+    assert e["x"] == "product_name" and e["y"] == ["order_count", "product_count"]
+
+
+def test_literal_only_dataset_is_rejected(settings, services):
+    from app.harness.session import Session
+    from app.harness.tools import ToolContext, _build_dataset
+
+    ds, _, errs = _build_dataset(ToolContext(Session(), services), {"id": "kpi", "sql": "SELECT 40 AS order_count, 34 AS product_count"})
+    assert ds is None and "UYDURMA" in errs[0]
+
+
+def test_same_title_overwrites_older_report(settings):
+    store = SessionStore(settings.sessions_dir)
+    a = store.create("analyst"); a.title = "Bayi Satış Raporu"; store.save(a)
+    b = store.create("analyst"); store.create("analyst")          # iki "Yeni rapor" taslağı birbirini silmez
+    b.title = "bayi  satış RAPORU"; store.save(b)                # aynı isim (büyük/küçük harf, boşluk farkı)
+    titles = [x["title"] for x in store.list()]
+    assert titles.count("Yeni rapor") == 1 and len([t for t in titles if "satış" in t.lower()]) == 1
+    assert b.id in [x["id"] for x in store.list()] and a.id not in [x["id"] for x in store.list()]
+
+
+def test_rename_conflict_and_summary(settings):
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.harness.session import SessionStore as SS
+
+    m.state.store = SS(settings.sessions_dir)
+    c = TestClient(m.app)
+    a = m.state.store.create("analyst"); a.title = "A Raporu"; m.state.store.save(a)
+    b = m.state.store.create("analyst")
+    r = c.put(f"/api/sessions/{b.id}/title", json={"title": "a  raporu"})
+    assert r.status_code == 409 and r.json()["conflict_id"] == a.id
+    r = c.put(f"/api/sessions/{b.id}/title", json={"title": "A Raporu", "overwrite": True})
+    assert r.status_code == 200 and r.json()["title"] == "A Raporu"
+    ids = [x["id"] for x in m.state.store.list()]
+    assert b.id in ids and a.id not in ids
+    assert {"kpis", "visual_count", "business_goal", "theme"} <= set(m.state.store.list()[0])

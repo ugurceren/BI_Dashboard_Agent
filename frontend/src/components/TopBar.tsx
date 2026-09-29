@@ -13,7 +13,10 @@ function relTime(iso: string): string {
   return new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
 }
 
-export function TopBar({ mock, health, healthError, sessions, currentId, currentTitle, onSelect, onNew, onDelete, busy }: {
+export function TopBar({ mock, health, healthError, sessions, currentId, currentTitle, onSelect, onNew, onDelete, busy, view, onHome, onRename }: {
+  view: "home" | "designer";
+  onHome: () => void;
+  onRename: (title: string) => Promise<boolean>;
   mock: boolean;
   health: Health | null;
   healthError: string | null;
@@ -26,6 +29,8 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
   busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -63,13 +68,31 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
         {mock ? <span className="pill pill-warn" title="Backend olmadan sahte veriyle çalışıyor">mock</span> : null}
       </div>
 
-      <div className="session-picker" ref={ref}>
+      {view === "home" ? <div className="topbar-spacer" /> : (
+        <button type="button" className="btn btn-ghost btn-sm topbar-back" onClick={onHome} disabled={busy} title="Rapor envanterine dön">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <span className="btn-label">Raporlar</span>
+        </button>
+      )}
+
+      {view === "designer" && renaming ? (
+        <form className="title-rename" onSubmit={async (e) => { e.preventDefault(); if (await onRename(draft.trim())) setRenaming(false); }}>
+          <input autoFocus className="dict-input" value={draft} maxLength={120} onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setRenaming(false)} aria-label="Rapor adı" />
+          <button type="submit" className="btn btn-primary btn-sm" disabled={!draft.trim()}>Kaydet</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRenaming(false)}>Vazgeç</button>
+        </form>
+      ) : null}
+      <div className="session-picker" ref={ref} style={view === "home" || renaming ? { display: "none" } : undefined}>
         <button type="button" className="session-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} disabled={!sessions.length && !currentId}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
           <span className="session-title">{title}</span>
           <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3 4.5 6 7.5l3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onNew} disabled={busy} title="Yeni oturum">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setDraft(title); setRenaming(true); }} disabled={busy || !currentId} title="Raporu yeniden adlandır">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 11.5V13h1.5l7-7L10 4.5l-7 7ZM9.5 5 11 6.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onNew} disabled={busy} title="Yeni rapor">
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
           <span className="btn-label">Yeni</span>
         </button>
@@ -103,6 +126,12 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
         ) : null}
       </div>
 
+      {view === "home" ? (
+        <button type="button" className="btn btn-primary btn-sm" onClick={onNew} title="Yeni rapor tasarla">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+          <span>Yeni rapor</span>
+        </button>
+      ) : null}
       <div className="health" title={healthTitle}>
         <span className={`dot ${healthError ? "bad" : health ? (llmOk ? "ok" : "bad") : "wait"}`} />
         <span className="health-model">{healthError ? "Backend yok" : health ? health.llm.model : "…"}</span>

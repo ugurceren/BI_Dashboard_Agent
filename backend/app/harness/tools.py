@@ -239,6 +239,9 @@ def _build_dataset(ctx: ToolContext, raw: dict[str, Any]) -> tuple[Dataset | Non
     res, errors, tables, warnings = _run_validated(ctx, sql, ctx.services.settings.max_rows)
     if errors or res is None:
         return None, None, [f"[{did}] {e}" for e in errors]
+    if not tables:
+        return None, None, [f"[{did}] Sorgu hiçbir tablodan okumuyor (sabit değerler). Veri UYDURMA: değerleri sözlükteki "
+                            "tablolardan SQL ile hesaplayın."]
     if not res.rows:
         return None, None, [f"[{did}] Sorgu hiç satır döndürmedi; filtreleri/tarih aralığını kontrol edin."]
     if did.lower().startswith("kpi") and len(res.rows) > 1:
@@ -469,6 +472,14 @@ def _fix_axes(raw: dict[str, Any]) -> list[str]:
         if v.get("type") in ("bar", "line", "area", "combo") and enc.get("x") and len(ys) == 1                 and t.get(enc["x"]) == "number" and t.get(ys[0]) in ("string", "date"):
             enc["x"], enc["y"] = ys[0], [enc["x"]]
             notes.append(f"'{v.get('id')}': x ve y eksenleri ters verilmişti, düzeltildi (x={enc['x']}).")
+        elif v.get("type") in ("bar", "line", "area", "combo") and t.get(enc.get("x")) != "string" and t.get(enc.get("x")) != "date":
+            # kategori ekseni sayı ya da boş: isim kolonunu (önce category, sonra dataset'teki ilk metin kolonu) eksene al
+            label = enc.get("category") if t.get(enc.get("category")) in ("string", "date") else                 next((n for n, ty in t.items() if ty in ("string", "date") and n != enc.get("series")), None)
+            if label:
+                old_x = enc.get("x")
+                enc["y"] = list(dict.fromkeys(([old_x] if old_x and t.get(old_x) == "number" else []) + ys))
+                enc["x"], enc["category"] = label, None
+                notes.append(f"'{v.get('id')}': kategori ekseninde sayı vardı; x={label} (isim), y={enc['y']} yapıldı.")
         if v.get("type") in ("pie", "donut", "funnel", "treemap") and enc.get("category") and enc.get("value")                 and t.get(enc["category"]) == "number" and t.get(enc["value"]) == "string":
             enc["category"], enc["value"] = enc["value"], enc["category"]
             notes.append(f"'{v.get('id')}': category ve value ters verilmişti, düzeltildi.")

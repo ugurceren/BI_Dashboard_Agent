@@ -159,6 +159,13 @@ export const mockApi: Api = {
     await sleep(40);
     return state(get(id));
   },
+  async renameSession(id, title) {
+    await sleep(100);
+    const s = get(id);
+    s.title = title;
+    if (s.spec) s.spec.title = title;
+    return state(s);
+  },
   async deleteSession(id) {
     sessions.delete(id);
   },

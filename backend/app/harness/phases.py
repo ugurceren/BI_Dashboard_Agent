@@ -73,6 +73,8 @@ Dataset kuralları:
   * Sistem bu kuralları otomatik kontrol eder; "Satır çoğalması" hatası alırsan sorguyu CTE ile yeniden yaz.
 - Önce verinin gerçek tarih aralığına bak; kullanıcı "bu yıl" dese bile veride olmayan yılları sorgulama, en son tam yılı kullan ve bunu söyle.
 - Yüzde/oran kolonlarını 0-1 arası ondalık üret (0.12 = %12).
+- Kırılımlarda ID/anahtar (…Key) kolonu değil, boyut tablosundaki İSİM kolonunu seç (ör. DimProduct.EnglishProductName,
+  DimPromotion.EnglishPromotionName) ve GROUP BY'ı ona göre yap. Rakamları sabit yazma; her değer tablodan hesaplanmalı.
 - "Sipariş sayısı" = COUNT(DISTINCT SalesOrderNumber); ürün adedi (OrderQuantity) ile karıştırma. Onaylı metrik varsa onu kullan.
 - Aynı aramayı/sorguyu tekrar etme. SQL'i mesaj metnine yazma, doğrudan run_sql ile çalıştır.
 save_datasets başarılı olunca dur; sistem tasarım fazına geçecek.
@@ -90,6 +92,8 @@ Kurallar:
 - Çok serili grafiklerde en fazla 5-6 seri kullan; daha fazla kategori için dönem toplamı dataset'iyle bar grafiği tercih et.
 - Görsel seçimi: zaman trendi → line/area (tutar+adet birlikte → combo); kategori karşılaştırma → bar (6'dan fazla kategori veya uzun etiket → horizontal); parça-bütün (≤6 dilim) → donut; tek sayı → kpi (deltaField ile değişim); detay → table; hedefe göre → gauge.
 - Uzun formatlı veride (ör. ay × kanal) seri ayrımı için encoding.series kullan; y tek alan olur.
+- bar/line/area/combo'da encoding.x KATEGORİ (isim/metin ya da tarih) kolonudur, encoding.y sayı kolonlarıdır.
+  İsim kolonunu category'ye değil x'e koy (category yalnız pie/donut/funnel/treemap için).
 - Yerleşim 12 kolonluk ızgara: KPI'lar üst satırda (w=3, h=2), ana grafikler h=4, tablolar w=12. position verilmezse sistem otomatik yerleştirir; çakışmaları sistem düzeltir.
 - Tema: tasarım özeti varsa renkleri, açık/koyu modu ve yoğunluğu ona uydur. Yoksa sade, kurumsal açık tema kullan.
   Koyu temada background/surface koyu, text açık renk olmalı. palette en az 3 hex renk.

@@ -60,6 +60,9 @@ async def lifespan(_: FastAPI):
     state.services = build_services()
     state.gateway = LLMGateway(settings)
     state.store = SessionStore(settings.sessions_dir)
+    removed = state.store.dedupe_titles()
+    if removed:
+        log.info("Aynı başlıklı %d eski rapor oturumu kaldırıldı (aynı isimle tek rapor).", removed)
     state.agent = Agent(state.gateway, state.services, state.store)
     log.info("Sözlük: %d tablo, %d metrik | LLM: %s @ %s | vision: %s", len(state.services.dictionary.tables),
              len(state.services.dictionary.metrics), settings.llm_model, settings.llm_base_url, settings.vision_model or "-")
@@ -133,6 +136,33 @@ def post_message(sid: str, body: MessageIn) -> StreamingResponse:
     images = [i for i in (body.images or []) if i.startswith("data:image/")][:3]
     return StreamingResponse(_sse(state.agent.run_turn(sid, body.content, images)), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+class TitleIn(BaseModel):
+    title: str
+    overwrite: bool = False   # aynı isimde başka rapor varsa üstüne yaz (o rapor silinir)
+
+
+@app.put("/api/sessions/{sid}/title")
+def rename_session(sid: str, body: TitleIn) -> Any:
+    title = " ".join(body.title.split())
+    if not title:
+        raise HTTPException(400, "Rapor adı boş olamaz.")
+    if len(title) > 120:
+        raise HTTPException(400, "Rapor adı en fazla 120 karakter olabilir.")
+    with state.store.lock(sid):
+        s = _session(sid)
+        other = state.store.title_taken(title, sid)
+        if other and not body.overwrite:
+            return JSONResponse({"detail": f"'{title}' adında başka bir rapor var.", "conflict_id": other}, status_code=409)
+        s.title = title
+        if s.spec:
+            s.spec.title = title
+            s.spec_version += 1
+        if s.requirements:
+            s.requirements.report_title = title
+        state.store.save(s)   # aynı isimli diğer rapor (overwrite onaylandıysa) burada silinir
+        return s.public()
 
 
 class PhaseIn(BaseModel):

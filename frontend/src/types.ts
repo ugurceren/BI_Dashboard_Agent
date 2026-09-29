@@ -215,6 +215,22 @@ export interface SessionSummary {
   title: string;
   phase: Phase;
   updatedAt: string;
+  // rapor envanteri kartı
+  createdAt?: string;
+  subtitle?: string | null;
+  business_goal?: string | null;
+  audience?: string | null;
+  kpis?: string[];
+  dimensions?: string[];
+  time_range?: string | null;
+  visual_count?: number;
+  dataset_count?: number;
+  visual_types?: string[];
+  kpi_titles?: string[];
+  filters?: string[];
+  views?: string[];
+  theme?: { mode?: string; accent?: string; background?: string; palette?: string[] } | null;
+  has_spec?: boolean;
 }
 
 export interface Health {
