@@ -91,6 +91,7 @@ class Session(BaseModel):
     phase_memory: dict[str, Any] = Field(default_factory=dict)
     user_role: str = "analyst"
     status: Literal["idea", "design", "test", "live"] | None = None   # yaşam döngüsü; None → içerikten türetilir
+    title_locked: bool = False        # kullanıcı adı elle verdiyse True: agent başlığı değiştirmez
     owner: str | None = None          # oluşturan kullanıcı (DOMAIN\kullanıcı)
     owner_name: str | None = None     # görünen ad
 
@@ -109,6 +110,8 @@ class Session(BaseModel):
             self.phase_memory = {}
 
     def set_spec(self, spec: ReportSpec) -> None:
+        if self.title_locked and self.title:
+            spec.title = self.title  # kullanıcının verdiği ad dashboard başlığında da korunur
         self.spec = spec
         self.spec_version += 1
         if spec.title and self.title in ("Yeni rapor", ""):

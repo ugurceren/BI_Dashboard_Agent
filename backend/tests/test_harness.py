@@ -360,3 +360,25 @@ def test_summary_source_tables_and_domains(tmp_path):
     ]}
     s = _summary(d)
     assert s["source_tables"] == ["dbo.dimdate", "dbo.dimproduct", "dbo.factresellersales", "rpt.v_x"]
+
+
+def test_user_title_not_overwritten_by_agent(settings, services):
+    """Kullanıcı raporu adlandırdıysa agent'ın save_requirements / spec başlığı adı değiştirmez."""
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.harness.session import SessionStore as SS
+    from app.harness.tools import ToolContext, h_save_requirements
+
+    m.state.store = SS(settings.sessions_dir)
+    c = TestClient(m.app)
+    s = m.state.store.create("analyst")
+    assert c.put(f"/api/sessions/{s.id}/title", json={"title": "Bölge Satış Özeti"}).status_code == 200
+    s = m.state.store.get(s.id)
+    assert s.title_locked
+    r = h_save_requirements(ToolContext(s, services), {"report_title": "Agent Başlığı", "business_goal": "x", "kpis": ["Ciro"], "dimensions": []})
+    assert r.ok and s.title == "Bölge Satış Özeti" and s.requirements.report_title == "Bölge Satış Özeti"
+
+    s2 = m.state.store.create("analyst")  # adlandırılmamış yeni rapor: agent adı verir
+    h_save_requirements(ToolContext(s2, services), {"report_title": "Agent Başlığı", "business_goal": "x", "kpis": ["Ciro"], "dimensions": []})
+    assert s2.title == "Agent Başlığı" and not s2.title_locked

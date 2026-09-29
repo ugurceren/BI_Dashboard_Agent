@@ -1,6 +1,6 @@
 /* Rapor envanteri (anasayfa) */
 .home { flex: 1; overflow: auto; padding: 24px 28px 40px; container-type: inline-size; }
-.home-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px;  }
+.home-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px;  }
 .home-title { margin: 0; font-size: 22px; font-weight: 700; }
 .home-sub { margin: 4px 0 0; }
 .home-tools { display: flex; gap: 8px; align-items: center; }
@@ -57,7 +57,7 @@
 }
 
 /* statü */
-.st-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px;  }
+.st-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
 .st-chip {
   display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; padding: 6px 12px;
   border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer;
@@ -77,7 +77,6 @@
 .theme-seg button { width: 30px; height: 28px; display: grid; place-items: center; border: 0; background: var(--surface-2); color: var(--muted); cursor: pointer; }
 .theme-seg button + button { border-left: 1px solid var(--border); }
 .theme-seg button.is-on { background: var(--accent-soft); color: var(--accent); }
-.home-head > div:first-child { flex: 1 1 320px; }
 .home-tools { margin-left: auto; }
 .rc-actions .btn-sm { padding: 0 8px; gap: 4px; font-size: 12px; }
 .rc-actions .btn { flex: none; }
@@ -116,3 +115,15 @@
 .rl-actions { width: 1%; }
 .rl-actions > div { display: flex; gap: 4px; justify-content: flex-end; }
 .rl-actions .btn-sm { padding: 0 8px; }
+.topbar-rename { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; }
+.title-rename .dict-input { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* konum (breadcrumb) */
+.crumbs { display: flex; align-items: center; gap: 0; min-width: 0; font-size: 13.5px; white-space: nowrap; }
+.crumb { display: inline-flex; align-items: center; }
+.crumb-sep { color: var(--muted); margin: 0 8px; opacity: .7; }
+.crumb-muted { color: var(--muted); }
+.crumb-current { color: var(--text); font-weight: 650; }
+.crumb-link { font: inherit; border: 0; background: none; padding: 2px 4px; margin: 0 -4px; border-radius: 6px; color: var(--accent); cursor: pointer; font-weight: 560; }
+.crumb-link:hover:not(:disabled) { background: var(--accent-soft); }
+.crumbs + .session-picker, .crumbs + .title-rename { margin-left: 0; }

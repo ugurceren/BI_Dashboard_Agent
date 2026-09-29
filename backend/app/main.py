@@ -309,6 +309,7 @@ def rename_session(sid: str, body: TitleIn) -> Any:
         if other and not body.overwrite:
             return JSONResponse({"detail": f"'{title}' adında başka bir rapor var.", "conflict_id": other}, status_code=409)
         s.title = title
+        s.title_locked = True  # agent artık adı değiştirmez
         if s.spec:
             s.spec.title = title
             s.spec_version += 1

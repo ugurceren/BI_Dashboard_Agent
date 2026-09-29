@@ -71,9 +71,16 @@ export function Home({ reports, loading, onNew, ...actions }: Actions & {
   return (
     <div className="home">
       <div className="home-head">
-        <div>
-          <h1 className="home-title">Rapor envanteri</h1>
-          <p className="home-sub muted">{reports.length} rapor · Açmak için bir rapora tıklayın, yeni rapor için sağ üstteki butonu kullanın.</p>
+        <div className="st-filter" role="group" aria-label="Statüye göre filtrele">
+          <button type="button" className={`st-chip${status === "all" ? " is-on" : ""}`} onClick={() => setStatus("all")}>
+            Tümü <span className="st-count">{reports.length}</span>
+          </button>
+          {STATUSES.map((s) => (
+            <button key={s.id} type="button" title={s.hint} className={`st-chip${status === s.id ? " is-on" : ""}`}
+              style={{ ["--st" as string]: s.color }} onClick={() => setStatus(s.id)}>
+              <i className="st-dot" /> {s.label} <span className="st-count">{counts[s.id]}</span>
+            </button>
+          ))}
         </div>
         <div className="home-tools">
           <label className="home-search">
@@ -93,18 +100,6 @@ export function Home({ reports, loading, onNew, ...actions }: Actions & {
             <Ico d={PATHS.plus} /><span>Yeni rapor</span>
           </button>
         </div>
-      </div>
-
-      <div className="st-filter" role="group" aria-label="Statüye göre filtrele">
-        <button type="button" className={`st-chip${status === "all" ? " is-on" : ""}`} onClick={() => setStatus("all")}>
-          Tümü <span className="st-count">{reports.length}</span>
-        </button>
-        {STATUSES.map((s) => (
-          <button key={s.id} type="button" title={s.hint} className={`st-chip${status === s.id ? " is-on" : ""}`}
-            style={{ ["--st" as string]: s.color }} onClick={() => setStatus(s.id)}>
-            <i className="st-dot" /> {s.label} <span className="st-count">{counts[s.id]}</span>
-          </button>
-        ))}
       </div>
 
       {loading && !reports.length ? <div className="panel-empty"><span className="spinner" /><p>Raporlar yükleniyor…</p></div> : null}

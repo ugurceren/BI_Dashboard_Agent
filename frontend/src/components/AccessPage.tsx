@@ -36,13 +36,6 @@ export function AccessPage({ api, onOpenReport }: { api: Api; onOpenReport: (id:
   return (
     <div className="access">
       <div className="access-inner">
-        <div>
-          <h1 className="home-title">Veri erişimim</h1>
-          <p className="home-sub muted">
-            {info.user.display_name} ({info.user.username}) — agent yalnızca aşağıdaki yetkilerle sorgu çalıştırabilir.
-          </p>
-        </div>
-
         <div className="acc-summary">
           <div className="acc-stat"><div className="k">Rol</div><div className="v">{info.role}</div></div>
           <div className="acc-stat"><div className="k">İzinli şemalar</div><div className="v">{info.policy.allowed_schemas.join(", ")}</div></div>

@@ -432,11 +432,14 @@ export default function App() {
       onNavigate={(p) => { window.location.hash = p === "home" ? "#/" : `#/${p}`; }}
       onNew={() => void newSession()}
       me={me}
+      health={health}
+      healthError={healthError}
       currentReport={state && sessionId ? { id: sessionId, title: state.title } : null}
       busy={streaming}
     />
     <div className="app">
       <TopBar
+        page={route.view}
         view={route.view === "designer" ? "designer" : "home"}
         onHome={goHome}
         onRename={(t) => (sessionId ? renameReport(sessionId, t) : Promise.resolve(false))}
@@ -445,8 +448,6 @@ export default function App() {
         theme={theme}
         onTheme={setTheme}
         mock={MOCK}
-        health={health}
-        healthError={healthError}
         sessions={sessions}
         currentId={sessionId}
         currentTitle={state?.title}

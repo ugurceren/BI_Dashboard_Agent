@@ -548,7 +548,10 @@ def h_save_requirements(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
         return ToolResult(False, {"errors": ["En az bir KPI/ölçü belirtin (kpis)."]}, "KPI eksik")
     s = ctx.session
     s.requirements = req
-    s.title = req.report_title or s.title
+    if s.title_locked:  # kullanıcı adı elle verdiyse agent değiştirmez
+        req.report_title = s.title
+    else:
+        s.title = req.report_title or s.title
     return ToolResult(True, {"ok": True}, f"Gereksinimler kaydedildi: {req.report_title}", state_changed=True,
                       next_phase="data",
                       kickoff="Gereksinimler kaydedildi. Şimdi veri keşfi fazındasın: veri sözlüğünü kullanarak gerekli tabloları bul, "

@@ -1,6 +1,7 @@
 // Sol menü: uygulama bölümleri + en altta bağlı kullanıcı (Windows oturumu / LDAP).
 import type { ReactNode } from "react";
-import type { Me } from "../types";
+import type { Health, Me } from "../types";
+import { HealthBadge } from "./HealthBadge";
 import "./sidebar.css";
 
 export type Page = "home" | "access" | "model" | "query" | "designer";
@@ -31,7 +32,9 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? "?") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toLocaleUpperCase("tr");
 }
 
-export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, currentReport, busy }: {
+export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, health, healthError, currentReport, busy }: {
+  health: Health | null;
+  healthError: string | null;
   page: Page;
   collapsed: boolean;
   onToggle: () => void;
@@ -73,6 +76,7 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, curr
       {item("model", "Veri Modeli", page === "model", () => onNavigate("model"), busy)}
 
       <div className="sb-spacer" />
+      <HealthBadge health={health} healthError={healthError} compact={collapsed} />
       <div className="sb-user" title={me ? [me.display_name, me.username, me.title, me.department, `Rol: ${me.role}`,
         `Kaynak: ${SOURCE[me.source] ?? me.source}`, me.domain_joined ? "" : "Bu bilgisayar bir etki alanına bağlı değil (yerel hesap)"].filter(Boolean).join("\n") : "Kullanıcı bilgisi alınıyor…"}>
         <span className="sb-avatar" aria-hidden="true">{me ? initials(me.display_name || me.username) : "…"}</span>
