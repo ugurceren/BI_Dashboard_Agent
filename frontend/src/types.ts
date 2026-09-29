@@ -344,3 +344,18 @@ export interface AccessInfo {
   datasets: { report_id: string; report_title: string; id: string; description: string; fields: number;
               view: string | null; tables: string[]; accessible: boolean; reason: string | null }[];
 }
+
+// ---------------------------------------------------------------- sorgu çalıştır
+export interface QueryColumn { name: string; type: string; business_name?: string; description?: string; pii?: boolean; blocked?: boolean }
+export interface QueryObject {
+  id: string; name: string; kind: string; business_name?: string; description?: string; subject_area: string;
+  row_count?: number | null; columns: QueryColumn[];
+}
+export interface QueryDataset { report_id: string; report_title: string; id: string; description?: string; sql: string; view?: string | null }
+export interface QuerySchema {
+  role: string; max_rows: number; allow_pii: boolean; allowed_schemas: string[]; objects: QueryObject[]; datasets: QueryDataset[];
+}
+export interface QueryRunResult {
+  ok: boolean; errors?: string[]; warnings?: string[]; columns?: string[]; types?: string[];
+  rows?: unknown[][]; truncated?: boolean; row_limit?: number; elapsed_ms?: number; tables?: string[];
+}

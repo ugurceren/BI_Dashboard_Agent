@@ -3,6 +3,7 @@ import type { CellValue, CrossSelection, DashboardData, FiltersResponse, Health,
 import { httpApi, type Api } from "./api/client";
 import { mockApi } from "./api/mock";
 import { TopBar } from "./components/TopBar";
+import { QueryPage } from "./components/QueryPage";
 import { Composer, EmptyChat, PHASES, PhaseStepper, Transcript } from "./components/Chat";
 import { RightPanel, type Tab } from "./components/RightPanel";
 import { Home } from "./components/Home";
@@ -20,6 +21,7 @@ function parseRoute(): { view: Page; id: string | null } {
   if (m) return { view: "designer", id: m[1] };
   if (h.startsWith("#/access")) return { view: "access", id: null };
   if (h.startsWith("#/model")) return { view: "model", id: null };
+  if (h.startsWith("#/query")) return { view: "query", id: null };
   return { view: "home", id: null };
 }
 const LS_SIDEBAR = "bi.sidebarCollapsed";
@@ -454,6 +456,8 @@ export default function App() {
       />
       {route.view === "access" ? (
         <main className="main"><AccessPage api={api} onOpenReport={goReport} /></main>
+      ) : route.view === "query" ? (
+        <main className="main"><QueryPage api={api} theme={theme} /></main>
       ) : route.view === "model" ? (
         <main className="main"><div className="page-model"><ModelTab api={api} state={null} /></div></main>
       ) : route.view === "home" ? (

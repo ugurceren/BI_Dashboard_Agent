@@ -1,7 +1,6 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
 import type {
-  AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent,
-} from "../types";
+  AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -23,6 +22,8 @@ export interface Api {
   health(): Promise<Health>;
   me(): Promise<Me>;
   myAccess(): Promise<AccessInfo>;
+  querySchema(): Promise<QuerySchema>;
+  runQuery(sql: string): Promise<QueryRunResult>;
   listSessions(): Promise<SessionSummary[]>;
   createSession(): Promise<SessionState>;
   getSession(id: string): Promise<SessionState>;
@@ -134,6 +135,8 @@ export const httpApi: Api = {
   health: () => req<Health>("/api/health"),
   me: () => req<Me>("/api/me"),
   myAccess: () => req<AccessInfo>("/api/me/access"),
+  querySchema: () => req<QuerySchema>("/api/query/schema"),
+  runQuery: (sql) => req<QueryRunResult>("/api/query", { method: "POST", body: JSON.stringify({ sql }) }),
   listSessions: () => req<SessionSummary[]>("/api/sessions"),
   createSession: () => req<SessionState>("/api/sessions", { method: "POST", body: "{}" }),
   getSession: (id) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}`),

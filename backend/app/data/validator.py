@@ -54,7 +54,9 @@ class SqlValidator:
         self.denied_functions = {f.lower() for f in denied_functions}
         self.join_guard = JoinGuard(dictionary)
 
-    def validate(self, sql: str, policy: RolePolicy) -> ValidationResult:
+    def validate(self, sql: str, policy: RolePolicy, *, strict_joins: bool = True, autofix: bool = True) -> ValidationResult:
+        """strict_joins=False: JOIN çoğalma hataları uyarıya düşer (kullanıcının kendi sorgu ekranı).
+        autofix=False: SQL olduğu gibi çalışır (COUNT DISTINCT / FLOAT bölme düzeltmeleri yapılmaz)."""
         sql = (sql or "").strip().rstrip(";").strip()
         if not sql:
             return ValidationResult(False, ["SQL boş."])
@@ -144,9 +146,11 @@ class SqlValidator:
         if errors:
             return ValidationResult(False, sorted(set(errors)), sorted(tables))
         joins = self.join_guard.check(tree)
-        if joins.errors:
+        if joins.errors and strict_joins:
             return ValidationResult(False, joins.errors, sorted(tables), warnings=joins.warnings)
-        warnings = list(joins.warnings)
+        warnings = list(joins.errors) + list(joins.warnings)
+        if not autofix:
+            return ValidationResult(True, [], sorted(tables), sql, warnings)
         sql = self._distinct_counts(tree, sql, tables, warnings)
         return ValidationResult(True, [], sorted(tables), self._float_division(tree, sql), warnings)
 

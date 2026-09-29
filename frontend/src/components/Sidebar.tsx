@@ -3,13 +3,14 @@ import type { ReactNode } from "react";
 import type { Me } from "../types";
 import "./sidebar.css";
 
-export type Page = "home" | "access" | "model" | "designer";
+export type Page = "home" | "access" | "model" | "query" | "designer";
 
 const ICONS: Record<string, ReactNode> = {
   home: <path d="M2.5 7 8 2.5 13.5 7v6.5h-3.8V9.5H6.3v4H2.5z" />,
   new: <path d="M8 3v10M3 8h10" />,
   designer: <path d="M2.5 13.5h11M4 11V7M8 11V3.5M12 11V6" />,
   access: <path d="M5 7V5a3 3 0 0 1 6 0v2M3.5 7h9v6.5h-9zM8 9.5v2" />,
+  query: <path d="M2.5 3.5h11v9h-11zM5 6.5l2 1.5-2 1.5M8.5 10h2.5" />,
   model: <path d="M2.5 3.5h4v3h-4zM9.5 3.5h4v3h-4zM6 10h4v3H6zM4.5 6.5v2h7v-2M8 8.5V10" />,
 };
 
@@ -68,6 +69,7 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, curr
 
       <div className="sb-section sb-label">Veri</div>
       {item("access", "Veri Erişimim", page === "access", () => onNavigate("access"), busy)}
+      {item("query", "Sorgu Çalıştır", page === "query", () => onNavigate("query"), busy)}
       {item("model", "Veri Modeli", page === "model", () => onNavigate("model"), busy)}
 
       <div className="sb-spacer" />

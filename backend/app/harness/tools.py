@@ -141,6 +141,9 @@ _SQLSERVER_MSG = re.compile(r"\[SQL Server\]([^\[;]+)")
 
 def _short_db_error(msg: str) -> str:
     """ODBC gürültüsünü atıp SQL Server'ın asıl mesajını bırakır."""
+    if "HYT00" in msg or "Query timeout expired" in msg:
+        return ("Sorgu zaman aşımına uğradı (QUERY_TIMEOUT_S süresinde bitmedi). Sorguyu daraltın (WHERE / TOP) "
+                "ya da sunucu yoğun / belleği yetersiz olabilir.")
     found = [re.sub(r"\s*\(\d+\).*$", "", m).strip().rstrip(".") for m in _SQLSERVER_MSG.findall(msg)]
     return "; ".join(dict.fromkeys(f for f in found if f)) if found else msg[:400]
 

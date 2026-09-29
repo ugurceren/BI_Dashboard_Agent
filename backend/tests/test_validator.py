@@ -92,3 +92,15 @@ def test_count_of_order_number_becomes_distinct(services):
         "SELECT COUNT(CASE WHEN YEAR(OrderDate) = 2013 THEN SalesOrderNumber END) AS orders, COUNT(*) AS n FROM dbo.FactResellerSales", ANALYST)
     assert v.ok and "COUNT(DISTINCT CASE WHEN" in v.sql and "COUNT(*)" in v.sql
     assert any("tekil sayım" in w for w in v.warnings)
+
+
+def test_console_mode_warns_on_fanout_and_keeps_sql(services):
+    """Sorgu ekranı: JOIN çoğalması uyarıya düşer, SQL otomatik düzeltilmez; güvenlik kuralları aynen geçerli."""
+    fan = "SELECT SUM(p.ListPrice) FROM dbo.DimProduct p JOIN dbo.FactInternetSales f ON f.ProductKey = p.ProductKey"
+    assert not services.validator.validate(fan, ANALYST).ok
+    r = services.validator.validate(fan, ANALYST, strict_joins=False, autofix=False)
+    assert r.ok and any("Satır çoğalması" in w for w in r.warnings)
+    div = "SELECT SUM(SalesAmount) / COUNT(SalesOrderNumber) FROM dbo.FactInternetSales"
+    assert services.validator.validate(div, ANALYST, strict_joins=False, autofix=False).sql == div
+    for bad in ("DELETE FROM dbo.DimDate", "SELECT name FROM sys.databases", "SELECT @@SERVERNAME"):
+        assert not services.validator.validate(bad, ANALYST, strict_joins=False, autofix=False).ok

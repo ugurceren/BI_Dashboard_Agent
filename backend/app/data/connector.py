@@ -87,6 +87,7 @@ class SqlServerConnector:
                 cur.execute(sql)
                 desc = cur.description or []
                 raw = cur.fetchmany(max_rows + 1)
+                con.rollback()  # salt-okunur: hiçbir şey commit edilmez (with bloğu normalde commit eder)
         except pyodbc.Error as e:
             raise QueryError(str(e)) from e
         truncated = len(raw) > max_rows

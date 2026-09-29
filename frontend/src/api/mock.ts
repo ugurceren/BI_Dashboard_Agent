@@ -166,6 +166,14 @@ export const mockApi: Api = {
     const user = await this.me();
     return { user, role: "analyst", policy: { allowed_schemas: ["dbo"], denied_tables: [], allow_pii: false, max_rows: 5000 }, tables: [], views: [], datasets: [] };
   },
+  async querySchema() {
+    return { role: "analyst", max_rows: 1000, allow_pii: false, allowed_schemas: ["dbo"], datasets: [], objects: [
+      { id: "dbo.factinternetsales", name: "dbo.FactInternetSales", kind: "fact", subject_area: "Satış", business_name: "İnternet satışları",
+        columns: [{ name: "SalesAmount", type: "money", business_name: "Satış tutarı" }, { name: "OrderDateKey", type: "int" }] }] };
+  },
+  async runQuery() {
+    return { ok: true, columns: ["SalesAmount"], types: ["number"], rows: [[123.4], [99]], truncated: false, row_limit: 1000, elapsed_ms: 3, warnings: [] };
+  },
   async setStatus(id, status) {
     const s = get(id);
     (s as unknown as { status: string }).status = status;

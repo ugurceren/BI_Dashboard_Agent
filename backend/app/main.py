@@ -24,9 +24,9 @@ from app.data.views import ViewRegistry, build_view_script, safe_view_name, sele
 from app.data.validator import RolePolicy, SqlValidator
 from app.dictionary.repository import DataDictionary
 from app.identity import Identity, current_identity
-from app.harness.agent import Agent, Event
+from app.harness.agent import Agent, Audit, Event
 from app.harness.session import PHASES, Requirements, SessionStore, TranscriptItem, now_iso
-from app.harness.tools import Services, ToolContext, _build_dataset, _validate_spec
+from app.harness.tools import Services, ToolContext, _build_dataset, _short_db_error, _validate_spec
 from app.llm.gateway import LLMGateway
 from app.spec.models import DatasetField, ReportSpec
 
@@ -186,6 +186,77 @@ def my_access(request: Request) -> dict[str, Any]:
             "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
                        "allow_pii": pol.allow_pii, "max_rows": pol.max_rows},
             "tables": tables, "views": ViewRegistry(get_settings().views_registry).all(), "datasets": datasets}
+
+
+# --------------------------------------------------------------------------- sorgu çalıştır (salt-okunur konsol)
+QUERY_MAX_ROWS = 1000
+
+
+@app.get("/api/query/schema")
+def query_schema(request: Request) -> dict[str, Any]:
+    """Sorgu ekranı için yetkili nesneler (ağaç + otomatik tamamlama): tablolar, onaylı view'lar, kolonlar, rapor dataset'leri."""
+    ident = _me(request)
+    pol = state.services.policy(ident.role)
+    dd = state.services.dictionary
+    kinds = dd._table_kinds()
+    allowed = {x.lower() for x in pol.allowed_schemas}
+    denied = {x.lower() for x in pol.denied_tables}
+    objects = []
+    for t in dd.tables.values():
+        if t.name.split(".")[0] not in allowed or t.name in denied:
+            continue
+        objects.append({
+            "id": t.name, "name": t.display_name or t.name, "kind": kinds.get(t.name) or "table",
+            "business_name": t.business_name, "description": t.description, "subject_area": t.subject_area or "Diğer",
+            "row_count": t.row_count,
+            "columns": [{"name": c.display_name or c.name, "type": c.data_type, "business_name": c.business_name,
+                         "description": c.description, "pii": c.is_pii, "blocked": c.is_pii and not pol.allow_pii}
+                        for c in t.columns],
+        })
+    objects.sort(key=lambda o: (o["kind"] == "view", o["subject_area"], o["name"].lower()))
+    datasets = []
+    for item in state.store.list():
+        try:
+            s = state.store.get(item["id"])
+        except KeyError:
+            continue
+        for d in s.datasets:
+            if state.services.validator.validate(d.sql, pol).ok:
+                datasets.append({"report_id": s.id, "report_title": s.title, "id": d.id,
+                                 "description": d.description, "sql": d.sql, "view": d.view})
+    return {"role": ident.role, "max_rows": min(QUERY_MAX_ROWS, pol.max_rows), "allow_pii": pol.allow_pii,
+            "allowed_schemas": pol.allowed_schemas, "objects": objects, "datasets": datasets}
+
+
+class QueryIn(BaseModel):
+    sql: str
+
+
+@app.post("/api/query")
+def run_query(body: QueryIn, request: Request) -> dict[str, Any]:
+    """Kullanıcının yazdığı sorguyu rol yetkisi dahilinde, salt-okunur çalıştırır (en çok 1000 satır).
+    Doğrulayıcı: tek SELECT, yetkili şema/tablo, PII, yasaklı fonksiyon; bağlantı readonly ve rollback."""
+    ident = _me(request)
+    pol = state.services.policy(ident.role)
+    sql = (body.sql or "").strip()
+    if len(sql) > 20000:
+        raise HTTPException(413, "Sorgu çok uzun (en çok 20.000 karakter).")
+    v = state.services.validator.validate(sql, pol, strict_joins=False, autofix=False)
+    audit = Audit(get_settings().audit_log)
+    limit = min(QUERY_MAX_ROWS, pol.max_rows)
+    if not v.ok:
+        audit.write(event="query_console", user=ident.username, role=ident.role, sql=sql[:4000], ok=False, errors=v.errors)
+        return {"ok": False, "errors": v.errors, "warnings": v.warnings}
+    try:
+        res = state.services.connector.execute(v.sql, limit)
+    except QueryError as e:
+        msg = _short_db_error(str(e))
+        audit.write(event="query_console", user=ident.username, role=ident.role, sql=sql[:4000], ok=False, errors=[msg])
+        return {"ok": False, "errors": [f"Veritabanı hatası: {msg}"], "warnings": v.warnings}
+    audit.write(event="query_console", user=ident.username, role=ident.role, sql=sql[:4000], ok=True,
+                rows=len(res.rows), truncated=res.truncated, elapsed_ms=res.elapsed_ms, tables=v.tables)
+    return {"ok": True, "columns": res.columns, "types": res.types, "rows": res.rows, "truncated": res.truncated,
+            "row_limit": limit, "elapsed_ms": res.elapsed_ms, "tables": v.tables, "warnings": v.warnings}
 
 
 @app.get("/api/sessions/{sid}")
