@@ -20,6 +20,15 @@
     --er-mask: rgba(13, 17, 23, 0.6);
   }
 }
+:root[data-theme="dark"] {
+    --er-fact: #4c8dff;
+    --er-dimension: #2dd4bf;
+    --er-bridge: #fbbf24;
+    --er-view: #a78bfa;
+    --er-edge: #4b5563;
+    --er-nn: #f87171;
+    --er-mask: rgba(13, 17, 23, 0.6);
+}
 
 .er-wrap { position: absolute; inset: 0; display: flex; flex-direction: column; }
 .er-toolbar {

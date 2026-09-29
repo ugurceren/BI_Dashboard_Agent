@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { CellValue, CrossSelection, DashboardData, FiltersResponse, Health, Phase, Selection, SessionState, SessionSummary, StreamEvent, TranscriptItem } from "./types";
 import { httpApi, type Api } from "./api/client";
 import { mockApi } from "./api/mock";
@@ -6,13 +6,24 @@ import { TopBar } from "./components/TopBar";
 import { Composer, EmptyChat, PHASES, PhaseStepper, Transcript } from "./components/Chat";
 import { RightPanel, type Tab } from "./components/RightPanel";
 import { Home } from "./components/Home";
+import { Sidebar, type Page } from "./components/Sidebar";
+import { AccessPage } from "./components/AccessPage";
+import { ModelTab } from "./components/ModelTab";
+import type { Me } from "./types";
+import type { ThemePref } from "./components/TopBar";
 import { ApiError } from "./api/client";
 
-/** #/  → rapor envanteri,  #/r/<id>  → rapor tasarım sayfası */
-function parseRoute(): { view: "home" | "designer"; id: string | null } {
-  const m = /^#\/r\/([A-Za-z0-9]+)/.exec(window.location.hash);
-  return m ? { view: "designer", id: m[1] } : { view: "home", id: null };
+/** #/ envanter · #/access veri erişimi · #/model veri modeli · #/r/<id> rapor tasarımı */
+function parseRoute(): { view: Page; id: string | null } {
+  const h = window.location.hash;
+  const m = /^#\/r\/([A-Za-z0-9]+)/.exec(h);
+  if (m) return { view: "designer", id: m[1] };
+  if (h.startsWith("#/access")) return { view: "access", id: null };
+  if (h.startsWith("#/model")) return { view: "model", id: null };
+  return { view: "home", id: null };
 }
+const LS_SIDEBAR = "bi.sidebarCollapsed";
+const LS_THEME = "bi.theme";
 
 const MOCK = new URLSearchParams(window.location.search).has("mock");
 const LS_SESSION = MOCK ? "bi.mock.session" : "bi.session";
@@ -35,6 +46,20 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [route, setRoute] = useState(parseRoute);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [me, setMe] = useState<Me | null>(null);
+  const [theme, setTheme] = useState<ThemePref>(() => {
+    const v = lsGet(LS_THEME);
+    if (v === "light" || v === "dark") return v;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
+  // gündüz / gece modu: data-theme kök özniteliği (ilk açılışta Windows ayarından başlar)
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    lsSet(LS_THEME, theme);
+  }, [theme]);
+  const [sidebarPref, setSidebarPref] = useState<boolean | null>(() => { const v = lsGet(LS_SIDEBAR); return v === null ? null : v === "1"; });
+  // tercih yoksa: tasarım sayfasında daralt (sohbet + dashboard'a yer), diğer sayfalarda aç
+  const sidebarCollapsed = sidebarPref ?? route.view === "designer";
   const [state, setState] = useState<SessionState | null>(null);
   const [pending, setPending] = useState<TranscriptItem | null>(null);
   const [localItems, setLocalItems] = useState<TranscriptItem[]>([]);
@@ -72,6 +97,15 @@ export default function App() {
     void tick();
     const t = window.setInterval(tick, 30000);
     return () => { alive = false; window.clearInterval(t); };
+  }, [api]);
+
+  // kullanıcı: backend geç açılırsa bulunana kadar tekrar dene
+  useEffect(() => {
+    let alive = true;
+    let timer = 0;
+    const load = () => api.me().then((m) => alive && setMe(m)).catch(() => { if (alive) timer = window.setTimeout(load, 5000); });
+    load();
+    return () => { alive = false; window.clearTimeout(timer); };
   }, [api]);
 
   // ---- oturumlar ----
@@ -140,6 +174,16 @@ export default function App() {
 
   const goHome = () => { window.location.hash = "#/"; };
   const goReport = (id: string) => { window.location.hash = `#/r/${id}`; };
+
+  const setReportStatus = async (id: string, status: string) => {
+    try {
+      const s = await api.setStatus(id, status);
+      if (id === sessionId) setState(s);
+      await refreshSessions();
+    } catch (e) {
+      showToast(`Statü değiştirilemedi: ${errMsg(e)}`);
+    }
+  };
 
   /** Yeniden adlandır; aynı isimde rapor varsa üstüne yazmak için onay ister. */
   const renameReport = async (id: string, title: string): Promise<boolean> => {
@@ -378,11 +422,26 @@ export default function App() {
   }, [state?.transcript, localItems, pending]);
 
   return (
+    <div className="shell">
+    <Sidebar
+      page={route.view}
+      collapsed={sidebarCollapsed}
+      onToggle={() => { const v = !sidebarCollapsed; setSidebarPref(v); lsSet(LS_SIDEBAR, v ? "1" : "0"); }}
+      onNavigate={(p) => { window.location.hash = p === "home" ? "#/" : `#/${p}`; }}
+      onNew={() => void newSession()}
+      me={me}
+      currentReport={state && sessionId ? { id: sessionId, title: state.title } : null}
+      busy={streaming}
+    />
     <div className="app">
       <TopBar
-        view={route.view}
+        view={route.view === "designer" ? "designer" : "home"}
         onHome={goHome}
         onRename={(t) => (sessionId ? renameReport(sessionId, t) : Promise.resolve(false))}
+        status={state?.status ?? (state?.spec ? "design" : "idea")}
+        onStatus={(st) => sessionId && void setReportStatus(sessionId, st)}
+        theme={theme}
+        onTheme={setTheme}
         mock={MOCK}
         health={health}
         healthError={healthError}
@@ -390,14 +449,18 @@ export default function App() {
         currentId={sessionId}
         currentTitle={state?.title}
         onSelect={(id) => id !== sessionId && goReport(id)}
-        onNew={() => void newSession()}
         onDelete={(id) => void deleteSession(id)}
         busy={streaming}
       />
-      {route.view === "home" ? (
+      {route.view === "access" ? (
+        <main className="main"><AccessPage api={api} onOpenReport={goReport} /></main>
+      ) : route.view === "model" ? (
+        <main className="main"><div className="page-model"><ModelTab api={api} state={null} /></div></main>
+      ) : route.view === "home" ? (
         <main className="main main-home">
           <Home reports={sessions} loading={sessionsLoading} onOpen={goReport} onNew={() => void newSession()}
-            onRename={renameReport} onDelete={(id) => void deleteSession(id)} exportUrl={(id) => api.exportUrl(id)} />
+            onRename={renameReport} onDelete={(id) => void deleteSession(id)} onStatus={(id, st) => void setReportStatus(id, st)}
+            exportUrl={(id) => api.exportUrl(id)} />
         </main>
       ) : (
       <main className="main">
@@ -436,6 +499,7 @@ export default function App() {
           {toast}
         </div>
       ) : null}
+    </div>
     </div>
   );
 }

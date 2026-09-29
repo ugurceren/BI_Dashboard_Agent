@@ -19,3 +19,11 @@ denied_functions = [
   "bulk", "db_name", "db_id", "suser_sname", "suser_name", "system_user", "current_user", "session_user",
   "user_name", "host_name", "app_name", "serverproperty", "databasepropertyex", "has_perms_by_name",
 ]
+
+# Kullanıcı → rol eşlemesi. Kullanıcı Windows oturumundan (ya da LDAP / X-Remote-User) tanınır.
+[identity]
+default_role = "analyst"
+# Kişi bazında: "DOMAIN\kullanici" ya da "kullanici" = "rol"
+users = { }
+# AD/LDAP grubu (CN) → rol, ör. { "BI_Admins" = "admin", "BI_Analysts" = "analyst" }
+groups = { }

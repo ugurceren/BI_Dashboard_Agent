@@ -1,0 +1,18 @@
+.cd-backdrop {
+  position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px;
+  background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(2px); animation: cd-fade .12s ease-out; cursor: default;
+}
+.cd-box {
+  width: min(420px, 100%); background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 16px; box-shadow: var(--shadow-md); padding: 22px 22px 18px; text-align: center; animation: cd-pop .14s ease-out;
+}
+.cd-icon { width: 44px; height: 44px; margin: 0 auto 10px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.cd-icon.is-danger { background: rgba(239, 68, 68, .12); color: var(--bad); }
+.cd-title { margin: 0 0 6px; font-size: 16px; font-weight: 700; }
+.cd-msg { margin: 0 0 18px; font-size: 13.5px; color: var(--text-2); line-height: 1.5; overflow-wrap: anywhere; }
+.cd-actions { display: flex; gap: 8px; justify-content: center; }
+.cd-actions .btn { min-width: 110px; justify-content: center; }
+.btn-danger { background: #dc2626; color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #b91c1c; }
+@keyframes cd-fade { from { opacity: 0; } }
+@keyframes cd-pop { from { opacity: 0; transform: scale(.96); } }

@@ -90,6 +90,9 @@ class Session(BaseModel):
     # faz içi çalışma hafızası: doğrulanan sorgular + tekrar eden araç çağrılarının önbelleği (faz değişince sıfırlanır)
     phase_memory: dict[str, Any] = Field(default_factory=dict)
     user_role: str = "analyst"
+    status: Literal["idea", "design", "test", "live"] | None = None   # yaşam döngüsü; None → içerikten türetilir
+    owner: str | None = None          # oluşturan kullanıcı (DOMAIN\kullanıcı)
+    owner_name: str | None = None     # görünen ad
 
     def public(self) -> dict[str, Any]:
         return self.model_dump(exclude={"llm_messages", "user_role", "dataset_profiles", "phase_memory"})
@@ -112,6 +115,26 @@ class Session(BaseModel):
             self.title = spec.title
 
 
+def _source_tables(datasets: list[dict[str, Any]]) -> list[str]:
+    """Veri kümelerinin SQL'inde geçen şema.tablo adları (view'a geçmişse orijinal SQL de)."""
+    import sqlglot
+    from sqlglot import exp
+    names: set[str] = set()
+    for ds in datasets:
+        for sql in (ds.get("sql"), ds.get("original_sql")):
+            if not sql:
+                continue
+            try:
+                for tree in sqlglot.parse(sql, read="tsql"):
+                    ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)} if tree else set()
+                    for t in tree.find_all(exp.Table) if tree else []:
+                        if t.name and t.name.lower() not in ctes:
+                            names.add(f"{t.db or 'dbo'}.{t.name}".lower())
+            except Exception:  # bozuk SQL envanteri düşürmesin
+                continue
+    return sorted(names)
+
+
 def _summary(d: dict[str, Any]) -> dict[str, Any]:
     """Rapor envanteri kartı için özet: amaç, kapsam, içerik ve görünüm bilgisi."""
     req = d.get("requirements") or {}
@@ -131,6 +154,10 @@ def _summary(d: dict[str, Any]) -> dict[str, Any]:
         "theme": {"mode": theme.get("mode"), "accent": theme.get("accent"), "background": theme.get("background"),
                   "palette": (theme.get("palette") or [])[:5]} if theme else None,
         "has_spec": bool(spec),
+        "status": d.get("status") or ("design" if spec else "idea"),
+        "status_explicit": bool(d.get("status")),
+        "owner": d.get("owner"), "owner_name": d.get("owner_name"),
+        "source_tables": _source_tables(d.get("datasets") or []),
     }
 
 
@@ -150,8 +177,8 @@ class SessionStore:
             raise KeyError(sid)
         return self.dir / f"{sid}.json"
 
-    def create(self, user_role: str) -> Session:
-        s = Session(user_role=user_role)
+    def create(self, user_role: str, owner: str | None = None, owner_name: str | None = None) -> Session:
+        s = Session(user_role=user_role, owner=owner, owner_name=owner_name)
         self.save(s)
         return s
 

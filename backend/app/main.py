@@ -23,6 +23,7 @@ from app.data.model_filters import ModelFilter, ModelFilterEngine
 from app.data.views import ViewRegistry, build_view_script, safe_view_name, select_from_view, view_columns
 from app.data.validator import RolePolicy, SqlValidator
 from app.dictionary.repository import DataDictionary
+from app.identity import Identity, current_identity
 from app.harness.agent import Agent, Event
 from app.harness.session import PHASES, Requirements, SessionStore, TranscriptItem, now_iso
 from app.harness.tools import Services, ToolContext, _build_dataset, _validate_spec
@@ -98,12 +99,93 @@ def health() -> dict[str, Any]:
 # --------------------------------------------------------------------------- oturumlar
 @app.get("/api/sessions")
 def list_sessions() -> list[dict[str, Any]]:
-    return state.store.list()
+    items = state.store.list()
+    kinds = state.services.dictionary._table_kinds()
+    for it in items:
+        it["domains"] = _report_domains(it.get("source_tables") or [], kinds)
+    return items
+
+
+def _report_domains(tables: list[str], kinds: dict[str, str]) -> list[str]:
+    """Raporun iş alanı (domain): kullandığı tabloların sözlükteki konu alanı.
+    Olgu (fact) tablolarının alanı önce gelir; onaylı view'lar kaynak tablolarına çözülür;
+    'Ortak' (tarih, para birimi…) yalnızca başka alan yoksa gösterilir."""
+    repo = state.services.dictionary
+    order = {"fact": 0, "bridge": 1, "dimension": 2}
+    ranked: list[tuple[int, str]] = []
+    for name in tables:
+        t = repo.tables.get(name)
+        if t is None:
+            continue
+        if kinds.get(name) == "view":  # kolon soy ağacındaki kaynak tabloların alanı
+            src = {v.rsplit(".", 1)[0] for k, v in repo.view_lineage.items() if k.startswith(name + ".")}
+            ranked += [(order.get(kinds.get(x, ""), 2), repo.tables[x].subject_area) for x in src if x in repo.tables]
+        elif t.subject_area:
+            ranked.append((order.get(kinds.get(name, ""), 2), t.subject_area.strip()))
+    out: list[str] = []
+    for _, a in sorted(ranked, key=lambda x: x[0]):
+        if a and a not in out:
+            out.append(a)
+    main = [a for a in out if a.lower() != "ortak"]
+    return main or out
+
+
+def _me(request: Request) -> Identity:
+    return current_identity(get_settings(), dict(request.headers))
 
 
 @app.post("/api/sessions")
-def create_session() -> dict[str, Any]:
-    return state.store.create(get_settings().user_role).public()
+def create_session(request: Request) -> dict[str, Any]:
+    me = _me(request)
+    return state.store.create(me.role, owner=me.username, owner_name=me.display_name).public()
+
+
+@app.get("/api/me")
+def me(request: Request) -> dict[str, Any]:
+    """Bağlanan kullanıcı (Windows oturumu / LDAP) ve rol politikası."""
+    ident = _me(request)
+    pol = state.services.policy(ident.role)
+    return {**ident.public(), "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
+                                          "allow_pii": pol.allow_pii, "max_rows": pol.max_rows}}
+
+
+@app.get("/api/me/access")
+def my_access(request: Request) -> dict[str, Any]:
+    """Kullanıcının yetkili olduğu tablolar, onaylı view'lar ve raporlarındaki dataset'ler."""
+    ident = _me(request)
+    pol = state.services.policy(ident.role)
+    dd = state.services.dictionary
+    kinds = dd._table_kinds()
+    allowed = {x.lower() for x in pol.allowed_schemas}
+    denied = {x.lower() for x in pol.denied_tables}
+    tables = []
+    for t in dd.tables.values():
+        schema = t.name.split(".")[0]
+        ok = schema in allowed and t.name not in denied
+        reason = None if ok else ("tablo yasaklı" if t.name in denied else f"'{schema}' şemasına yetki yok")
+        pii = [c.display_name or c.name for c in t.columns if c.is_pii]
+        tables.append({
+            "name": t.display_name or t.name, "id": t.name, "business_name": t.business_name, "description": t.description,
+            "subject_area": t.subject_area or "Diğer", "kind": kinds.get(t.name), "row_count": t.row_count,
+            "column_count": len(t.columns), "pii_columns": pii, "pii_blocked": bool(pii) and not pol.allow_pii,
+            "accessible": ok, "reason": reason,
+        })
+    tables.sort(key=lambda x: (x["subject_area"], x["name"]))
+    datasets = []
+    for item in state.store.list():
+        try:
+            s = state.store.get(item["id"])
+        except KeyError:
+            continue
+        for d in s.datasets:
+            v = state.services.validator.validate(d.sql, pol)
+            datasets.append({"report_id": s.id, "report_title": s.title, "id": d.id, "description": d.description,
+                             "fields": len(d.fields), "view": d.view, "tables": v.tables, "accessible": v.ok,
+                             "reason": None if v.ok else "; ".join(v.errors)[:200]})
+    return {"user": ident.public(), "role": ident.role,
+            "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
+                       "allow_pii": pol.allow_pii, "max_rows": pol.max_rows},
+            "tables": tables, "views": ViewRegistry(get_settings().views_registry).all(), "datasets": datasets}
 
 
 @app.get("/api/sessions/{sid}")
@@ -162,6 +244,23 @@ def rename_session(sid: str, body: TitleIn) -> Any:
         if s.requirements:
             s.requirements.report_title = title
         state.store.save(s)   # aynı isimli diğer rapor (overwrite onaylandıysa) burada silinir
+        return s.public()
+
+
+class StatusIn(BaseModel):
+    status: str
+
+
+@app.put("/api/sessions/{sid}/status")
+def set_status(sid: str, body: StatusIn) -> dict[str, Any]:
+    """Rapor yaşam döngüsü: idea (fikir) → design (tasarım) → test → live (canlıda)."""
+    if body.status not in ("idea", "design", "test", "live"):
+        raise HTTPException(400, "Geçersiz statü. Seçenekler: idea, design, test, live")
+    with state.store.lock(sid):
+        s = _session(sid)
+        s.status = body.status  # type: ignore[assignment]
+        s.add(TranscriptItem(role="system", content=f"Rapor statüsü değişti: {body.status}"))
+        state.store.save(s)
         return s.public()
 
 

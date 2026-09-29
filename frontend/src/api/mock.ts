@@ -159,6 +159,18 @@ export const mockApi: Api = {
     await sleep(40);
     return state(get(id));
   },
+  async me() {
+    return { username: "KURUM\\demo", display_name: "Demo Kullanıcı", domain: "KURUM", groups: [], role: "analyst", source: "windows", domain_joined: true };
+  },
+  async myAccess() {
+    const user = await this.me();
+    return { user, role: "analyst", policy: { allowed_schemas: ["dbo"], denied_tables: [], allow_pii: false, max_rows: 5000 }, tables: [], views: [], datasets: [] };
+  },
+  async setStatus(id, status) {
+    const s = get(id);
+    (s as unknown as { status: string }).status = status;
+    return state(s);
+  },
   async renameSession(id, title) {
     await sleep(100);
     const s = get(id);

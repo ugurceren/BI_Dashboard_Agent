@@ -49,7 +49,14 @@ class Settings(BaseSettings):
     # --- Veri sözlüğü: nereden, hangi sorgularla okunacağı config/dictionary.toml'da
     dictionary_config: Path = BACKEND_DIR / "config" / "dictionary.toml"
     policy_config: Path = BACKEND_DIR / "config" / "policy.toml"
-    user_role: str = "analyst"  # ileride AD/Entra ID'den gelecek
+    user_role: str = "analyst"  # varsayılan rol (policy.toml [identity] eşlemesi yoksa)
+    # --- Kimlik: Windows oturumu + isteğe bağlı LDAP (Active Directory)
+    ldap_url: str | None = None            # ör. ldap://dc01.kurum.local
+    ldap_base_dn: str = ""                 # ör. DC=kurum,DC=local
+    ldap_bind_user: str | None = None      # ör. KURUM\svc_bi (NTLM) ya da CN=...; boşsa anonim
+    ldap_bind_password: str | None = None
+    ldap_user_filter: str = "(sAMAccountName={user})"
+    trust_remote_user_header: bool = False  # IIS/nginx Windows kimlik doğrulaması arkasında X-Remote-User'a güven
     default_currency: str = "TRY"  # tutar görsellerinde para birimi belirtilmemişse (AdventureWorks: USD)
 
     # --- Harness

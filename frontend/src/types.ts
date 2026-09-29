@@ -208,6 +208,7 @@ export interface SessionState {
   spec: ReportSpec | null;
   spec_version: number;
   busy: boolean;
+  status?: "idea" | "design" | "test" | "live" | null;
 }
 
 export interface SessionSummary {
@@ -231,6 +232,12 @@ export interface SessionSummary {
   views?: string[];
   theme?: { mode?: string; accent?: string; background?: string; palette?: string[] } | null;
   has_spec?: boolean;
+  owner?: string | null;
+  owner_name?: string | null;
+  domains?: string[];
+  source_tables?: string[];
+  status?: "idea" | "design" | "test" | "live";
+  status_explicit?: boolean;
 }
 
 export interface Health {
@@ -303,3 +310,37 @@ export interface DataModel {
 
 export interface ViewScriptResult { view: string; script: string; file: string; exists: boolean }
 export interface UseViewResult { session: SessionState; view: string; lost_filters: string[] }
+
+// ---- Kullanıcı ve veri erişimi (GET /api/me, /api/me/access) ----
+export interface Policy { allowed_schemas: string[]; denied_tables: string[]; allow_pii: boolean; max_rows: number }
+
+export interface Me {
+  username: string;
+  display_name: string;
+  domain: string;
+  email?: string | null;
+  department?: string | null;
+  title?: string | null;
+  groups: string[];
+  role: string;
+  source: "windows" | "ldap" | "header" | string;
+  domain_joined: boolean;
+  policy?: Policy;
+}
+
+export interface AccessTable {
+  id: string; name: string; business_name: string; description: string; subject_area: string;
+  kind: string | null; row_count: number | null; column_count: number;
+  pii_columns: string[]; pii_blocked: boolean; accessible: boolean; reason: string | null;
+}
+
+export interface ApprovedView {
+  name: string; business_name?: string; description?: string; dataset_id?: string; session_id?: string;
+  created_at?: string; columns: { name: string; label?: string; type?: string; lineage?: string | null }[];
+}
+
+export interface AccessInfo {
+  user: Me; role: string; policy: Policy; tables: AccessTable[]; views: ApprovedView[];
+  datasets: { report_id: string; report_title: string; id: string; description: string; fields: number;
+              view: string | null; tables: string[]; accessible: boolean; reason: string | null }[];
+}

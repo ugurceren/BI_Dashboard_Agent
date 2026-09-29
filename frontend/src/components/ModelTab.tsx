@@ -329,7 +329,7 @@ function ModelInner({ api, state }: { api: Api; state: SessionState | null }) {
               onNodeClick={(_, n) => setSelected((s) => (s === n.id ? null : n.id))}
               onPaneClick={() => setSelected(null)}
               nodesConnectable={false} edgesFocusable={false} elementsSelectable={false}
-              minZoom={0.15} maxZoom={1.75} fitView proOptions={{ hideAttribution: true }} colorMode="system"
+              minZoom={0.15} maxZoom={1.75} fitView proOptions={{ hideAttribution: true }} colorMode={(document.documentElement.dataset.theme as "light" | "dark" | undefined) ?? "system"}
             >
               <Background gap={18} size={1} />
               <Controls showInteractive={false} position="bottom-left" />

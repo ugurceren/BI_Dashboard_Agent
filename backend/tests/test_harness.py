@@ -334,3 +334,29 @@ def test_rename_conflict_and_summary(settings):
     ids = [x["id"] for x in m.state.store.list()]
     assert b.id in ids and a.id not in ids
     assert {"kpis", "visual_count", "business_goal", "theme"} <= set(m.state.store.list()[0])
+
+
+def test_report_status(settings):
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.harness.session import SessionStore as SS
+
+    m.state.store = SS(settings.sessions_dir)
+    c = TestClient(m.app)
+    s = m.state.store.create("analyst")
+    assert m.state.store.list()[0]["status"] == "idea" and not m.state.store.list()[0]["status_explicit"]
+    assert c.put(f"/api/sessions/{s.id}/status", json={"status": "live"}).status_code == 200
+    assert m.state.store.list()[0]["status"] == "live"
+    assert c.put(f"/api/sessions/{s.id}/status", json={"status": "xx"}).status_code == 400
+
+
+def test_summary_source_tables_and_domains(tmp_path):
+    from app.harness.session import _summary
+    d = {"id": "abc", "title": "X", "datasets": [
+        {"id": "a", "sql": "WITH c AS (SELECT 1 AS x) SELECT f.SalesAmount FROM dbo.FactResellerSales f JOIN dbo.DimDate d ON 1=1 JOIN c ON 1=1"},
+        {"id": "b", "sql": "SELECT * FROM rpt.v_x", "view": "rpt.v_x", "original_sql": "SELECT p.EnglishProductName FROM DimProduct p"},
+        {"id": "c", "sql": "SELECT FROM WHERE (("},
+    ]}
+    s = _summary(d)
+    assert s["source_tables"] == ["dbo.dimdate", "dbo.dimproduct", "dbo.factresellersales", "rpt.v_x"]

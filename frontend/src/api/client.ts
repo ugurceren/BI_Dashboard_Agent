@@ -1,6 +1,6 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
 import type {
-  DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent,
+  AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent,
 } from "../types";
 
 export class ApiError extends Error {
@@ -21,11 +21,14 @@ export interface MessageBody {
 export interface Api {
   mock: boolean;
   health(): Promise<Health>;
+  me(): Promise<Me>;
+  myAccess(): Promise<AccessInfo>;
   listSessions(): Promise<SessionSummary[]>;
   createSession(): Promise<SessionState>;
   getSession(id: string): Promise<SessionState>;
   deleteSession(id: string): Promise<void>;
   renameSession(id: string, title: string, overwrite?: boolean): Promise<SessionState>;
+  setStatus(id: string, status: string): Promise<SessionState>;
   sendMessage(id: string, body: MessageBody, onEvent: (ev: StreamEvent) => void, signal?: AbortSignal): Promise<void>;
   setPhase(id: string, phase: Phase): Promise<SessionState>;
   putSpec(id: string, spec: ReportSpec): Promise<SessionState>;
@@ -129,6 +132,8 @@ export async function readSSE(body: ReadableStream<Uint8Array>, onEvent: (ev: St
 export const httpApi: Api = {
   mock: false,
   health: () => req<Health>("/api/health"),
+  me: () => req<Me>("/api/me"),
+  myAccess: () => req<AccessInfo>("/api/me/access"),
   listSessions: () => req<SessionSummary[]>("/api/sessions"),
   createSession: () => req<SessionState>("/api/sessions", { method: "POST", body: "{}" }),
   getSession: (id) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}`),
@@ -159,6 +164,7 @@ export const httpApi: Api = {
     }
     await readSSE(res.body, onEvent);
   },
+  setStatus: (id, status) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
   renameSession: (id, title, overwrite = false) =>
     req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/title`, { method: "PUT", body: JSON.stringify({ title, overwrite }) }),
   setPhase: (id, phase) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/phase`, { method: "POST", body: JSON.stringify({ phase }) }),

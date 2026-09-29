@@ -1,7 +1,11 @@
 // Üst çubuk: uygulama adı, oturum seçici, sağlık göstergesi.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Health, SessionSummary } from "../types";
 import { PHASES } from "./Chat";
+import { STATUSES, statusInfo } from "../lib/status";
+import { ConfirmDialog } from "./ConfirmDialog";
+
+export type ThemePref = "light" | "dark";
 
 function relTime(iso: string): string {
   const t = Date.parse(iso);
@@ -13,7 +17,11 @@ function relTime(iso: string): string {
   return new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
 }
 
-export function TopBar({ mock, health, healthError, sessions, currentId, currentTitle, onSelect, onNew, onDelete, busy, view, onHome, onRename }: {
+export function TopBar({ mock, health, healthError, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme }: {
+  status?: string | null;
+  onStatus: (s: string) => void;
+  theme: ThemePref;
+  onTheme: (t: ThemePref) => void;
   view: "home" | "designer";
   onHome: () => void;
   onRename: (title: string) => Promise<boolean>;
@@ -24,13 +32,13 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
   currentId: string | null;
   currentTitle?: string;
   onSelect: (id: string) => void;
-  onNew: () => void;
   onDelete: (id: string) => void;
   busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState("");
+  const [askDelete, setAskDelete] = useState<SessionSummary | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -60,7 +68,17 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
 
   return (
     <header className="topbar">
-      <div className="brand">
+      <div className="health" title={healthTitle}>
+        <span className={`dot ${healthError ? "bad" : health ? (llmOk ? "ok" : "bad") : "wait"}`} />
+        <span className="health-model">{healthError ? "Backend yok" : health ? health.llm.model : "…"}</span>
+        {health ? (
+          <span className={`health-vision${health.vision.configured ? "" : " is-off"}`}>
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" strokeWidth="1.3" /><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" strokeWidth="1.3" />{health.vision.configured ? null : <path d="M2.5 13.5l11-11" stroke="currentColor" strokeWidth="1.3" />}</svg>
+            {health.vision.configured ? "Görsel" : "Görsel yok"}
+          </span>
+        ) : null}
+      </div>
+      <div className="brand" style={{ display: "none" }}>
         <span className="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 13V9M6.5 13V5M10 13V7.5M13.5 13V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
         </span>
@@ -68,7 +86,7 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
         {mock ? <span className="pill pill-warn" title="Backend olmadan sahte veriyle çalışıyor">mock</span> : null}
       </div>
 
-      {view === "home" ? <div className="topbar-spacer" /> : (
+      {view === "home" ? null : (
         <button type="button" className="btn btn-ghost btn-sm topbar-back" onClick={onHome} disabled={busy} title="Rapor envanterine dön">
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
           <span className="btn-label">Raporlar</span>
@@ -92,10 +110,6 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setDraft(title); setRenaming(true); }} disabled={busy || !currentId} title="Raporu yeniden adlandır">
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 11.5V13h1.5l7-7L10 4.5l-7 7ZM9.5 5 11 6.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
         </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onNew} disabled={busy} title="Yeni rapor">
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
-          <span className="btn-label">Yeni</span>
-        </button>
         {open ? (
           <div className="menu" role="menu">
             <div className="menu-head">Oturumlar</div>
@@ -114,7 +128,7 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
                     title="Oturumu sil"
                     aria-label="Oturumu sil"
                     disabled={busy && s.id === currentId}
-                    onClick={() => { if (window.confirm(`"${s.title || "Başlıksız"}" oturumu silinsin mi?`)) onDelete(s.id); }}
+                    onClick={() => { setOpen(false); setAskDelete(s); }}
                   >
                     <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
                   </button>
@@ -126,22 +140,28 @@ export function TopBar({ mock, health, healthError, sessions, currentId, current
         ) : null}
       </div>
 
-      {view === "home" ? (
-        <button type="button" className="btn btn-primary btn-sm" onClick={onNew} title="Yeni rapor tasarla">
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
-          <span>Yeni rapor</span>
-        </button>
+      {view === "designer" && currentId ? (
+        <label className="rc-status topbar-status" style={{ ["--st" as string]: statusInfo(status).color }} title="Rapor statüsü">
+          <i className="st-dot" />
+          <select value={status ?? "idea"} onChange={(e) => onStatus(e.target.value)} disabled={busy} aria-label="Rapor statüsü">
+            {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </label>
       ) : null}
-      <div className="health" title={healthTitle}>
-        <span className={`dot ${healthError ? "bad" : health ? (llmOk ? "ok" : "bad") : "wait"}`} />
-        <span className="health-model">{healthError ? "Backend yok" : health ? health.llm.model : "…"}</span>
-        {health ? (
-          <span className={`health-vision${health.vision.configured ? "" : " is-off"}`}>
-            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" strokeWidth="1.3" /><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" strokeWidth="1.3" />{health.vision.configured ? null : <path d="M2.5 13.5l11-11" stroke="currentColor" strokeWidth="1.3" />}</svg>
-            {health.vision.configured ? "Görsel" : "Görsel yok"}
-          </span>
-        ) : null}
+      <div className="topbar-spacer" />
+      <div className="theme-seg" role="group" aria-label="Görünüm">
+        {([["light", "Gündüz modu", <path key="l" d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6ZM8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />],
+           ["dark", "Gece modu", <path key="d" d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6Z" />]] as [ThemePref, string, ReactNode][]).map(([k, l, icon]) => (
+          <button key={k} type="button" className={theme === k ? "is-on" : undefined} onClick={() => onTheme(k)} title={l} aria-label={l} aria-pressed={theme === k}>
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{icon}</svg>
+          </button>
+        ))}
       </div>
+      {askDelete ? (
+        <ConfirmDialog danger title="Rapor silinsin mi?" confirmLabel="Evet, sil"
+          message={`"${askDelete.title || "Başlıksız"}" raporu ve tüm konuşma geçmişi kalıcı olarak silinecek. Bu işlem geri alınamaz. Emin misiniz?`}
+          onCancel={() => setAskDelete(null)} onConfirm={() => { const id = askDelete.id; setAskDelete(null); onDelete(id); }} />
+      ) : null}
     </header>
   );
 }
