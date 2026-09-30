@@ -1109,3 +1109,13 @@ def _rebuild_services() -> None:
 @app.exception_handler(ValidationError)
 def _validation_handler(_: Request, exc: ValidationError) -> JSONResponse:
     return JSONResponse({"detail": [f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()]}, status_code=422)
+
+
+# --------------------------------------------------------------------------- arayüz (derlenmiş)
+# frontend/dist varsa backend arayüzü de sunar: Node.js / Vite olmadan tek port (kurum / çevrimdışı kurulum).
+# Geliştirmede Vite (5173) kullanılmaya devam eder; bu yalnızca http://127.0.0.1:<port>/ adresini de çalışır kılar.
+_DIST = BACKEND_DIR.parent / "frontend" / "dist"
+if (_DIST / "index.html").exists():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=_DIST, html=True), name="frontend")

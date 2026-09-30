@@ -69,8 +69,8 @@ def check_packages() -> None:
             missing.append("tomli")
     if missing:
         say("err", "Eksik / bozuk Python paketleri: " + "; ".join(missing),
-            "backend\\.venv\\Scripts\\pip install -r backend\\requirements.txt\n"
-            "Kurumsal proxy varsa: set HTTPS_PROXY=http://proxy:port  (ya da pip --index-url ile iç paket aynası)")
+            "İnternet yoksa: internet olan bir bilgisayarda make_offline_package.bat çalıştırıp oluşan zip'i proje klasörüne açın.\n"
+            "Kurumsal proxy / iç paket aynası varsa: proje köküne pip.ini koyun (proxy = … ya da index-url = …), sonra start.bat.")
     else:
         say("ok", "Python paketleri kurulu")
 

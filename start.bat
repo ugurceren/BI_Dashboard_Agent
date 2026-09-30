@@ -7,6 +7,33 @@ echo ============================================
 echo   BI Lens baslatiliyor
 echo ============================================
 
+rem ---------- Paket kaynagi ----------
+rem wheelhouse\ (cevrimdisi paket: make_offline_package.bat) varsa Python paketleri internetsiz kurulur.
+rem pip.ini (proje kokunde) varsa kullanilir: kurumsal proxy ya da ic paket aynasi (Artifactory / Nexus) icin.
+set "PIP_SRC="
+if exist "wheelhouse\*.whl" (
+    set "PIP_SRC=--no-index --find-links wheelhouse"
+    echo [bilgi] Cevrimdisi paketler kullaniliyor ^(wheelhouse^).
+)
+if exist "%~dp0pip.ini" set "PIP_CONFIG_FILE=%~dp0pip.ini"
+
+rem ---------- Arayuz: hazir derlenmis mi (Node.js gerekmez) yoksa Vite mi ----------
+set "BI_UI=dev"
+if exist "frontend\dist\.prebuilt" set "BI_UI=prebuilt"
+if "!BI_UI!"=="dev" (
+    where npm >nul 2>&1 || (
+        if exist "frontend\dist\index.html" (
+            set "BI_UI=prebuilt"
+            echo [bilgi] Node.js bulunamadi; mevcut derlenmis arayuz kullanilacak.
+        ) else (
+            echo [hata] Node.js / npm bulunamadi ve derlenmis arayuz yok.
+            echo        Ya https://nodejs.org adresinden Node.js 20+ kurun, ya da internet olan bir bilgisayarda
+            echo        make_offline_package.bat ile cevrimdisi paket hazirlayip bu klasore acin.
+            goto :error
+        )
+    )
+)
+
 rem ---------- Python (en az 3.10) ----------
 set "VPY=backend\.venv\Scripts\python.exe"
 if exist "%VPY%" (
@@ -33,16 +60,21 @@ if exist "%VPY%" (
     )
     echo [kurulum] Python sanal ortami olusturuluyor ^(!PYEXE!^)...
     !PYEXE! -m venv backend\.venv || goto :error
-    "%VPY%" -m pip install -q --upgrade pip
+    "%VPY%" -m pip install -q --disable-pip-version-check --upgrade pip !PIP_SRC! >nul 2>&1
 )
 
 rem Python paketleri: requirements.txt degistiyse (ilk kurulum ya da yeni surum) guncellenir
 fc /b "backend\requirements.txt" "backend\.venv\requirements.stamp" >nul 2>&1
 if errorlevel 1 (
     echo [kurulum] Python paketleri yukleniyor / guncelleniyor...
-    "%VPY%" -m pip install -q -r backend\requirements.txt || (
-        echo [hata] Python paketleri yuklenemedi. Internet / kurumsal proxy gerekebilir:
-        echo        set HTTPS_PROXY=http://proxy.kurum:8080   ya da pip icin ic paket aynasi ^(--index-url^)
+    "%VPY%" -m pip install -q --disable-pip-version-check -r backend\requirements.txt !PIP_SRC! || (
+        echo.
+        echo [hata] Python paketleri yuklenemedi ^(pypi.org'a erisilemiyor olabilir^). Uc yol var:
+        echo   1^) Cevrimdisi paket: internet olan bir bilgisayarda make_offline_package.bat calistirin,
+        echo      olusan offline\BI_Lens_offline_*.zip dosyasini bu klasore acip start.bat'i yeniden calistirin.
+        echo   2^) Kurumsal proxy: bu klasore pip.ini koyun:   [global]  proxy = http://kullanici@proxy.kurum:8080
+        echo   3^) Ic paket aynasi: pip.ini icine   index-url = https://nexus.kurum/repository/pypi/simple
+        echo      ^(gerekirse trusted-host = nexus.kurum^)
         goto :error
     )
     copy /y "backend\requirements.txt" "backend\.venv\requirements.stamp" >nul
@@ -53,11 +85,9 @@ if not exist "backend\.env" (
     copy /y "backend\.env.example" "backend\.env" >nul
 )
 
+if "!BI_UI!"=="prebuilt" goto :skip_frontend_build
+
 rem Frontend paketleri: package-lock.json degistiyse (ilk kurulum ya da yeni surum) guncellenir
-where npm >nul 2>&1 || (
-    echo [hata] Node.js / npm bulunamadi. https://nodejs.org adresinden Node.js 20+ LTS kurun.
-    goto :error
-)
 fc /b "frontend\package-lock.json" "frontend\node_modules\.bi-lens.stamp" >nul 2>&1
 if errorlevel 1 (
     echo [kurulum] Frontend paketleri yukleniyor / guncelleniyor...
@@ -83,6 +113,7 @@ if defined BI_BUILD (
     popd
     if defined BI_REV (echo %BI_REV%)>"frontend\dist-viewer\.rev"
 )
+:skip_frontend_build
 
 rem ---------- Backend portu ----------
 rem Onceki calistirmanin portu backend\.port'ta; o portta backend calisiyorsa yeniden baslatilmaz.
@@ -114,6 +145,12 @@ if not defined BACKEND_UP (
 )
 
 rem ---------- Frontend ----------
+set "BI_URL=http://localhost:5173"
+if "!BI_UI!"=="prebuilt" (
+    set "BI_URL=http://127.0.0.1:!BI_PORT!/"
+    echo [frontend] Derlenmis arayuz backend'den sunuluyor ^(Node.js gerekmez^).
+    goto :wait_start
+)
 curl -s -o nul --max-time 5 http://localhost:5173
 if %errorlevel%==0 (
     echo [frontend] Zaten calisiyor: http://localhost:5173
@@ -123,6 +160,7 @@ if %errorlevel%==0 (
     start "BI Lens - Frontend" /d "%~dp0frontend" cmd /k "set BI_BACKEND_PORT=!BI_PORT!&& npm run dev"
 )
 
+:wait_start
 rem ---------- Hazir olmasini bekle (ilk acilista sozluk yuklemesi uzun surebilir) ----------
 echo Sunucular bekleniyor (en fazla 3 dakika)...
 set /a tries=0
@@ -131,12 +169,14 @@ set /a tries+=1
 if %tries% gtr 90 goto :timeout
 ping -n 3 127.0.0.1 >nul
 curl -s -f -o nul --max-time 30 http://127.0.0.1:!BI_PORT!/api/health || goto :wait
-curl -s -o nul --max-time 5 http://localhost:5173 || goto :wait
+if "!BI_UI!"=="dev" (
+    curl -s -o nul --max-time 5 http://localhost:5173 || goto :wait
+)
 
 echo.
-echo Hazir. Tarayici aciliyor: http://localhost:5173
-echo Kapatmak icin "BI Lens - Backend" ve "BI Lens - Frontend" pencerelerini kapatin.
-start "" http://localhost:5173
+echo Hazir. Tarayici aciliyor: !BI_URL!
+if "!BI_UI!"=="dev" (echo Kapatmak icin "BI Lens - Backend" ve "BI Lens - Frontend" pencerelerini kapatin.) else (echo Kapatmak icin "BI Lens - Backend" penceresini kapatin.)
+start "" !BI_URL!
 ping -n 4 127.0.0.1 >nul
 exit /b 0
 

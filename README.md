@@ -39,6 +39,16 @@ Veri sözlüğü bat dosyası tarafından oluşturulmaz; aşağıdaki adımlarla
 
 `start.bat` her açılışta `requirements.txt` / `package-lock.json` değişmiş mi bakar; değiştiyse (ör. `git pull` sonrası) paketleri kendisi günceller ve HTML export şablonunu yeniden derler.
 
+### İnternetsiz (kurum) kurulum
+
+Kurum bilgisayarı pypi.org / npm'e çıkamıyorsa:
+
+1. İnternet olan bir bilgisayarda `make_offline_package.bat` çalıştırın → `offlineBI_Lens_offline_<tarih>.zip` (≈50 MB): Python paketleri (Windows 64-bit, Python 3.10–3.13, test edilen sürümler) + derlenmiş arayüz.
+2. Zip'i kurum bilgisayarında proje klasörüne (`start.bat`'ın yanına) açın.
+3. `start.bat`: paketleri `wheelhouse`'tan internetsiz kurar; arayüzü backend sunar — **Node.js gerekmez**, tarayıcı `http://127.0.0.1:8000/` açılır.
+
+Kurumsal proxy ya da iç paket aynası (Artifactory / Nexus) varsa zip yerine proje köküne bir `pip.ini` koymak da yeterlidir (`[global]` altında `proxy = …` ya da `index-url = …`).
+
 ```bash
 # backend
 cd backend

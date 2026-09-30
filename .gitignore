@@ -13,3 +13,7 @@ backend/config/views.json
 backend/config/connections.json
 backend/config/dictionary_files/
 backend/.port
+offline/
+wheelhouse/
+pip.ini
+frontend/dist/.prebuilt
