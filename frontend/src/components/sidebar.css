@@ -60,7 +60,6 @@
 .acc-tab { font: inherit; font-size: 13.5px; padding: 8px 12px; border: 0; background: none; color: var(--text-2); cursor: pointer; border-bottom: 2px solid transparent; }
 .acc-tab.is-on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .acc-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.acc-group h3 { margin: 14px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .acc-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 13px; }
 .acc-table th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; background: var(--surface-2); padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .acc-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -87,3 +86,24 @@
 .sb-health:hover { border-color: var(--accent); }
 .sb-health.is-bad { border-color: rgba(239, 68, 68, .45); background: rgba(239, 68, 68, .07); }
 .sb-health.is-compact { width: 100%; }
+
+/* Veri Erişimim: domain / nesne tipi gruplaması */
+.acc-search { display: flex; align-items: center; gap: 8px; width: 300px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.acc-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.acc-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--text); }
+.acc-spacer { flex: 1; }
+.acc-groupby { display: flex; align-items: center; gap: 8px; }
+.acc-group { margin-top: 14px; }
+.acc-group-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2); cursor: pointer; font: inherit; color: var(--text); text-align: left; }
+.acc-group-head:hover { border-color: var(--accent); }
+.acc-group-title { font-weight: 700; font-size: 14px; }
+.acc-group-sub { font-size: 12px; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-count { font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--surface-3); border-radius: 999px; padding: 0 8px; }
+.acc-sub { margin: 10px 0 0 14px; }
+.acc-sub-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 650; color: var(--text-2); margin: 0 0 6px; }
+.acc-badge { min-width: 18px; height: 18px; padding: 0 3px; border-radius: 5px; display: inline-grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+.acc-badge.k-table { background: #4c8dff; }
+.acc-badge.k-view { background: #8b5cf6; }
+.acc-badge.k-procedure { background: #f59e0b; font-size: 8.5px; }
+.acc-badge.k-dataset { background: #0ea5e9; }

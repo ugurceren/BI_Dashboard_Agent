@@ -169,3 +169,22 @@ def test_query_schema_lists_procedures_with_domain(settings, services, monkeypat
     sp = d["procedures"][0]
     assert sp["parameters"] == ["@Yil int", "@Bolge nvarchar"] and sp["description"] == "Aylık satış özeti"
     assert sp["subject_area"] == services.dictionary.tables["dbo.factinternetsales"].subject_area
+
+
+def test_my_access_returns_typed_objects_with_domains(settings, services, monkeypatch):
+    """Veri Erişimim: tek liste — tablo / view / SP / dataset, her biri domain ve erişim durumuyla."""
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+
+    m.state.services = services
+    monkeypatch.setattr(m.state, "store", type("S", (), {"list": lambda self: []})(), raising=False)
+    monkeypatch.setattr(m, "_procedures", lambda allowed, denied, kinds: [
+        {"id": "dbo.usp", "name": "dbo.usp", "description": "d", "parameters": ["@Yil int"], "tables": [], "subject_area": "Satış"}])
+    d = TestClient(m.app).get("/api/me/access").json()
+    types = {o["type"] for o in d["objects"]}
+    assert {"table", "procedure"} <= types and "tables" not in d
+    t = next(o for o in d["objects"] if o["id"] == "dbo.factinternetsales")
+    assert t["type"] == "table" and t["subject_area"] and t["accessible"] and "column_count" in t
+    sp = next(o for o in d["objects"] if o["type"] == "procedure")
+    assert sp["parameters"] == ["@Yil int"] and sp["accessible"]

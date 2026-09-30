@@ -329,21 +329,18 @@ export interface Me {
   policy?: Policy;
 }
 
-export interface AccessTable {
-  id: string; name: string; business_name: string; description: string; subject_area: string;
-  kind: string | null; row_count: number | null; column_count: number;
-  pii_columns: string[]; pii_blocked: boolean; accessible: boolean; reason: string | null;
-}
-
-export interface ApprovedView {
-  name: string; business_name?: string; description?: string; dataset_id?: string; session_id?: string;
-  created_at?: string; columns: { name: string; label?: string; type?: string; lineage?: string | null }[];
+/** Veri Erişimim: tek nesne listesi (tablo / view / stored procedure / dataset), domain ve erişim durumuyla */
+export interface AccessObject {
+  type: "table" | "view" | "procedure" | "dataset";
+  id: string; name: string; business_name?: string; description?: string; subject_area: string;
+  accessible: boolean; reason: string | null;
+  row_count?: number | null; column_count?: number; pii_columns?: string[]; pii_blocked?: boolean;   // tablo / view
+  report_id?: string | null; report_title?: string; dataset_id?: string | null; created_at?: string | null;  // view / dataset
+  view?: string | null; fields?: number; tables?: string[]; parameters?: string[];
 }
 
 export interface AccessInfo {
-  user: Me; role: string; policy: Policy; tables: AccessTable[]; views: ApprovedView[];
-  datasets: { report_id: string; report_title: string; id: string; description: string; fields: number;
-              view: string | null; tables: string[]; accessible: boolean; reason: string | null }[];
+  user: Me; role: string; policy: Policy; objects: AccessObject[];
 }
 
 // ---------------------------------------------------------------- sorgu çalıştır

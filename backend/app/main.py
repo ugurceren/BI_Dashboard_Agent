@@ -188,27 +188,41 @@ def me(request: Request) -> dict[str, Any]:
 
 @app.get("/api/me/access")
 def my_access(request: Request) -> dict[str, Any]:
-    """Kullanıcının yetkili olduğu tablolar, onaylı view'lar ve raporlarındaki dataset'ler."""
+    """Kullanıcının yetkili olduğu nesneler — tek liste: tablo / view / stored procedure / dataset;
+    her biri domain (konu alanı) ve erişim durumuyla (Veri Erişimim sayfası: domain ya da nesne tipine göre gruplanır)."""
+    from app.harness.session import _source_tables
     ident = _me(request)
     pol = state.services.policy(ident.role)
     dd = state.services.dictionary
     kinds = dd._table_kinds()
     allowed = {x.lower() for x in pol.allowed_schemas}
     denied = {x.lower() for x in pol.denied_tables}
-    tables = []
+    registry = {str(v.get("name", "")).lower(): v for v in ViewRegistry(get_settings().views_registry).all()}
+    objects: list[dict[str, Any]] = []
     for t in dd.tables.values():
         schema = t.name.split(".")[0]
         ok = schema in allowed and t.name not in denied
         reason = None if ok else ("tablo yasaklı" if t.name in denied else f"'{schema}' şemasına yetki yok")
         pii = [c.display_name or c.name for c in t.columns if c.is_pii]
-        tables.append({
-            "name": t.display_name or t.name, "id": t.name, "business_name": t.business_name, "description": t.description,
-            "subject_area": t.subject_area or "Diğer", "kind": kinds.get(t.name), "row_count": t.row_count,
-            "column_count": len(t.columns), "pii_columns": pii, "pii_blocked": bool(pii) and not pol.allow_pii,
-            "accessible": ok, "reason": reason,
+        is_view = kinds.get(t.name) == "view"
+        area = t.subject_area
+        extra: dict[str, Any] = {}
+        if is_view:
+            reg = registry.get(t.name, {})
+            src = _source_tables([{"sql": reg.get("original_sql")}]) if reg.get("original_sql") else []
+            area = ((_report_domains(src, kinds) if src else []) or _report_domains([t.name], kinds) or [area])[0]
+            extra = {"report_id": reg.get("session_id"), "dataset_id": reg.get("dataset_id"), "created_at": reg.get("created_at"),
+                     "tables": src}
+        objects.append({
+            "type": "view" if is_view else "table", "id": t.name, "name": t.display_name or t.name,
+            "business_name": t.business_name, "description": t.description, "subject_area": area or "Diğer",
+            "row_count": t.row_count, "column_count": len(t.columns), "pii_columns": pii,
+            "pii_blocked": bool(pii) and not pol.allow_pii, "accessible": ok, "reason": reason, **extra,
         })
-    tables.sort(key=lambda x: (x["subject_area"], x["name"]))
-    datasets = []
+    for sp in _procedures(allowed, denied, kinds):  # yalnız yetkili şemalardakiler listelenir
+        objects.append({"type": "procedure", "id": sp["id"], "name": sp["name"], "business_name": "", "description": sp["description"],
+                        "subject_area": sp["subject_area"], "parameters": sp["parameters"], "tables": sp["tables"],
+                        "accessible": True, "reason": "Salt-okunur ekranlarda çalıştırılamaz (yalnız listeleme)"})
     for item in state.store.list():
         try:
             s = state.store.get(item["id"])
@@ -216,13 +230,17 @@ def my_access(request: Request) -> dict[str, Any]:
             continue
         for d in s.datasets:
             v = state.services.validator.validate(d.sql, pol)
-            datasets.append({"report_id": s.id, "report_title": s.title, "id": d.id, "description": d.description,
-                             "fields": len(d.fields), "view": d.view, "tables": v.tables, "accessible": v.ok,
-                             "reason": None if v.ok else "; ".join(v.errors)[:200]})
+            doms = _report_domains(_source_tables([d.model_dump()]), kinds)
+            objects.append({"type": "dataset", "id": f"{s.id}.{d.id}", "name": d.id, "business_name": "", "description": d.description,
+                            "subject_area": doms[0] if doms else "Diğer", "report_id": s.id, "report_title": s.title,
+                            "fields": len(d.fields), "view": d.view, "tables": v.tables, "accessible": v.ok,
+                            "reason": None if v.ok else "; ".join(v.errors)[:200]})
+    objects.sort(key=lambda o: (o["subject_area"], o["name"].lower()))
     return {"user": ident.public(), "role": ident.role,
             "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
                        "allow_pii": pol.allow_pii, "max_rows": pol.max_rows},
-            "tables": tables, "views": ViewRegistry(get_settings().views_registry).all(), "datasets": datasets}
+            "objects": objects}
+
 
 
 # --------------------------------------------------------------------------- sorgu çalıştır (salt-okunur konsol)

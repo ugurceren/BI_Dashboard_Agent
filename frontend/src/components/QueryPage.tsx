@@ -7,6 +7,7 @@ import { EditorState, Prec } from "@codemirror/state";
 import { sql as sqlLang, MSSQL } from "@codemirror/lang-sql";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { buildCompletion } from "../lib/sqlComplete";
+import { TYPE_BADGE, TYPE_ORDER, TYPE_SHORT, TYPE_TITLE, typeOfKind, type GroupBy, type ObjType } from "../lib/objectTypes";
 import { tags as t } from "@lezer/highlight";
 import type { Api } from "../api/client";
 import type { QueryDataset, QueryObject, QueryProcedure, QueryRunResult, QuerySchema } from "../types";
@@ -15,13 +16,7 @@ import "./query.css";
 const LS_SQL = "bi.query.sql";
 const LS_EXPLORER = "bi.query.explorerCollapsed";
 const LS_GROUPBY = "bi.query.groupBy";
-type GroupBy = "domain" | "type";
-type ObjType = "table" | "view" | "procedure" | "dataset";
-const TYPE_ORDER: ObjType[] = ["table", "view", "procedure", "dataset"];
-const TYPE_TITLE: Record<ObjType, string> = { table: "Tablolar", view: "View'lar", procedure: "Stored procedure'ler", dataset: "Rapor dataset'leri" };
-const TYPE_SHORT: Record<ObjType, string> = { table: "Tablo", view: "View", procedure: "SP", dataset: "Dataset" };
-const TYPE_BADGE: Record<ObjType, string> = { table: "T", view: "V", procedure: "SP", dataset: "D" };
-const typeOf = (kind: string): ObjType => (kind === "view" ? "view" : "table");
+const typeOf = typeOfKind;
 interface ExSub { key: string; title: string; type?: ObjType; objs: QueryObject[]; ds: QueryDataset[]; sps: QueryProcedure[] }
 interface ExGroup { key: string; title: string; type?: ObjType; count: number; subs: ExSub[] }
 const lsRead = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };

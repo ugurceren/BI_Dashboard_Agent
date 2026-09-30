@@ -164,7 +164,7 @@ export const mockApi: Api = {
   },
   async myAccess() {
     const user = await this.me();
-    return { user, role: "analyst", policy: { allowed_schemas: ["dbo"], denied_tables: [], allow_pii: false, max_rows: 5000 }, tables: [], views: [], datasets: [] };
+    return { user, role: "analyst", policy: { allowed_schemas: ["dbo"], denied_tables: [], allow_pii: false, max_rows: 5000 }, objects: [] };
   },
   async getConnections() {
     const f = { server: "localhost", database: "AdventureWorksDW2025", auth: "windows" as const, username: "", encrypt: true, trust_server_certificate: true };
