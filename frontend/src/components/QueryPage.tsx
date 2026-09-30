@@ -6,14 +6,24 @@ import { keymap, placeholder } from "@codemirror/view";
 import { EditorState, Prec } from "@codemirror/state";
 import { sql as sqlLang, MSSQL } from "@codemirror/lang-sql";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { KIND_LABEL, buildCompletion } from "../lib/sqlComplete";
+import { buildCompletion } from "../lib/sqlComplete";
 import { tags as t } from "@lezer/highlight";
 import type { Api } from "../api/client";
-import type { QueryObject, QueryRunResult, QuerySchema } from "../types";
+import type { QueryDataset, QueryObject, QueryProcedure, QueryRunResult, QuerySchema } from "../types";
 import "./query.css";
 
 const LS_SQL = "bi.query.sql";
 const LS_EXPLORER = "bi.query.explorerCollapsed";
+const LS_GROUPBY = "bi.query.groupBy";
+type GroupBy = "domain" | "type";
+type ObjType = "table" | "view" | "procedure" | "dataset";
+const TYPE_ORDER: ObjType[] = ["table", "view", "procedure", "dataset"];
+const TYPE_TITLE: Record<ObjType, string> = { table: "Tablolar", view: "View'lar", procedure: "Stored procedure'ler", dataset: "Rapor dataset'leri" };
+const TYPE_SHORT: Record<ObjType, string> = { table: "Tablo", view: "View", procedure: "SP", dataset: "Dataset" };
+const TYPE_BADGE: Record<ObjType, string> = { table: "T", view: "V", procedure: "SP", dataset: "D" };
+const typeOf = (kind: string): ObjType => (kind === "view" ? "view" : "table");
+interface ExSub { key: string; title: string; type?: ObjType; objs: QueryObject[]; ds: QueryDataset[]; sps: QueryProcedure[] }
+interface ExGroup { key: string; title: string; type?: ObjType; count: number; subs: ExSub[] }
 const lsRead = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsWrite = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* yoksay */ } };
 
@@ -68,8 +78,10 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  // grup açık/kapalı: dataset'ler kapalı gelir, tablolar/view'lar açık
-  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({ datasets: false });
+  // grup açık/kapalı (mod başına): nesne tipi modunda dataset'ler kapalı gelir
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({ "type:dataset": false });
+  const [groupBy, setGroupByState] = useState<GroupBy>(() => (lsRead(LS_GROUPBY) === "type" ? "type" : "domain"));
+  const setGroupBy = (g: GroupBy) => { setGroupByState(g); lsWrite(LS_GROUPBY, g); };
   const [collapsed, setCollapsedState] = useState(() => lsRead(LS_EXPLORER) === "1");
   const setCollapsed = (v: boolean) => { setCollapsedState(v); lsWrite(LS_EXPLORER, v ? "1" : "0"); };
   const [running, setRunning] = useState(false);
@@ -161,22 +173,97 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
     replaceAll(`SELECT TOP 100 ${list}\nFROM ${o.name};\n`, true);
   };
 
-  const groups = useMemo(() => {
+  const groups = useMemo<ExGroup[]>(() => {
     if (!schema) return [];
     const q = filter.trim().toLocaleLowerCase("tr");
     const match = (o: QueryObject) => !q || [o.name, o.business_name, o.subject_area, ...o.columns.map((c) => `${c.name} ${c.business_name ?? ""}`)]
       .join(" ").toLocaleLowerCase("tr").includes(q);
-    const tables = schema.objects.filter((o) => o.kind !== "view" && match(o));
-    const views = schema.objects.filter((o) => o.kind === "view" && match(o));
-    const areas = new Map<string, QueryObject[]>();
-    for (const o of tables) areas.set(o.subject_area, [...(areas.get(o.subject_area) ?? []), o]);
-    const ds = schema.datasets.filter((d) => !q || `${d.id} ${d.report_title} ${d.description ?? ""}`.toLocaleLowerCase("tr").includes(q));
-    return [
-      ...[...areas.entries()].sort((a, b) => a[0].localeCompare(b[0], "tr")).map(([area, items]) => ({ key: `t:${area}`, title: area, items })),
-      ...(views.length ? [{ key: "views", title: "Onaylı view'lar", items: views }] : []),
-      { key: "datasets", title: "Rapor dataset'leri", items: [] as QueryObject[], datasets: ds },
+    const leaves: { type: ObjType; domain: string; o?: QueryObject; d?: QueryDataset; p?: QueryProcedure }[] = [
+      ...schema.objects.filter(match).map((o) => ({ type: typeOf(o.kind), domain: o.subject_area || "Diğer", o })),
+      ...(schema.procedures ?? []).filter((p) => !q || `${p.name} ${p.description ?? ""} ${p.subject_area} ${p.parameters.join(" ")}`.toLocaleLowerCase("tr").includes(q))
+        .map((p) => ({ type: "procedure" as ObjType, domain: p.subject_area || "Diğer", p })),
+      ...schema.datasets.filter((d) => !q || `${d.id} ${d.report_title} ${d.description ?? ""} ${d.subject_area ?? ""}`.toLocaleLowerCase("tr").includes(q))
+        .map((d) => ({ type: "dataset" as ObjType, domain: d.subject_area || "Diğer", d })),
     ];
-  }, [schema, filter]);
+    const byTr = (a: string, b: string) => (a === "Diğer" ? 1 : b === "Diğer" ? -1 : a.localeCompare(b, "tr"));
+    const outer = new Map<string, Map<string, typeof leaves>>();
+    for (const l of leaves) {
+      const [g, sub] = groupBy === "domain" ? [l.domain, l.type] : [l.type, l.domain];
+      const m = outer.get(g) ?? new Map();
+      m.set(sub, [...(m.get(sub) ?? []), l]);
+      outer.set(g, m);
+    }
+    const gKeys = [...outer.keys()].sort(groupBy === "domain" ? byTr : (a, b) => TYPE_ORDER.indexOf(a as ObjType) - TYPE_ORDER.indexOf(b as ObjType));
+    return gKeys.map((g) => {
+      const m = outer.get(g)!;
+      const sKeys = [...m.keys()].sort(groupBy === "domain" ? (a, b) => TYPE_ORDER.indexOf(a as ObjType) - TYPE_ORDER.indexOf(b as ObjType) : byTr);
+      const subs: ExSub[] = sKeys.map((k) => {
+        const ls = m.get(k)!;
+        return {
+          key: `${groupBy}:${g}:${k}`, title: groupBy === "domain" ? TYPE_SHORT[k as ObjType] : k,
+          type: groupBy === "domain" ? (k as ObjType) : undefined,
+          objs: ls.filter((l) => l.o).map((l) => l.o!), ds: ls.filter((l) => l.d).map((l) => l.d!),
+          sps: ls.filter((l) => l.p).map((l) => l.p!),
+        };
+      });
+      return { key: `${groupBy}:${g}`, title: groupBy === "domain" ? g : TYPE_TITLE[g as ObjType],
+        type: groupBy === "type" ? (g as ObjType) : undefined, count: subs.reduce((n, x) => n + x.objs.length + x.ds.length + x.sps.length, 0), subs };
+    });
+  }, [schema, filter, groupBy]);
+
+  const renderObj = (o: QueryObject) => {
+    const isOpen = open[o.id] || (!!filter.trim() && o.columns.some((c) => `${c.name} ${c.business_name ?? ""}`.toLocaleLowerCase("tr").includes(filter.trim().toLocaleLowerCase("tr"))));
+    return (
+      <div key={o.id} className="qp-obj">
+        <div className="qp-obj-row">
+          <button type="button" className="qp-caret" onClick={() => setOpen((st) => ({ ...st, [o.id]: !isOpen }))} aria-expanded={isOpen} aria-label="Kolonları göster">
+            <Ico size={11} d={isOpen ? "M4 6l4 4 4-4" : "M6 4l4 4-4 4"} />
+          </button>
+          <button type="button" className="qp-obj-name" onClick={() => insert(o.name)} title={`${o.business_name ?? ""}${o.description ? "\n" + o.description : ""}\nTıkla: editöre ekle`}>
+            <span className={`qp-kind k-${typeOf(o.kind)}`}>{TYPE_BADGE[typeOf(o.kind)]}</span>
+            <span className="qp-obj-label">{o.name}</span>
+          </button>
+          <button type="button" className="qp-mini" onClick={() => preview(o)} title="İlk 100 satırı getir"><Ico size={12} d="M5 3.5 12 8l-7 4.5z" /></button>
+        </div>
+        {o.business_name ? <div className="qp-obj-bn muted">{o.business_name}</div> : null}
+        {isOpen ? (
+          <ul className="qp-cols">
+            {o.columns.map((c) => (
+              <li key={c.name}>
+                <button type="button" className={`qp-col${c.blocked ? " is-blocked" : ""}`} onClick={() => insert(c.name)}
+                  title={[c.business_name, c.description, c.blocked ? "Kişisel veri (PII): bu rolle sorgulanamaz" : ""].filter(Boolean).join("\n")}>
+                  <span className="qp-col-name">{c.blocked ? "🔒 " : ""}{c.name}</span>
+                  <span className="qp-col-type">{c.type}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    );
+  };
+  const renderSp = (sp: QueryProcedure) => (
+    <div key={sp.id} className="qp-obj">
+      <div className="qp-obj-row">
+        <span className="qp-caret" aria-hidden="true" />
+        <button type="button" className="qp-obj-name" onClick={() => insert(sp.name)}
+          title={[sp.description, sp.parameters.length ? `Parametreler: ${sp.parameters.join(", ")}` : "Parametre yok",
+            sp.tables.length ? `Kullandığı tablolar: ${sp.tables.join(", ")}` : "",
+            "Salt-okunur sorgu ekranında SP çalıştırılamaz (EXEC engelli). Tıkla: adını editöre ekle"].filter(Boolean).join("\n")}>
+          <span className="qp-kind k-procedure">SP</span>
+          <span className="qp-obj-label">{sp.name}</span>
+        </button>
+      </div>
+      <div className="qp-obj-bn muted">{sp.parameters.length ? sp.parameters.join(", ") : sp.description || "Parametre yok"}</div>
+    </div>
+  );
+  const renderDs = (d: QueryDataset) => (
+    <button key={`${d.report_id}:${d.id}`} type="button" className="qp-ds" onClick={() => replaceAll(`-- ${d.report_title} · ${d.id}\n${d.sql.trim()}\n`)}
+      title={`${d.description ?? ""}${d.domains?.length ? `\nDomain: ${d.domains.join(", ")}` : ""}\nTıkla: SQL'i editöre yükle`}>
+      <span className="qp-ds-id"><span className="qp-kind k-dataset">D</span>{d.id}</span>
+      <span className="qp-ds-rep muted">{d.report_title}{d.view ? ` · ${d.view}` : ""}</span>
+    </button>
+  );
 
   const download = () => {
     if (!result?.ok) return;
@@ -206,6 +293,15 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
               <Ico d="M10 3.5 5.5 8 10 12.5" />
             </button>
           </div>
+          <div className="qp-groupby" role="group" aria-label="Gruplama">
+            <span className="muted small">Grupla</span>
+            <div className="qp-seg">
+              <button type="button" className={groupBy === "domain" ? "is-on" : undefined} onClick={() => setGroupBy("domain")} aria-pressed={groupBy === "domain"}
+                title="Domain (konu alanı) → nesne tipi">Domain</button>
+              <button type="button" className={groupBy === "type" ? "is-on" : undefined} onClick={() => setGroupBy("type")} aria-pressed={groupBy === "type"}
+                title="Nesne tipi (tablo / view / SP / dataset) → domain">Nesne tipi</button>
+            </div>
+          </div>
           <label className="qp-search">
             <Ico d="M7 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM10.7 10.7 14 14" />
             <input type="search" placeholder="Tablo, kolon, alan ara…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Nesne ara" />
@@ -214,58 +310,31 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
         <div className="qp-tree">
           {loadError ? <p className="qp-err">Şema alınamadı: {loadError}</p> : null}
           {!schema && !loadError ? <p className="muted small qp-pad"><span className="spinner" /> Yükleniyor…</p> : null}
+          {schema && !groups.length ? <p className="muted small qp-pad">Aramaya uyan nesne yok.</p> : null}
           {groups.map((g) => {
-            const count = "datasets" in g && g.datasets ? g.datasets.length : g.items.length;
-            const gOpen = filter.trim() ? count > 0 : (groupOpen[g.key] ?? true);
+            const gOpen = filter.trim() ? g.count > 0 : (groupOpen[g.key] ?? true);
             return (
             <section key={g.key} className="qp-group">
-              <button type="button" className="qp-group-title" onClick={() => setGroupOpen((s) => ({ ...s, [g.key]: !gOpen }))} aria-expanded={gOpen}>
+              <button type="button" className="qp-group-title" onClick={() => setGroupOpen((st) => ({ ...st, [g.key]: !gOpen }))} aria-expanded={gOpen}>
                 <Ico size={10} d={gOpen ? "M4 6l4 4 4-4" : "M6 4l4 4-4 4"} />
+                {g.type ? <span className={`qp-kind k-${g.type}`}>{TYPE_BADGE[g.type]}</span> : null}
                 <span className="qp-group-name">{g.title}</span>
-                <span className="qp-count">{count}</span>
+                <span className="qp-count">{g.count}</span>
               </button>
-              {gOpen ? <>
-              {g.items.map((o) => {
-                const isOpen = open[o.id] || (!!filter.trim() && o.columns.some((c) => `${c.name} ${c.business_name ?? ""}`.toLocaleLowerCase("tr").includes(filter.trim().toLocaleLowerCase("tr"))));
-                return (
-                  <div key={o.id} className="qp-obj">
-                    <div className="qp-obj-row">
-                      <button type="button" className="qp-caret" onClick={() => setOpen((s) => ({ ...s, [o.id]: !isOpen }))} aria-expanded={isOpen} aria-label="Kolonları göster">
-                        <Ico size={11} d={isOpen ? "M4 6l4 4 4-4" : "M6 4l4 4-4 4"} />
-                      </button>
-                      <button type="button" className="qp-obj-name" onClick={() => insert(o.name)} title={`${o.business_name ?? ""}${o.description ? "\n" + o.description : ""}\nTıkla: editöre ekle`}>
-                        <span className={`qp-kind k-${o.kind}`}>{(KIND_LABEL[o.kind] ?? o.kind).slice(0, 1)}</span>
-                        <span className="qp-obj-label">{o.name}</span>
-                      </button>
-                      <button type="button" className="qp-mini" onClick={() => preview(o)} title="İlk 100 satırı getir"><Ico size={12} d="M5 3.5 12 8l-7 4.5z" /></button>
+              {gOpen ? g.subs.map((sub) => (
+                <div key={sub.key} className="qp-sub">
+                  {(
+                    <div className="qp-sub-title">
+                      {sub.type ? <span className={`qp-kind qp-kind-sm k-${sub.type}`}>{TYPE_BADGE[sub.type]}</span> : null}
+                      <span>{sub.title}</span>
+                      <span className="qp-sub-count">{sub.objs.length + sub.ds.length + sub.sps.length}</span>
                     </div>
-                    {o.business_name ? <div className="qp-obj-bn muted">{o.business_name}</div> : null}
-                    {isOpen ? (
-                      <ul className="qp-cols">
-                        {o.columns.map((c) => (
-                          <li key={c.name}>
-                            <button type="button" className={`qp-col${c.blocked ? " is-blocked" : ""}`} onClick={() => insert(c.name)}
-                              title={[c.business_name, c.description, c.blocked ? "Kişisel veri (PII): bu rolle sorgulanamaz" : ""].filter(Boolean).join("\n")}>
-                              <span className="qp-col-name">{c.blocked ? "🔒 " : ""}{c.name}</span>
-                              <span className="qp-col-type">{c.type}</span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {"datasets" in g && g.datasets ? (
-                g.datasets.length ? g.datasets.map((d) => (
-                  <button key={`${d.report_id}:${d.id}`} type="button" className="qp-ds" onClick={() => replaceAll(`-- ${d.report_title} · ${d.id}\n${d.sql.trim()}\n`)}
-                    title={`${d.description ?? ""}\nTıkla: SQL'i editöre yükle`}>
-                    <span className="qp-ds-id">{d.id}</span>
-                    <span className="qp-ds-rep muted">{d.report_title}{d.view ? ` · ${d.view}` : ""}</span>
-                  </button>
-                )) : <p className="muted small qp-pad">Yetkili dataset yok.</p>
-              ) : null}
-              </> : null}
+                  )}
+                  {sub.objs.map(renderObj)}
+                  {sub.sps.map(renderSp)}
+                  {sub.ds.map(renderDs)}
+                </div>
+              )) : null}
             </section>
             );
           })}

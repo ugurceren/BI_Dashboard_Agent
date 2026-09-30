@@ -2,7 +2,8 @@
 import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import type { QueryObject, QuerySchema } from "../types";
 
-export const KIND_LABEL: Record<string, string> = { fact: "Olgu", dimension: "Boyut", bridge: "Köprü", view: "View", table: "Tablo" };
+// nesne tipi: tablo (olgu / boyut / köprü ayrımı gösterilmez) ya da view
+export const KIND_LABEL: Record<string, string> = { fact: "Tablo", dimension: "Tablo", bridge: "Tablo", view: "View", table: "Tablo" };
 
 /** "dbo.FactInternetSales" → ["dbo", "FactInternetSales"] */
 export const split = (name: string) => {

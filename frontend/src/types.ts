@@ -352,9 +352,11 @@ export interface QueryObject {
   id: string; name: string; kind: string; business_name?: string; description?: string; subject_area: string;
   row_count?: number | null; columns: QueryColumn[];
 }
-export interface QueryDataset { report_id: string; report_title: string; id: string; description?: string; sql: string; view?: string | null }
+export interface QueryDataset { report_id: string; report_title: string; id: string; description?: string; sql: string; view?: string | null; subject_area?: string; domains?: string[] }
+export interface QueryProcedure { id: string; name: string; description?: string; parameters: string[]; tables: string[]; subject_area: string }
 export interface QuerySchema {
   role: string; max_rows: number; allow_pii: boolean; allowed_schemas: string[]; objects: QueryObject[]; datasets: QueryDataset[];
+  procedures?: QueryProcedure[];
 }
 export interface QueryRunResult {
   ok: boolean; errors?: string[]; warnings?: string[]; columns?: string[]; types?: string[];

@@ -238,13 +238,22 @@ def query_schema(request: Request) -> dict[str, Any]:
     kinds = dd._table_kinds()
     allowed = {x.lower() for x in pol.allowed_schemas}
     denied = {x.lower() for x in pol.denied_tables}
+    from app.harness.session import _source_tables
+    view_sources = {str(v.get("name", "")).lower(): _source_tables([{"sql": v.get("original_sql")}])
+                    for v in ViewRegistry(get_settings().views_registry).all() if v.get("original_sql")}
     objects = []
     for t in dd.tables.values():
         if t.name.split(".")[0] not in allowed or t.name in denied:
             continue
+        kind = kinds.get(t.name) or "table"
+        # view'ın domain'i: kaynak SQL'indeki tabloların konu alanı (sözlükteki "Onaylı rapor view'ları" değil)
+        area = t.subject_area
+        if kind == "view":
+            src = view_sources.get(t.name)
+            area = ((_report_domains(src, kinds) if src else []) or _report_domains([t.name], kinds) or [t.subject_area])[0]
         objects.append({
-            "id": t.name, "name": t.display_name or t.name, "kind": kinds.get(t.name) or "table",
-            "business_name": t.business_name, "description": t.description, "subject_area": t.subject_area or "Diğer",
+            "id": t.name, "name": t.display_name or t.name, "kind": kind,
+            "business_name": t.business_name, "description": t.description, "subject_area": area or "Diğer",
             "row_count": t.row_count,
             "columns": [{"name": c.display_name or c.name, "type": c.data_type, "business_name": c.business_name,
                          "description": c.description, "pii": c.is_pii, "blocked": c.is_pii and not pol.allow_pii}
@@ -259,10 +268,52 @@ def query_schema(request: Request) -> dict[str, Any]:
             continue
         for d in s.datasets:
             if state.services.validator.validate(d.sql, pol).ok:
+                doms = _report_domains(_source_tables([d.model_dump()]), kinds)
                 datasets.append({"report_id": s.id, "report_title": s.title, "id": d.id,
-                                 "description": d.description, "sql": d.sql, "view": d.view})
+                                 "description": d.description, "sql": d.sql, "view": d.view,
+                                 "subject_area": doms[0] if doms else "Diğer", "domains": doms})
     return {"role": ident.role, "max_rows": min(QUERY_MAX_ROWS, pol.max_rows), "allow_pii": pol.allow_pii,
-            "allowed_schemas": pol.allowed_schemas, "objects": objects, "datasets": datasets}
+            "allowed_schemas": pol.allowed_schemas, "objects": objects, "datasets": datasets,
+            "procedures": _procedures(allowed, denied, kinds)}
+
+
+def _procedures(allowed: set[str], denied: set[str], kinds: dict[str, str]) -> list[dict[str, Any]]:
+    """Yetkili şemalardaki stored procedure'ler (yalnız listeleme; salt-okunur ekranda EXEC engellidir).
+    Domain: SP'nin kullandığı sözlük tablolarının konu alanı (sys.sql_expression_dependencies)."""
+    con = state.services.connector
+    if getattr(con, "dialect", "") != "tsql":
+        return []
+    try:
+        procs = con.execute(
+            "SELECT p.object_id, SCHEMA_NAME(p.schema_id), p.name, CAST(ep.value AS nvarchar(400)) "
+            "FROM sys.procedures p LEFT JOIN sys.extended_properties ep ON ep.major_id = p.object_id AND ep.minor_id = 0 "
+            "AND ep.class = 1 AND ep.name = 'MS_Description' WHERE p.is_ms_shipped = 0", 5_000).rows
+        if not procs:
+            return []
+        params = con.execute("SELECT pr.object_id, pr.name, TYPE_NAME(pr.user_type_id) FROM sys.parameters pr "
+                             "JOIN sys.procedures p ON p.object_id = pr.object_id WHERE p.is_ms_shipped = 0 "
+                             "ORDER BY pr.object_id, pr.parameter_id", 50_000).rows
+        deps = con.execute("SELECT d.referencing_id, COALESCE(d.referenced_schema_name, 'dbo'), d.referenced_entity_name "
+                           "FROM sys.sql_expression_dependencies d JOIN sys.procedures p ON p.object_id = d.referencing_id "
+                           "WHERE p.is_ms_shipped = 0 AND d.referenced_entity_name IS NOT NULL", 50_000).rows
+    except Exception as e:  # noqa: BLE001 — veri kaynağı yoksa SP listesi boş
+        log.info("Stored procedure'ler okunamadı: %s", e)
+        return []
+    by_params: dict[int, list[str]] = {}
+    for oid, name, typ in params:
+        by_params.setdefault(oid, []).append(f"{name} {typ}")
+    by_deps: dict[int, list[str]] = {}
+    for oid, sch, ent in deps:
+        by_deps.setdefault(oid, []).append(f"{sch}.{ent}".lower())
+    out = []
+    for oid, sch, name, desc in procs:
+        full = f"{sch}.{name}"
+        if sch.lower() not in allowed or full.lower() in denied:
+            continue
+        doms = _report_domains(sorted(set(by_deps.get(oid, []))), kinds)
+        out.append({"id": full.lower(), "name": full, "description": desc or "", "parameters": by_params.get(oid, []),
+                    "tables": sorted(set(by_deps.get(oid, []))), "subject_area": doms[0] if doms else "Diğer"})
+    return sorted(out, key=lambda x: x["name"].lower())
 
 
 class QueryIn(BaseModel):

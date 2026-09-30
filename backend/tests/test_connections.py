@@ -140,3 +140,32 @@ def test_excel_and_mysql_dictionary_kinds_resolved(settings, services, conn_file
     d = conns.load_connections()["dictionary"]
     assert d["kind"] == "mysql" and d["port"] == 3306 and d["auth"] == "sql" and "pw" not in str(d)
     assert conns.saved_dictionary()[0]["server"] == "mysqlhost" and conns.dictionary_odbc(settings) is None
+
+
+def test_query_schema_lists_procedures_with_domain(settings, services, monkeypatch):
+    """Stored procedure'ler: yalnız yetkili şemalar, parametreler ve kullandığı tablolardan domain."""
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.data.connector import QueryResult
+
+    class Con:
+        dialect = "tsql"
+
+        def execute(self, sql, max_rows):
+            if "FROM sys.procedures p LEFT JOIN" in sql:
+                return QueryResult([], [], [[1, "dbo", "uspSatisOzeti", "Aylık satış özeti"], [2, "secret", "uspGizli", None]])
+            if "sys.parameters" in sql:
+                return QueryResult([], [], [[1, "@Yil", "int"], [1, "@Bolge", "nvarchar"]])
+            if "sql_expression_dependencies" in sql:
+                return QueryResult([], [], [[1, "dbo", "FactInternetSales"], [1, "dbo", "DimProduct"]])
+            return QueryResult([], [], [])
+
+    m.state.services = services
+    monkeypatch.setattr(services, "connector", Con())
+    monkeypatch.setattr(m.state, "store", type("S", (), {"list": lambda self: []})(), raising=False)
+    d = TestClient(m.app).get("/api/query/schema").json()
+    assert [p["name"] for p in d["procedures"]] == ["dbo.uspSatisOzeti"]  # 'secret' şemasına yetki yok
+    sp = d["procedures"][0]
+    assert sp["parameters"] == ["@Yil int", "@Bolge nvarchar"] and sp["description"] == "Aylık satış özeti"
+    assert sp["subject_area"] == services.dictionary.tables["dbo.factinternetsales"].subject_area

@@ -84,3 +84,24 @@
 .qp-explorer-mini { align-items: center; padding-top: 12px; gap: 12px; }
 .qp-ex-vertical { writing-mode: vertical-rl; transform: rotate(180deg); border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; padding: 6px 0; }
 .qp-ex-vertical:hover { color: var(--text); }
+
+/* gruplama: domain ↔ nesne tipi */
+.qp-groupby { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qp-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--surface-2); }
+.qp-seg button { border: 0; background: transparent; padding: 4px 11px; font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.qp-seg button + button { border-left: 1px solid var(--border); }
+.qp-seg button.is-on { background: var(--accent); color: #fff; }
+.qp-group-title .qp-kind { width: 16px; height: 16px; font-size: 9.5px; }
+.qp-sub { margin: 0 0 4px 10px; padding-left: 8px; border-left: 1px solid var(--border); }
+.qp-sub-title { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; color: var(--text-2); padding: 5px 4px 2px; text-transform: none; }
+.qp-sub-count { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--muted); }
+.qp-kind-sm { width: 14px; height: 14px; font-size: 9px; border-radius: 4px; }
+.qp-kind.k-dataset { background: #0ea5e9; }
+.qp-kind.k-table { background: #64748b; }
+.qp-ds-id { display: inline-flex; align-items: center; gap: 6px; }
+.qp-ds-id .qp-kind { width: 16px; height: 16px; font-size: 9.5px; }
+.qp-ds-rep { padding-left: 22px; }
+.qp-kind.k-table { background: #4c8dff; }
+.qp-kind.k-view { background: #8b5cf6; }
+.qp-kind.k-procedure { background: #f59e0b; font-size: 8px; letter-spacing: -.02em; }
+.qp-group-title .qp-kind.k-procedure, .qp-ds-id .qp-kind.k-procedure { font-size: 8px; }
