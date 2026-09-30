@@ -4,6 +4,7 @@ import { httpApi, type Api } from "./api/client";
 import { mockApi } from "./api/mock";
 import { TopBar } from "./components/TopBar";
 import { QueryPage } from "./components/QueryPage";
+import { SettingsPage } from "./components/SettingsPage";
 import { DashboardRenderer } from "./dashboard/DashboardRenderer";
 import { Composer, EmptyChat, PHASES, PhaseStepper, Transcript } from "./components/Chat";
 import { RightPanel, type Tab } from "./components/RightPanel";
@@ -25,6 +26,7 @@ function parseRoute(): { view: Page; id: string | null } {
   if (h.startsWith("#/access")) return { view: "access", id: null };
   if (h.startsWith("#/model")) return { view: "model", id: null };
   if (h.startsWith("#/query")) return { view: "query", id: null };
+  if (h.startsWith("#/settings")) return { view: "settings", id: null };
   return { view: "home", id: null };
 }
 const LS_SIDEBAR = "bi.sidebarCollapsed";
@@ -89,20 +91,19 @@ export default function App() {
   }, []);
 
   // ---- sağlık ----
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      try {
-        const h = await api.health();
-        if (alive) { setHealth(h); setHealthError(null); }
-      } catch (e) {
-        if (alive) { setHealth(null); setHealthError(errMsg(e)); }
-      }
-    };
-    void tick();
-    const t = window.setInterval(tick, 30000);
-    return () => { alive = false; window.clearInterval(t); };
+  const refreshHealth = useCallback(async () => {
+    try {
+      const h = await api.health();
+      setHealth(h); setHealthError(null);
+    } catch (e) {
+      setHealth(null); setHealthError(errMsg(e));
+    }
   }, [api]);
+  useEffect(() => {
+    void refreshHealth();
+    const t = window.setInterval(() => void refreshHealth(), 30000);
+    return () => window.clearInterval(t);
+  }, [refreshHealth]);
 
   // kullanıcı: backend geç açılırsa bulunana kadar tekrar dene
   useEffect(() => {
@@ -469,6 +470,8 @@ export default function App() {
       />
       {route.view === "access" ? (
         <main className="main"><AccessPage api={api} onOpenReport={goReport} /></main>
+      ) : route.view === "settings" ? (
+        <main className="main"><SettingsPage api={api} onSaved={() => { void refreshHealth(); void refreshSessions(); }} /></main>
       ) : route.view === "query" ? (
         <main className="main"><QueryPage api={api} theme={theme} /></main>
       ) : route.view === "model" ? (

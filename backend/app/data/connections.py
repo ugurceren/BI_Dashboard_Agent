@@ -1,0 +1,247 @@
+"""Arayüzden seçilen SQL Server bağlantıları (veri kaynağı + veri sözlüğü).
+
+config/connections.json varsa .env'deki SQLSERVER_ODBC ve dictionary.toml'daki odbc'nin yerine geçer.
+Yoksa eski ayarlar aynen kullanılır (geriye uyumlu).
+
+  data:        { server, database, auth: windows|sql, username, password_enc, encrypt, trust_server_certificate }
+  dictionary:  aynı alanlar + same_as_data (true → veri kaynağının sunucusu / kimlik bilgileri, yalnız veritabanı ayrı;
+               varsayılan veritabanı BI_Meta)
+
+SQL şifresi Windows DPAPI ile (yalnız bu Windows kullanıcısı çözebilir) şifrelenip saklanır, API'den geri dönmez.
+Sürücü her zaman otomatik seçilir (odbc.best_sql_server_driver: 18 → 17 …).
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import re
+import socket
+import sys
+import threading
+from pathlib import Path
+from typing import Any
+
+from app.config import BACKEND_DIR, Settings, load_toml
+from app.data.odbc import best_sql_server_driver, installed_drivers
+
+log = logging.getLogger(__name__)
+
+CONNECTIONS_FILE = BACKEND_DIR / "config" / "connections.json"
+DEFAULT_DICTIONARY_DB = "BI_Meta"
+_lock = threading.Lock()
+
+
+# ------------------------------------------------------------------ şifre (DPAPI)
+def _dpapi(data: bytes, protect: bool) -> bytes:
+    import ctypes
+    from ctypes import wintypes
+
+    class BLOB(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    buf = ctypes.create_string_buffer(data, len(data))
+    src, out = BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), BLOB()
+    fn = ctypes.windll.crypt32.CryptProtectData if protect else ctypes.windll.crypt32.CryptUnprotectData
+    ok = fn(ctypes.byref(src), None if not protect else "BI Rapor Agent", None, None, None, 0x1, ctypes.byref(out))  # UI_FORBIDDEN
+    if not ok:
+        raise OSError("DPAPI işlemi başarısız")
+    try:
+        return ctypes.string_at(out.pbData, out.cbData)
+    finally:
+        ctypes.windll.kernel32.LocalFree(out.pbData)
+
+
+def protect(password: str) -> str:
+    if not password:
+        return ""
+    raw = password.encode("utf-8")
+    if sys.platform == "win32":
+        return "dpapi:" + base64.b64encode(_dpapi(raw, True)).decode()
+    log.warning("DPAPI yok (Windows dışı); SQL şifresi yalnızca base64 ile saklanıyor.")
+    return "b64:" + base64.b64encode(raw).decode()
+
+
+def unprotect(token: str) -> str:
+    if not token:
+        return ""
+    kind, _, body = token.partition(":")
+    raw = base64.b64decode(body)
+    return (_dpapi(raw, False) if kind == "dpapi" else raw).decode("utf-8")
+
+
+# ------------------------------------------------------------------ bağlantı cümlesi
+def _braced(v: str) -> str:
+    return "{" + v.replace("}", "}}") + "}" if re.search(r"[;{}=\s]", v) else v
+
+
+def build_odbc(c: dict[str, Any], database: str | None = None) -> str:
+    """Alanlardan ODBC bağlantı cümlesi (sürücü otomatik)."""
+    driver = best_sql_server_driver(installed_drivers()) or "ODBC Driver 18 for SQL Server"
+    parts = [f"DRIVER={{{driver}}}", f"SERVER={c.get('server') or 'localhost'}"]
+    db = database if database is not None else c.get("database")
+    if db:
+        parts.append(f"DATABASE={_braced(db)}")
+    if (c.get("auth") or "windows") == "sql":
+        parts.append(f"UID={_braced(c.get('username') or '')}")
+        pwd = c.get("password")
+        if pwd is None:
+            pwd = unprotect(c.get("password_enc") or "")
+        parts.append("PWD={" + pwd.replace("}", "}}") + "}")
+    else:
+        parts.append("Trusted_Connection=yes")
+    parts.append(f"Encrypt={'yes' if c.get('encrypt', True) else 'no'}")
+    if c.get("trust_server_certificate", True):
+        parts.append("TrustServerCertificate=yes")
+    parts.append("APP=BI Rapor Agent")
+    return ";".join(parts) + ";"
+
+
+def parse_odbc(conn: str) -> dict[str, Any]:
+    """Mevcut .env / toml bağlantı cümlesini form alanlarına çevirir (şifre dönmez)."""
+    kv: dict[str, str] = {}
+    for m in re.finditer(r"\s*([^=;]+?)\s*=\s*(\{(?:[^}]|\}\})*\}|[^;]*)\s*;?", conn or ""):
+        v = m.group(2)
+        kv[m.group(1).strip().lower()] = v[1:-1].replace("}}", "}") if v.startswith("{") else v
+    sql = "uid" in kv or "user id" in kv
+    yes = lambda k, d: (kv.get(k, d) or d).lower() in ("yes", "true", "mandatory", "strict")  # noqa: E731
+    return {"server": kv.get("server", kv.get("data source", "localhost")),
+            "database": kv.get("database", kv.get("initial catalog", "")),
+            "auth": "sql" if sql else "windows", "username": kv.get("uid", kv.get("user id", "")),
+            "has_password": bool(kv.get("pwd") or kv.get("password")),
+            "encrypt": yes("encrypt", "yes" if "18" in kv.get("driver", "") else "no"),
+            "trust_server_certificate": yes("trustservercertificate", "no")}
+
+
+# ------------------------------------------------------------------ dosya
+def load_connections() -> dict[str, Any] | None:
+    try:
+        return json.loads(CONNECTIONS_FILE.read_text(encoding="utf-8")) if CONNECTIONS_FILE.exists() else None
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("connections.json okunamadı: %s", e)
+        return None
+
+
+def save_connections(cfg: dict[str, Any]) -> None:
+    with _lock:
+        CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CONNECTIONS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(CONNECTIONS_FILE)
+
+
+def dictionary_conn_fields(cfg: dict[str, Any]) -> dict[str, Any]:
+    d = dict(cfg.get("dictionary") or {})
+    if d.get("same_as_data", True):
+        base = dict(cfg.get("data") or {})
+        base["database"] = d.get("database") or DEFAULT_DICTIONARY_DB
+        return base
+    return d
+
+
+def dictionary_sources() -> dict[str, list[str]] | None:
+    """Arayüzden seçilen sözlük tabloları (rol → tablolar); yoksa dictionary.toml sorguları kullanılır."""
+    cfg = load_connections()
+    if cfg and cfg.get("data"):
+        src = (cfg.get("dictionary") or {}).get("sources")
+        return src or None
+    return None
+
+
+def data_odbc(settings: Settings) -> str:
+    cfg = load_connections()
+    return build_odbc(cfg["data"]) if cfg and cfg.get("data") else settings.sqlserver_odbc
+
+
+def dictionary_odbc(settings: Settings) -> str | None:
+    """Sözlük bağlantısı: connections.json → dictionary.toml odbc → (None: veri bağlantısı)."""
+    cfg = load_connections()
+    if cfg and cfg.get("data"):
+        return build_odbc(dictionary_conn_fields(cfg))
+    toml = load_toml(settings.dictionary_config)
+    return toml.get("odbc") if toml.get("source", "data") == "odbc" else None
+
+
+def effective(settings: Settings) -> dict[str, Any]:
+    """Arayüz formu için şu an geçerli ayarlar (şifre hariç)."""
+    cfg = load_connections()
+    if cfg and cfg.get("data"):
+        data = {k: v for k, v in cfg["data"].items() if k not in ("password", "password_enc")}
+        data["has_password"] = bool(cfg["data"].get("password_enc"))
+        dic = {k: v for k, v in (cfg.get("dictionary") or {}).items() if k not in ("password", "password_enc")}
+        dic["has_password"] = bool((cfg.get("dictionary") or {}).get("password_enc"))
+        dic.setdefault("same_as_data", True)
+        dic.setdefault("database", DEFAULT_DICTIONARY_DB)
+        dic["sources"] = dic.get("sources") or _default_sources()
+        return {"source": "ui", "data": data, "dictionary": dic}
+    data = parse_odbc(settings.sqlserver_odbc)
+    toml_odbc = dictionary_odbc(settings)
+    dic = parse_odbc(toml_odbc) if toml_odbc else {**data, "database": data["database"]}
+    same = all(dic.get(k) == data.get(k) for k in ("server", "auth", "username"))
+    return {"source": "env", "data": data,
+            "dictionary": {**dic, "same_as_data": same, "database": dic.get("database") or DEFAULT_DICTIONARY_DB,
+                           "sources": _default_sources()}}
+
+
+def _default_sources() -> dict[str, list[str]]:
+    from app.dictionary.sources import DEFAULT_SOURCES
+    return {k: list(v) for k, v in DEFAULT_SOURCES.items()}
+
+
+# ------------------------------------------------------------------ keşif
+def local_instances() -> list[str]:
+    """Bu bilgisayarda kurulu SQL Server instance'ları (kayıt defteri)."""
+    out: list[str] = []
+    if sys.platform != "win32":
+        return out
+    import winreg
+
+    host = socket.gethostname()
+    for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL",
+                                0, winreg.KEY_READ | view) as k:
+                i = 0
+                while True:
+                    try:
+                        name, _, _ = winreg.EnumValue(k, i)
+                    except OSError:
+                        break
+                    out.append("localhost" if name.upper() == "MSSQLSERVER" else f"localhost\\{name}")
+                    i += 1
+        except OSError:
+            continue
+    seen: list[str] = []
+    for x in out or []:
+        if x not in seen:
+            seen.append(x)
+    return seen or []
+
+
+def network_instances(timeout: float = 1.5) -> list[str]:
+    """Ağdaki SQL Server Browser servislerine UDP 1434 yayını (güvenlik duvarı engelleyebilir)."""
+    found: list[str] = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        s.settimeout(timeout)
+        s.sendto(b"\x02", ("255.255.255.255", 1434))
+        while True:
+            try:
+                data, _ = s.recvfrom(65535)
+            except (socket.timeout, OSError):
+                break
+            text = data[3:].decode("ascii", "ignore")
+            for chunk in text.split(";;"):
+                f = chunk.split(";")
+                kv = {f[i].lower(): f[i + 1] for i in range(0, len(f) - 1, 2)}
+                if kv.get("servername"):
+                    inst = kv.get("instancename", "")
+                    name = kv["servername"] if inst.upper() in ("", "MSSQLSERVER") else f"{kv['servername']}\\{inst}"
+                    if name not in found:
+                        found.append(name)
+        s.close()
+    except OSError as e:
+        log.info("Ağ taraması yapılamadı: %s", e)
+    return found

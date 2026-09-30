@@ -6,7 +6,7 @@ openai>=1.50
 sqlglot>=25
 python-multipart>=0.0.9
 pillow>=10.4
-pyodbc>=5.1          # + Microsoft ODBC Driver 18 for SQL Server
+pyodbc>=5.1          # + Microsoft ODBC Driver 18 veya 17 for SQL Server (kurulu olan otomatik seçilir)
 # test
 pytest>=8
 httpx>=0.27

@@ -83,3 +83,7 @@
 .sb-health-sub .is-ok { color: var(--ok); }
 .sb-health-sub .is-bad { color: var(--bad); }
 .sb-health.is-compact { display: grid; place-items: center; padding: 10px 0; background: none; border: 0; }
+.sb-health { width: auto; text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.sb-health:hover { border-color: var(--accent); }
+.sb-health.is-bad { border-color: rgba(239, 68, 68, .45); background: rgba(239, 68, 68, .07); }
+.sb-health.is-compact { width: 100%; }

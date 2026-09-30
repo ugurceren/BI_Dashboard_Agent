@@ -40,15 +40,45 @@ class AppState:
     gateway: LLMGateway
     store: SessionStore
     agent: Agent
+    startup_error: str | None = None
+
+
+class _BrokenConnector:
+    """Bağlantı cümlesi kurulamadığında yer tutucu: her sorguda anlaşılır hata verir."""
+    dialect = "tsql"
+
+    def __init__(self, error: str):
+        self.error = error
+
+    def execute(self, sql: str, max_rows: int):
+        raise QueryError(self.error)
+
+    def ping(self) -> None:
+        raise QueryError(self.error)
 
 
 state = AppState()
 
 
 def build_services() -> Services:
+    """Servisler. Veritabanı / sözlük erişilemezse uygulama yine açılır (boş sözlükle); hata state.startup_error'da
+    tutulur ve arayüzde gösterilir — kullanıcı Bağlantı Ayarları'ndan düzeltebilir."""
     settings = get_settings()
-    connector = create_connector(settings)
-    dictionary = DataDictionary(settings, connector).load()
+    state.startup_error = None
+    try:
+        connector = create_connector(settings)
+    except Exception as e:  # noqa: BLE001
+        log.error("Veri bağlantısı kurulamadı: %s", e)
+        state.startup_error = f"Veri bağlantısı: {e}"
+        connector = _BrokenConnector(str(e))
+    dictionary = DataDictionary(settings, connector)
+    try:
+        dictionary.load()
+    except Exception as e:  # noqa: BLE001
+        from app.data.odbc import friendly_error
+        msg = friendly_error(str(e))
+        log.error("Veri sözlüğü yüklenemedi: %s", msg)
+        state.startup_error = (state.startup_error + " | " if state.startup_error else "") + f"Veri sözlüğü: {msg}"
     policy_cfg = load_toml(settings.policy_config)
     policies = {name: RolePolicy(name=name, **cfg) for name, cfg in policy_cfg.get("roles", {}).items()}
     validator = SqlValidator(dictionary, connector.dialect, policy_cfg.get("sql", {}).get("denied_functions", []))
@@ -91,9 +121,15 @@ def health() -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         data = {"ok": False, "dialect": state.services.connector.dialect, "error": str(e)[:200]}
     llm = state.gateway.health()
+    dic = {"tables": len(state.services.dictionary.tables)}
+    if state.startup_error and "sözlüğü" in state.startup_error:
+        dic["error"] = state.startup_error.split("Veri sözlüğü: ", 1)[-1][:300]
+    if data["ok"] is False:
+        from app.data.odbc import friendly_error
+        data["error"] = friendly_error(data.get("error", ""))[:400]
     return {"ok": llm["reachable"] and data["ok"], "llm": llm,
             "vision": {"configured": bool(s.vision_model), "model": s.vision_model}, "data": data,
-            "dictionary": {"tables": len(state.services.dictionary.tables)}}
+            "dictionary": dic}
 
 
 # --------------------------------------------------------------------------- oturumlar
@@ -694,6 +730,206 @@ def dictionary_model(session: str | None = None) -> dict[str, Any]:
 def dictionary_reload() -> dict[str, Any]:
     state.services.dictionary.load()
     return {"ok": True, "tables": len(state.services.dictionary.tables)}
+
+
+# --------------------------------------------------------------------------- bağlantı ayarları
+from app.data import connections as conns  # noqa: E402
+from app.data.odbc import friendly_error  # noqa: E402
+
+
+def _require_settings_access(request: Request) -> Identity:
+    """Bağlantı ayarları: admin rolü ya da uygulamanın çalıştığı bilgisayarın kendisi (ağdan gelen kullanıcı değil)."""
+    ident = _me(request)
+    fwd = [x.strip() for x in (request.headers.get("x-forwarded-for") or "").split(",") if x.strip()]
+    local = (request.client.host if request.client else "") in ("127.0.0.1", "::1", "localhost", "testclient") \
+        and all(x in ("127.0.0.1", "::1", "::ffff:127.0.0.1") for x in fwd)
+    if ident.role != "admin" and not local:
+        raise HTTPException(403, "Bağlantı ayarlarını yalnızca admin rolü ya da sunucunun çalıştığı bilgisayar değiştirebilir.")
+    return ident
+
+
+class ConnIn(BaseModel):
+    server: str = "localhost"
+    database: str = ""
+    auth: str = "windows"            # windows | sql
+    username: str = ""
+    password: str | None = None      # None → kayıtlı şifre korunur
+    encrypt: bool = True
+    trust_server_certificate: bool = True
+    same_as_data: bool = True        # yalnız sözlük için
+    sources: dict[str, list[str]] | None = None   # yalnız sözlük: rol → tablolar (tables/columns/relationships/metrics)
+
+
+class ConnectionsIn(BaseModel):
+    data: ConnIn
+    dictionary: ConnIn
+
+
+class ConnTestIn(BaseModel):
+    target: str = "data"             # data | dictionary
+    data: ConnIn
+    dictionary: ConnIn | None = None
+
+
+def _fields(c: ConnIn, saved: dict[str, Any] | None) -> dict[str, Any]:
+    d = c.model_dump()
+    if d["auth"] != "sql":
+        d.update(username="", password="")
+    elif d["password"] is None:      # boş bırakıldı: kayıtlı şifreyi kullan
+        d["password"] = conns.unprotect((saved or {}).get("password_enc") or "") if saved else ""
+    d["server"] = (d["server"] or "localhost").strip()
+    d["database"] = (d["database"] or "").strip()
+    return d
+
+
+def _resolved(body: ConnTestIn | ConnectionsIn) -> tuple[dict[str, Any], dict[str, Any]]:
+    saved = conns.load_connections() or {}
+    data = _fields(body.data, saved.get("data"))
+    dic_in = body.dictionary or ConnIn(database=conns.DEFAULT_DICTIONARY_DB)
+    dic = _fields(dic_in, saved.get("dictionary"))
+    if dic_in.same_as_data:
+        dic = {**data, "database": dic["database"] or conns.DEFAULT_DICTIONARY_DB, "same_as_data": True}
+    else:
+        dic["same_as_data"] = False
+    from app.dictionary.sources import DEFAULT_SOURCES, ROLES
+    src = dic_in.sources or DEFAULT_SOURCES
+    dic["sources"] = {r: [n.strip() for n in (src.get(r) or []) if n and n.strip()] for r in ROLES}
+    data.pop("sources", None)
+    return data, dic
+
+
+def _probe(fields: dict[str, Any], database: str | None = None) -> dict[str, Any]:
+    from app.data.connector import SqlServerConnector
+    odbc = conns.build_odbc(fields, database)
+    con = SqlServerConnector(odbc, 15)
+    r = con.execute("SELECT @@SERVERNAME, DB_NAME(), CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(64)), "
+                    "CAST(SERVERPROPERTY('Edition') AS nvarchar(128)), SUSER_SNAME()", 1)
+    srv, db, ver, ed, login = r.rows[0]
+    return {"server_name": srv, "database": db, "version": ver, "edition": ed, "login": login,
+            "driver": odbc.split(";")[0].replace("DRIVER=", "").strip("{}")}
+
+
+@app.get("/api/settings/connections")
+def get_connections(request: Request) -> dict[str, Any]:
+    _require_settings_access(request)
+    eff = conns.effective(get_settings())
+    drivers = conns.installed_drivers()
+    return {**eff, "drivers": [d for d in drivers if "SQL Server" in d],
+            "driver": conns.best_sql_server_driver(drivers), "default_dictionary_db": conns.DEFAULT_DICTIONARY_DB,
+            "startup_error": state.startup_error, "file": "backend/config/connections.json"}
+
+
+@app.post("/api/settings/connections/test")
+def test_connection(body: ConnTestIn, request: Request) -> dict[str, Any]:
+    _require_settings_access(request)
+    data, dic = _resolved(body)
+    fields = dic if body.target == "dictionary" else data
+    try:
+        info = _probe(fields)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": friendly_error(str(e))}
+    if body.target == "dictionary":  # seçilen sözlük tabloları gerçekten okunuyor mu (rol başına satır sayısı)
+        from app.data.connector import SqlServerConnector
+        from app.dictionary.sources import ROLES, build_queries
+        con = SqlServerConnector(conns.build_odbc(fields), 30)
+        try:
+            built = build_queries(con, fields["sources"])
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, **info, "error": "Bağlantı kuruldu ama sözlük tabloları incelenemedi: " + friendly_error(str(e))}
+        counts: dict[str, int] = {}
+        for role, sql in built.queries.items():
+            try:
+                counts[role] = len(con.execute(sql, 100_000).rows)
+            except Exception as e:  # noqa: BLE001
+                built.errors.append(f"{ROLES[role]['label']}: okunamadı — {friendly_error(str(e))}")
+        info.update(dictionary_counts=counts, dictionary_tables=counts.get("tables", 0), warnings=built.warnings)
+        if built.errors:
+            return {"ok": False, **info, "error": " ".join(built.errors)}
+    return {"ok": True, **info}
+
+
+@app.post("/api/settings/dictionary/tables")
+def dictionary_candidate_tables(body: ConnTestIn, request: Request) -> dict[str, Any]:
+    """Sözlük veritabanındaki tablolar + kolonlarına göre önerilen sözlük rolü."""
+    _require_settings_access(request)
+    _, dic = _resolved(body)
+    from app.data.connector import SqlServerConnector
+    from app.dictionary.sources import ROLES, suggest_role
+    try:
+        r = SqlServerConnector(conns.build_odbc(dic), 30).execute(
+            "SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS c "
+            "JOIN INFORMATION_SCHEMA.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME "
+            "WHERE c.TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA') ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION", 50_000)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": friendly_error(str(e)), "tables": []}
+    tables: dict[str, list[str]] = {}
+    for schema, table, col in r.rows:
+        tables.setdefault(f"{schema}.{table}", []).append(str(col))
+    out = [{"name": n, "columns": cols, "role": suggest_role({c.lower() for c in cols})} for n, cols in tables.items()]
+    return {"ok": True, "tables": out,
+            "roles": {k: {"label": v["label"], "required": v["required"], "optional": v["optional"], "must": v["must"]}
+                      for k, v in ROLES.items()}}
+
+
+@app.post("/api/settings/instances")
+def find_instances(request: Request) -> dict[str, Any]:
+    _require_settings_access(request)
+    local = conns.local_instances()
+    net = [x for x in conns.network_instances() if x.lower() not in {y.lower() for y in local}]
+    return {"local": local, "network": net}
+
+
+@app.post("/api/settings/databases")
+def list_databases(body: ConnTestIn, request: Request) -> dict[str, Any]:
+    _require_settings_access(request)
+    data, dic = _resolved(body)
+    fields = dic if body.target == "dictionary" else data
+    try:
+        from app.data.connector import SqlServerConnector
+        r = SqlServerConnector(conns.build_odbc(fields, "master"), 15).execute(
+            "SELECT name FROM sys.databases WHERE state = 0 AND HAS_DBACCESS(name) = 1 "
+            "AND name NOT IN ('master','tempdb','model','msdb') ORDER BY name", 500)
+        return {"ok": True, "databases": [row[0] for row in r.rows]}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": friendly_error(str(e)), "databases": []}
+
+
+@app.put("/api/settings/connections")
+def save_connections(body: ConnectionsIn, request: Request) -> dict[str, Any]:
+    ident = _require_settings_access(request)
+    data, dic = _resolved(body)
+    if not data["database"]:
+        raise HTTPException(400, "Veri kaynağı için veritabanı seçin.")
+    # sözlük tabloları hatalıysa kaydetme: çalışan eski ayar korunsun (sunucuya o an ulaşılamıyorsa kayda izin ver)
+    from app.data.connector import SqlServerConnector
+    from app.dictionary.sources import build_queries
+    try:
+        built = build_queries(SqlServerConnector(conns.build_odbc(dic), 30), dic["sources"])
+    except Exception:  # noqa: BLE001
+        built = None
+    if built and built.errors:
+        raise HTTPException(422, "Kaydedilmedi — sözlük tabloları hatalı: " + " ".join(built.errors))
+    store = lambda f: {k: v for k, v in f.items() if k != "password"} | {"password_enc": conns.protect(f.get("password") or "")}  # noqa: E731
+    conns.save_connections({"data": store(data), "dictionary": store(dic)})
+    _rebuild_services()
+    log.info("Bağlantı ayarları güncellendi (%s): veri=%s/%s sözlük=%s/%s", ident.username,
+             data["server"], data["database"], dic["server"], dic["database"])
+    return {"ok": state.startup_error is None, "error": state.startup_error,
+            "tables": len(state.services.dictionary.tables)}
+
+
+@app.delete("/api/settings/connections")
+def reset_connections(request: Request) -> dict[str, Any]:
+    """Arayüz ayarlarını sil: .env / dictionary.toml'a geri dön."""
+    _require_settings_access(request)
+    conns.CONNECTIONS_FILE.unlink(missing_ok=True)
+    _rebuild_services()
+    return {"ok": state.startup_error is None, "error": state.startup_error}
+
+
+def _rebuild_services() -> None:
+    state.services = build_services()
+    state.agent.services = state.services
 
 
 @app.exception_handler(ValidationError)

@@ -1,6 +1,6 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
 import type {
-  AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult } from "../types";
+  AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -24,6 +24,13 @@ export interface Api {
   myAccess(): Promise<AccessInfo>;
   querySchema(): Promise<QuerySchema>;
   runQuery(sql: string): Promise<QueryRunResult>;
+  getConnections(): Promise<ConnectionSettings>;
+  testConnection(target: "data" | "dictionary", data: ConnFields, dictionary: ConnFields): Promise<ConnTestResult>;
+  findInstances(): Promise<{ local: string[]; network: string[] }>;
+  listDatabases(target: "data" | "dictionary", data: ConnFields, dictionary: ConnFields): Promise<{ ok: boolean; databases: string[]; error?: string }>;
+  saveConnections(data: ConnFields, dictionary: ConnFields): Promise<{ ok: boolean; error: string | null; tables: number }>;
+  resetConnections(): Promise<{ ok: boolean; error: string | null }>;
+  dictionaryTables(data: ConnFields, dictionary: ConnFields): Promise<DictCandidates>;
   listSessions(): Promise<SessionSummary[]>;
   createSession(): Promise<SessionState>;
   getSession(id: string): Promise<SessionState>;
@@ -137,6 +144,13 @@ export const httpApi: Api = {
   myAccess: () => req<AccessInfo>("/api/me/access"),
   querySchema: () => req<QuerySchema>("/api/query/schema"),
   runQuery: (sql) => req<QueryRunResult>("/api/query", { method: "POST", body: JSON.stringify({ sql }) }),
+  getConnections: () => req<ConnectionSettings>("/api/settings/connections"),
+  testConnection: (target, data, dictionary) => req<ConnTestResult>("/api/settings/connections/test", { method: "POST", body: JSON.stringify({ target, data, dictionary }) }),
+  findInstances: () => req<{ local: string[]; network: string[] }>("/api/settings/instances", { method: "POST" }),
+  listDatabases: (target, data, dictionary) => req<{ ok: boolean; databases: string[]; error?: string }>("/api/settings/databases", { method: "POST", body: JSON.stringify({ target, data, dictionary }) }),
+  saveConnections: (data, dictionary) => req<{ ok: boolean; error: string | null; tables: number }>("/api/settings/connections", { method: "PUT", body: JSON.stringify({ data, dictionary }) }),
+  resetConnections: () => req<{ ok: boolean; error: string | null }>("/api/settings/connections", { method: "DELETE" }),
+  dictionaryTables: (data, dictionary) => req<DictCandidates>("/api/settings/dictionary/tables", { method: "POST", body: JSON.stringify({ target: "dictionary", data, dictionary }) }),
   listSessions: () => req<SessionSummary[]>("/api/sessions"),
   createSession: () => req<SessionState>("/api/sessions", { method: "POST", body: "{}" }),
   getSession: (id) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}`),

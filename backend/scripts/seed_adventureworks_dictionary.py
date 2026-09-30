@@ -14,7 +14,16 @@ import re
 
 import pyodbc
 
-DRIVER = "ODBC Driver 18 for SQL Server"
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/ → app paketi
+
+try:  # kurulu SQL Server sürücüsünü otomatik seç (18 → 17 …)
+    from app.data.odbc import best_sql_server_driver
+    DRIVER = best_sql_server_driver(pyodbc.drivers()) or "ODBC Driver 18 for SQL Server"
+except ImportError:
+    DRIVER = "ODBC Driver 18 for SQL Server"
 
 # (iş adı, açıklama, konu alanı, granülarite)
 TABLES: dict[str, tuple[str, str, str, str]] = {

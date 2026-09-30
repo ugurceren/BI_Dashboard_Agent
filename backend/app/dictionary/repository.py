@@ -192,16 +192,31 @@ class DataDictionary:
 
     # ------------------------------------------------------------------ yükleme
     def _connector(self, cfg: dict) -> Connector:
-        if cfg.get("source", "data") == "odbc":
+        from app.data.connections import dictionary_odbc
+
+        odbc = dictionary_odbc(self.settings)  # Bağlantı Ayarları → dictionary.toml odbc → veri bağlantısı
+        if odbc:
             from app.data.connector import SqlServerConnector
 
-            return SqlServerConnector(cfg["odbc"], self.settings.query_timeout_s)
+            return SqlServerConnector(odbc, self.settings.query_timeout_s)
         return self._data_connector or create_connector(self.settings)
 
     def load(self) -> "DataDictionary":
         cfg = load_toml(self.settings.dictionary_config)
         con = self._connector(cfg)
         q = cfg["queries"]
+        from app.data.connections import dictionary_sources
+
+        src = dictionary_sources()  # Bağlantı Ayarları'nda seçilen sözlük tabloları (birden çok olabilir)
+        if src:
+            from app.dictionary.sources import build_queries
+
+            built = build_queries(con, src)
+            for w in built.warnings:
+                log.info("Sözlük: %s", w)
+            if built.errors:
+                raise RuntimeError("Sözlük tabloları: " + " ".join(built.errors))
+            q = built.queries
 
         def rows(sql: str | None) -> list[dict[str, Any]]:
             if not sql or not sql.strip():

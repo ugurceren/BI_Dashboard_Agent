@@ -72,8 +72,10 @@ class SqlServerConnector:
         try:
             import pyodbc  # noqa: F401
         except ImportError as e:  # pragma: no cover
-            raise RuntimeError("`pip install pyodbc` ve Microsoft ODBC Driver 18 for SQL Server gerekli.") from e
-        self._odbc = odbc
+            raise RuntimeError("`pip install pyodbc` ve Microsoft ODBC Driver for SQL Server (18 veya 17) gerekli.") from e
+        from app.data.odbc import resolve_driver
+
+        self._odbc = resolve_driver(odbc)  # yazan sürücü kurulu değilse kurulu olan en yenisi (18 → 17 …)
         self._timeout_s = timeout_s
 
     def execute(self, sql: str, max_rows: int) -> QueryResult:
@@ -102,6 +104,9 @@ class SqlServerConnector:
 
 
 def create_connector(settings: Settings) -> Connector:
-    if not settings.sqlserver_odbc:
-        raise RuntimeError("SQLSERVER_ODBC tanımlanmalı (backend/.env).")
-    return SqlServerConnector(settings.sqlserver_odbc, settings.query_timeout_s)
+    from app.data.connections import data_odbc
+
+    odbc = data_odbc(settings)  # Bağlantı Ayarları (config/connections.json) → yoksa .env SQLSERVER_ODBC
+    if not odbc:
+        raise RuntimeError("Veri bağlantısı tanımlı değil: Bağlantı Ayarları sayfasından ya da backend/.env SQLSERVER_ODBC ile ayarlayın.")
+    return SqlServerConnector(odbc, settings.query_timeout_s)

@@ -4,7 +4,7 @@ import type { Health, Me } from "../types";
 import { HealthBadge } from "./HealthBadge";
 import "./sidebar.css";
 
-export type Page = "home" | "access" | "model" | "query" | "designer" | "viewer";
+export type Page = "home" | "access" | "model" | "query" | "settings" | "designer" | "viewer";
 
 const ICONS: Record<string, ReactNode> = {
   home: <path d="M2.5 7 8 2.5 13.5 7v6.5h-3.8V9.5H6.3v4H2.5z" />,
@@ -12,6 +12,7 @@ const ICONS: Record<string, ReactNode> = {
   designer: <path d="M2.5 13.5h11M4 11V7M8 11V3.5M12 11V6" />,
   access: <path d="M5 7V5a3 3 0 0 1 6 0v2M3.5 7h9v6.5h-9zM8 9.5v2" />,
   query: <path d="M2.5 3.5h11v9h-11zM5 6.5l2 1.5-2 1.5M8.5 10h2.5" />,
+  settings: <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />,
   model: <path d="M2.5 3.5h4v3h-4zM9.5 3.5h4v3h-4zM6 10h4v3H6zM4.5 6.5v2h7v-2M8 8.5V10" />,
 };
 
@@ -75,8 +76,11 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, heal
       {item("query", "Sorgu Çalıştır", page === "query", () => onNavigate("query"), busy)}
       {item("model", "Veri Modeli", page === "model", () => onNavigate("model"), busy)}
 
+      <div className="sb-section sb-label">Sistem</div>
+      {item("settings", "Bağlantı Ayarları", page === "settings", () => onNavigate("settings"), busy)}
+
       <div className="sb-spacer" />
-      <HealthBadge health={health} healthError={healthError} compact={collapsed} />
+      <HealthBadge health={health} healthError={healthError} compact={collapsed} onClick={() => onNavigate("settings")} />
       <div className="sb-user" title={me ? [me.display_name, me.username, me.title, me.department, `Rol: ${me.role}`,
         `Kaynak: ${SOURCE[me.source] ?? me.source}`, me.domain_joined ? "" : "Bu bilgisayar bir etki alanına bağlı değil (yerel hesap)"].filter(Boolean).join("\n") : "Kullanıcı bilgisi alınıyor…"}>
         <span className="sb-avatar" aria-hidden="true">{me ? initials(me.display_name || me.username) : "…"}</span>

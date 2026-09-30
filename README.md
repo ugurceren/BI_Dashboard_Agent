@@ -31,7 +31,9 @@ Veri sözlüğü bat dosyası tarafından oluşturulmaz; aşağıdaki adımlarla
 
 ## Kurulum
 
-Ön koşul: SQL Server (örnek veri için AdventureWorksDW2025) ve **Microsoft ODBC Driver 18 for SQL Server**.
+Ön koşul: SQL Server (örnek veri için AdventureWorksDW2025) ve **Microsoft ODBC Driver 18 veya 17 for SQL Server** (bağlantı cümlesindeki sürücü kurulu değilse kurulu olan en yenisi otomatik seçilir).
+
+**Bağlantı Ayarları** (sol menü → Sistem): SQL Server sunucusu / instance (bu bilgisayarda ve ağda aranır), veritabanı, Windows ya da SQL kimlik doğrulaması arayüzden seçilir ve test edilir. Veri sözlüğü ayrı bir bağlantıdır; varsayılanı veri sunucusundaki `BI_Meta` veritabanıdır, istenirse başka sunucu / veritabanı seçilebilir. Kaydedilen ayarlar `backend/config/connections.json` dosyasına yazılır (git dışı; SQL şifresi Windows DPAPI ile şifreli) ve `.env` / `dictionary.toml` ayarlarının yerine geçer. Veritabanına ulaşılamasa da uygulama açılır; hata bu sayfada ve sol menüdeki bağlantı göstergesinde görünür.
 
 ```bash
 # backend

@@ -244,7 +244,8 @@ export interface Health {
   ok: boolean;
   llm: { reachable: boolean; model: string; base_url: string; error?: string };
   vision: { configured: boolean; model: string | null };
-  data: { ok: boolean; dialect: string };
+  data: { ok: boolean; dialect: string; error?: string };
+  dictionary?: { tables: number; error?: string };
 }
 
 export interface DictionaryHit {
@@ -358,4 +359,39 @@ export interface QuerySchema {
 export interface QueryRunResult {
   ok: boolean; errors?: string[]; warnings?: string[]; columns?: string[]; types?: string[];
   rows?: unknown[][]; truncated?: boolean; row_limit?: number; elapsed_ms?: number; tables?: string[];
+}
+
+// ---------------------------------------------------------------- bağlantı ayarları
+export interface ConnFields {
+  server: string;
+  database: string;
+  auth: "windows" | "sql";
+  username: string;
+  password?: string | null;      // gönderirken: null → kayıtlı şifre korunur
+  has_password?: boolean;        // alırken
+  encrypt: boolean;
+  trust_server_certificate: boolean;
+  same_as_data?: boolean;        // yalnız sözlük
+  sources?: Record<DictRole, string[]>;  // yalnız sözlük: rol → tablolar
+}
+export type DictRole = "tables" | "columns" | "relationships" | "metrics";
+export interface DictCandidates {
+  ok: boolean; error?: string;
+  tables: { name: string; columns: string[]; role: DictRole | null }[];
+  roles?: Record<DictRole, { label: string; required: string[]; optional: string[]; must: boolean }>;
+}
+export interface ConnectionSettings {
+  source: "ui" | "env";
+  data: ConnFields;
+  dictionary: ConnFields;
+  drivers: string[];
+  driver: string | null;
+  default_dictionary_db: string;
+  startup_error: string | null;
+  file: string;
+}
+export interface ConnTestResult {
+  ok: boolean; error?: string; server_name?: string; database?: string; version?: string; edition?: string;
+  login?: string; driver?: string; dictionary_tables?: number;
+  dictionary_counts?: Partial<Record<DictRole, number>>; warnings?: string[];
 }

@@ -166,6 +166,17 @@ export const mockApi: Api = {
     const user = await this.me();
     return { user, role: "analyst", policy: { allowed_schemas: ["dbo"], denied_tables: [], allow_pii: false, max_rows: 5000 }, tables: [], views: [], datasets: [] };
   },
+  async getConnections() {
+    const f = { server: "localhost", database: "AdventureWorksDW2025", auth: "windows" as const, username: "", encrypt: true, trust_server_certificate: true };
+    return { source: "env" as const, data: f, dictionary: { ...f, database: "BI_Meta", same_as_data: true }, drivers: ["ODBC Driver 18 for SQL Server"],
+      driver: "ODBC Driver 18 for SQL Server", default_dictionary_db: "BI_Meta", startup_error: null, file: "backend/config/connections.json" };
+  },
+  async testConnection() { return { ok: true, server_name: "MOCK", database: "AdventureWorksDW2025", version: "16.0", login: "KURUM\demo" }; },
+  async findInstances() { return { local: ["localhost"], network: [] }; },
+  async listDatabases() { return { ok: true, databases: ["AdventureWorksDW2025", "BI_Meta"] }; },
+  async saveConnections() { return { ok: true, error: null, tables: 26 }; },
+  async resetConnections() { return { ok: true, error: null }; },
+  async dictionaryTables() { return { ok: true, tables: [{ name: "meta.dd_tables", columns: ["table_name"], role: "tables" as const }] }; },
   async querySchema() {
     return { role: "analyst", max_rows: 1000, allow_pii: false, allowed_schemas: ["dbo"], datasets: [], objects: [
       { id: "dbo.factinternetsales", name: "dbo.FactInternetSales", kind: "fact", subject_area: "Satış", business_name: "İnternet satışları",

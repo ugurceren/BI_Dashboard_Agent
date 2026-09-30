@@ -20,6 +20,7 @@ function relTime(iso: string): string {
 const PAGE_CRUMBS: Record<string, [string, string]> = {
   home: ["Raporlar", "Rapor Envanteri"], designer: ["Raporlar", "Rapor Envanteri"], viewer: ["Raporlar", "Rapor Envanteri"],
   access: ["Veri", "Veri Erişimim"], query: ["Veri", "Sorgu Çalıştır"], model: ["Veri", "Veri Modeli"],
+  settings: ["Sistem", "Bağlantı Ayarları"],
 };
 
 export function TopBar({ onMode, canView, page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme }: {
