@@ -77,7 +77,7 @@ def build_view_script(*, schema: str, name: str, dataset_id: str, description: s
     full = f"{schema}.{name}"
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     script = f"""-- ============================================================================
--- BI Rapor Agent — onaylı view önerisi
+-- BI Lens — onaylı view önerisi
 -- View     : {full}
 -- Dataset  : {dataset_id}  (rapor: {session_title})
 -- Açıklama : {description or '-'}

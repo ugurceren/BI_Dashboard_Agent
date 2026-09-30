@@ -44,7 +44,7 @@ def _dpapi(data: bytes, protect: bool) -> bytes:
     buf = ctypes.create_string_buffer(data, len(data))
     src, out = BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), BLOB()
     fn = ctypes.windll.crypt32.CryptProtectData if protect else ctypes.windll.crypt32.CryptUnprotectData
-    ok = fn(ctypes.byref(src), None if not protect else "BI Rapor Agent", None, None, None, 0x1, ctypes.byref(out))  # UI_FORBIDDEN
+    ok = fn(ctypes.byref(src), None if not protect else "BI Lens", None, None, None, 0x1, ctypes.byref(out))  # UI_FORBIDDEN
     if not ok:
         raise OSError("DPAPI işlemi başarısız")
     try:
@@ -94,7 +94,7 @@ def build_odbc(c: dict[str, Any], database: str | None = None) -> str:
     parts.append(f"Encrypt={'yes' if c.get('encrypt', True) else 'no'}")
     if c.get("trust_server_certificate", True):
         parts.append("TrustServerCertificate=yes")
-    parts.append("APP=BI Rapor Agent")
+    parts.append("APP=BI Lens")
     return ";".join(parts) + ";"
 
 
@@ -131,9 +131,12 @@ def save_connections(cfg: dict[str, Any]) -> None:
         tmp.replace(CONNECTIONS_FILE)
 
 
+DICTIONARY_FILES_DIR = BACKEND_DIR / "config" / "dictionary_files"
+
+
 def dictionary_conn_fields(cfg: dict[str, Any]) -> dict[str, Any]:
     d = dict(cfg.get("dictionary") or {})
-    if d.get("same_as_data", True):
+    if (d.get("kind") or "sqlserver") == "sqlserver" and d.get("same_as_data", True):
         base = dict(cfg.get("data") or {})
         base["database"] = d.get("database") or DEFAULT_DICTIONARY_DB
         return base
@@ -154,10 +157,48 @@ def data_odbc(settings: Settings) -> str:
     return build_odbc(cfg["data"]) if cfg and cfg.get("data") else settings.sqlserver_odbc
 
 
+def open_dictionary_reader(fields: dict[str, Any]):
+    """Sözlük kaynağına göre okuyucu + bağlantı bilgisi: SQL Server, MySQL ya da Excel."""
+    from app.dictionary.sources import ExcelReader, MySQLReader, SqlServerReader
+
+    kind = fields.get("kind") or "sqlserver"
+    pwd = fields.get("password")
+    if pwd is None:
+        pwd = unprotect(fields.get("password_enc") or "")
+    if kind == "excel":
+        r = ExcelReader(fields.get("excel_path") or "")
+        return r, r.probe()
+    if kind == "mysql":
+        r = MySQLReader(fields.get("server") or "localhost", fields.get("port") or 3306, fields.get("username") or "",
+                        pwd, fields.get("database") or "", ssl=bool(fields.get("encrypt")))
+        return r, r.probe()
+    from app.data.connector import SqlServerConnector
+    odbc = build_odbc({**fields, "password": pwd})
+    con = SqlServerConnector(odbc, 30)
+    rows = con.execute("SELECT @@SERVERNAME, DB_NAME(), CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(64)), SUSER_SNAME()", 1).rows
+    srv, db, ver, login = rows[0]
+    return SqlServerReader(con), {"server_name": srv, "database": db, "version": f"SQL Server {ver}", "login": login,
+                                  "driver": odbc.split(";")[0].replace("DRIVER=", "").strip("{}")}
+
+
+def saved_dictionary() -> tuple[dict[str, Any], dict[str, list[str]]] | None:
+    """Arayüzden kaydedilmiş sözlük kaynağı: (bağlantı alanları, rol → tablolar / sayfalar)."""
+    cfg = load_connections()
+    if not (cfg and cfg.get("data")):
+        return None
+    from app.dictionary.sources import default_sources
+    d = cfg.get("dictionary") or {}
+    fields = dictionary_conn_fields(cfg)
+    fields["kind"] = d.get("kind") or "sqlserver"
+    return fields, d.get("sources") or default_sources(fields["kind"])
+
+
 def dictionary_odbc(settings: Settings) -> str | None:
     """Sözlük bağlantısı: connections.json → dictionary.toml odbc → (None: veri bağlantısı)."""
     cfg = load_connections()
     if cfg and cfg.get("data"):
+        if ((cfg.get("dictionary") or {}).get("kind") or "sqlserver") != "sqlserver":
+            return None
         return build_odbc(dictionary_conn_fields(cfg))
     toml = load_toml(settings.dictionary_config)
     return toml.get("odbc") if toml.get("source", "data") == "odbc" else None
@@ -171,22 +212,23 @@ def effective(settings: Settings) -> dict[str, Any]:
         data["has_password"] = bool(cfg["data"].get("password_enc"))
         dic = {k: v for k, v in (cfg.get("dictionary") or {}).items() if k not in ("password", "password_enc")}
         dic["has_password"] = bool((cfg.get("dictionary") or {}).get("password_enc"))
+        dic.setdefault("kind", "sqlserver")
         dic.setdefault("same_as_data", True)
         dic.setdefault("database", DEFAULT_DICTIONARY_DB)
-        dic["sources"] = dic.get("sources") or _default_sources()
+        dic["sources"] = dic.get("sources") or _default_sources(dic["kind"])
         return {"source": "ui", "data": data, "dictionary": dic}
     data = parse_odbc(settings.sqlserver_odbc)
     toml_odbc = dictionary_odbc(settings)
     dic = parse_odbc(toml_odbc) if toml_odbc else {**data, "database": data["database"]}
     same = all(dic.get(k) == data.get(k) for k in ("server", "auth", "username"))
     return {"source": "env", "data": data,
-            "dictionary": {**dic, "same_as_data": same, "database": dic.get("database") or DEFAULT_DICTIONARY_DB,
-                           "sources": _default_sources()}}
+            "dictionary": {**dic, "kind": "sqlserver", "same_as_data": same,
+                           "database": dic.get("database") or DEFAULT_DICTIONARY_DB, "sources": _default_sources("sqlserver")}}
 
 
-def _default_sources() -> dict[str, list[str]]:
-    from app.dictionary.sources import DEFAULT_SOURCES
-    return {k: list(v) for k, v in DEFAULT_SOURCES.items()}
+def _default_sources(kind: str = "sqlserver") -> dict[str, list[str]]:
+    from app.dictionary.sources import default_sources
+    return default_sources(kind)
 
 
 # ------------------------------------------------------------------ keşif

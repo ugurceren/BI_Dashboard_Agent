@@ -56,9 +56,9 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, heal
     <nav className={`sidebar${collapsed ? " is-collapsed" : ""}`} aria-label="Ana menü">
       <div className="sb-brand">
         <span className="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 13V9M6.5 13V5M10 13V7.5M13.5 13V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeLinecap="round"><circle cx="7" cy="7" r="5" strokeWidth="1.7" /><path d="M5 9V7.5M7 9V5M9 9V6.5" strokeWidth="1.5" /><path d="M10.8 10.8 14 14" strokeWidth="2" /></svg>
         </span>
-        <span className="brand-name sb-label">BI Rapor Agent</span>
+        <span className="brand-name sb-label">BI Lens</span>
         <button type="button" className="sb-toggle" onClick={onToggle} title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"} aria-label="Menüyü daralt/genişlet">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             {collapsed ? <path d="M6 3.5 10.5 8 6 12.5" /> : <path d="M10 3.5 5.5 8 10 12.5" />}

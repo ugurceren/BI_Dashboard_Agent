@@ -1,4 +1,4 @@
-# BI Rapor Agent
+# BI Lens
 
 Kurum içinde (on-prem) çalışan, modelden bağımsız bir "Claude Code for BI" harness'i.
 Veri kaynağı ve veri sözlüğü **Microsoft SQL Server**'dadır (örnek: AdventureWorksDW2025 + Türkçe sözlük `BI_Meta`).
@@ -26,7 +26,7 @@ Her şeyi harness doğrular.
 
 Proje klasöründeki **`start.bat`** dosyasına çift tıklayın. İlk çalıştırmada eksik kurulumu (Python ortamı, npm paketleri,
 `.env`, HTML export şablonu) kendisi yapar; sonra backend ve frontend'i ayrı pencerelerde başlatıp tarayıcıda
-http://localhost:5173 adresini açar. Kapatmak için "BI Agent - Backend" ve "BI Agent - Frontend" pencerelerini kapatın.
+http://localhost:5173 adresini açar. Kapatmak için "BI Lens - Backend" ve "BI Lens - Frontend" pencerelerini kapatın.
 Veri sözlüğü bat dosyası tarafından oluşturulmaz; aşağıdaki adımlarla bir kez oluşturulmalıdır.
 
 ## Kurulum
@@ -34,6 +34,10 @@ Veri sözlüğü bat dosyası tarafından oluşturulmaz; aşağıdaki adımlarla
 Ön koşul: SQL Server (örnek veri için AdventureWorksDW2025) ve **Microsoft ODBC Driver 18 veya 17 for SQL Server** (bağlantı cümlesindeki sürücü kurulu değilse kurulu olan en yenisi otomatik seçilir).
 
 **Bağlantı Ayarları** (sol menü → Sistem): SQL Server sunucusu / instance (bu bilgisayarda ve ağda aranır), veritabanı, Windows ya da SQL kimlik doğrulaması arayüzden seçilir ve test edilir. Veri sözlüğü ayrı bir bağlantıdır; varsayılanı veri sunucusundaki `BI_Meta` veritabanıdır, istenirse başka sunucu / veritabanı seçilebilir. Kaydedilen ayarlar `backend/config/connections.json` dosyasına yazılır (git dışı; SQL şifresi Windows DPAPI ile şifreli) ve `.env` / `dictionary.toml` ayarlarının yerine geçer. Veritabanına ulaşılamasa da uygulama açılır; hata bu sayfada ve sol menüdeki bağlantı göstergesinde görünür.
+
+**Veri sözlüğü kaynağı:** SQL Server, **Excel** (.xlsx; dosya yüklenir ya da ağ yolu verilir) veya **MySQL / MariaDB** olabilir. Sözlüğün dört bölümü (Tablolar, Kolonlar, İlişkiler, Metrikler) her biri bir ya da birden çok tablo / sayfadan okunur; birden çok seçilirse birleştirilir, olmayan isteğe bağlı kolonlar boş sayılır. "Mevcut sözlüğü Excel şablonu olarak indir" ile sözlük Excel'de düzenlenip geri yüklenebilir. Rapor verisi her zaman SQL Server'dan okunur; sözlükteki tablo adları oradaki gibi yazılmalıdır (ör. `dbo.FactInternetSales`).
+
+`start.bat` her açılışta `requirements.txt` / `package-lock.json` değişmiş mi bakar; değiştiyse (ör. `git pull` sonrası) paketleri kendisi günceller ve HTML export şablonunu yeniden derler.
 
 ```bash
 # backend

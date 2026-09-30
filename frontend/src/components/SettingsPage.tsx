@@ -1,8 +1,8 @@
 // Bağlantı Ayarları: veri kaynağı (SQL Server instance + veritabanı) ve veri sözlüğü (varsayılan: aynı sunucuda BI_Meta).
 // Kaydedince backend yeniden başlatılmadan yeni bağlantılarla servisleri kurar.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Api } from "../api/client";
-import type { ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictRole } from "../types";
+import type { ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole } from "../types";
 import "./settings.css";
 
 type Target = "data" | "dictionary";
@@ -15,7 +15,12 @@ const DICT_ROLES: { id: DictRole; label: string; hint: string; must: boolean }[]
   { id: "metrics", label: "Metrikler", hint: "metric_name, expression_sql (+ business_name, description, base_table, value_format, synonyms)", must: false },
 ];
 const EMPTY_SOURCES: Record<DictRole, string[]> = { tables: [], columns: [], relationships: [], metrics: [] };
-const DEFAULT_SRC: Record<DictRole, string[]> = { tables: ["meta.dd_tables"], columns: ["meta.dd_columns"], relationships: ["meta.dd_relationships"], metrics: ["meta.dd_metrics"] };
+const DEFAULTS_BY_KIND: Record<DictKind, Record<DictRole, string[]>> = {
+  sqlserver: { tables: ["meta.dd_tables"], columns: ["meta.dd_columns"], relationships: ["meta.dd_relationships"], metrics: ["meta.dd_metrics"] },
+  mysql: { tables: ["dd_tables"], columns: ["dd_columns"], relationships: ["dd_relationships"], metrics: ["dd_metrics"] },
+  excel: { tables: ["Tablolar"], columns: ["Kolonlar"], relationships: ["İlişkiler"], metrics: ["Metrikler"] },
+};
+const KIND_LABEL: Record<DictKind, string> = { sqlserver: "SQL Server", excel: "Excel dosyası", mysql: "MySQL / MariaDB" };
 
 const Ico = ({ d, size = 14 }: { d: string; size?: number }) => (
   <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
@@ -43,6 +48,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cands, setCands] = useState<DictCandidates | null>(null);
   const [addDraft, setAddDraft] = useState<Record<DictRole, string>>({ tables: "", columns: "", relationships: "", metrics: "" });
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     setBusy("load");
@@ -67,7 +73,32 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
     setMsg(null);
   };
   // "aynı sunucu" seçiliyse sözlüğün bağlantı alanları veri kaynağından gelir
-  const dictEff: ConnFields = dict.same_as_data ? { ...data, database: dict.database, same_as_data: true, sources: dict.sources } : dict;
+  const kind: DictKind = dict.kind ?? "sqlserver";
+  const dictEff: ConnFields = kind === "sqlserver" && dict.same_as_data
+    ? { ...data, database: dict.database, same_as_data: true, sources: dict.sources, kind } : { ...dict, kind };
+  const setKind = (k: DictKind) => {
+    if (k === kind) return;
+    upd("dictionary", {
+      kind: k, sources: DEFAULTS_BY_KIND[k], same_as_data: k === "sqlserver",
+      ...(k === "mysql" ? { server: dict.kind === "mysql" ? dict.server : "", port: dict.port ?? 3306, auth: "sql" as const, database: "", encrypt: false } : {}),
+      ...(k === "sqlserver" ? { database: cfg.default_dictionary_db, server: data.server, auth: data.auth } : {}),
+    });
+    setCands(null);
+    setDbs((s) => ({ ...s, dictionary: null }));
+  };
+  const uploadExcel = async (file: File) => {
+    setBusy("dict-tables");
+    try {
+      const r = await api.uploadDictionaryExcel(file);
+      upd("dictionary", { excel_path: r.path });
+      setCands({ ok: true, tables: r.tables });
+      // yüklenen dosyanın sayfaları önerilen rollere göre otomatik seçilir (yoksa varsayılan adlar kalır)
+      const next: Record<DictRole, string[]> = { tables: [], columns: [], relationships: [], metrics: [] };
+      for (const t of r.tables) if (t.role) next[t.role].push(t.name);
+      if (next.tables.length && next.columns.length) upd("dictionary", { excel_path: r.path, sources: next });
+    } catch (e) { setCands({ ok: false, error: errText(e), tables: [] }); }
+    setBusy(null);
+  };
 
   const sources: Record<DictRole, string[]> = { ...EMPTY_SOURCES, ...(dict.sources ?? {}) };
   const setSources = (role: DictRole, list: string[]) => upd("dictionary", { sources: { ...sources, [role]: list } });
@@ -247,32 +278,84 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
         <section className="st-card">
           <header className="st-card-head">
             <span className="st-card-icon is-dict"><Ico d={P.book} size={18} /></span>
-            <div><h2>Veri sözlüğü</h2><p className="muted">Tablo / kolon açıklamaları ve ilişkilerin tutulduğu veritabanı. Varsayılan: veri sunucusunda <b>{cfg.default_dictionary_db}</b>.</p></div>
+            <div><h2>Veri sözlüğü</h2><p className="muted">Tablo / kolon açıklamaları ve ilişkilerin tutulduğu kaynak. Varsayılan: veri sunucusunda <b>{cfg.default_dictionary_db}</b>.</p></div>
           </header>
+          <div className="st-field">
+            <label>Kaynak türü</label>
+            <div className="st-seg" role="group" aria-label="Sözlük kaynak türü">
+              {(Object.keys(KIND_LABEL) as DictKind[]).map((k) => (
+                <button key={k} type="button" className={kind === k ? "is-on" : undefined} onClick={() => setKind(k)}>{KIND_LABEL[k]}</button>
+              ))}
+            </div>
+          </div>
+          {kind === "excel" ? (
+            <div className="st-field">
+              <label htmlFor="dict-excel">Excel dosyası</label>
+              <div className="st-row">
+                <input id="dict-excel" className="st-input" value={dict.excel_path ?? ""} placeholder="Dosya yükleyin ya da yol yazın (ör. \\sunucu\paylasim\sozluk.xlsx)"
+                  onChange={(e) => upd("dictionary", { excel_path: e.target.value })} spellCheck={false} />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy}>
+                  {busy === "dict-tables" ? <span className="spinner" /> : <Ico d="M8 13.5v-9M4.5 8 8 4.5 11.5 8M3 2.5h10" />} Dosya yükle
+                </button>
+                <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadExcel(f); }} />
+              </div>
+              <p className="muted small">
+                Her sayfa bir tablo gibi okunur; ilk satır kolon başlıklarıdır.{" "}
+                <a href={api.dictionaryTemplateUrl()} download>Mevcut sözlüğü Excel şablonu olarak indir</a> — düzenleyip buradan geri yükleyebilirsiniz.
+              </p>
+            </div>
+          ) : kind === "mysql" ? (
+            <>
+              <div className="st-grid2 st-grid-host">
+                <div className="st-field">
+                  <label htmlFor="dict-host">Sunucu</label>
+                  <input id="dict-host" className="st-input" value={dict.server} placeholder="mysql.kurum.local" onChange={(e) => upd("dictionary", { server: e.target.value })} spellCheck={false} />
+                </div>
+                <div className="st-field">
+                  <label htmlFor="dict-port">Port</label>
+                  <input id="dict-port" className="st-input" type="number" value={dict.port ?? 3306} onChange={(e) => upd("dictionary", { port: Number(e.target.value) || 3306 })} />
+                </div>
+              </div>
+              <div className="st-grid2">
+                <div className="st-field">
+                  <label htmlFor="dict-muser">Kullanıcı adı</label>
+                  <input id="dict-muser" className="st-input" value={dict.username} autoComplete="off" onChange={(e) => upd("dictionary", { username: e.target.value })} />
+                </div>
+                <div className="st-field">
+                  <label htmlFor="dict-mpwd">Şifre</label>
+                  <input id="dict-mpwd" className="st-input" type="password" autoComplete="new-password" value={dict.password ?? ""}
+                    placeholder={dict.has_password ? "•••••• (kayıtlı; değiştirmek için yazın)" : ""} onChange={(e) => upd("dictionary", { password: e.target.value })} />
+                </div>
+              </div>
+              <label className="st-check"><input type="checkbox" checked={dict.encrypt} onChange={(e) => upd("dictionary", { encrypt: e.target.checked })} /> SSL ile bağlan</label>
+              {dbField("dictionary", dictEff, "ör. bi_meta")}
+            </>
+          ) : (<>
           <label className="st-check st-same">
             <input type="checkbox" checked={!!dict.same_as_data} onChange={(e) => upd("dictionary", { same_as_data: e.target.checked, ...(e.target.checked ? {} : { server: data.server, auth: data.auth, username: data.username }) })} />
             Veri kaynağıyla aynı sunucu ve kimlik bilgileri
           </label>
           {dict.same_as_data ? <p className="muted small st-inherit">Sunucu: <b>{data.server || "—"}</b> · {data.auth === "sql" ? `SQL kullanıcısı ${data.username}` : "Windows oturumu"}</p> : connFields("dictionary", dict)}
           {dbField("dictionary", dictEff, cfg.default_dictionary_db)}
+          </>)}
           <div className="st-row st-dict-actions">
-            {dict.database !== cfg.default_dictionary_db || !dict.same_as_data || JSON.stringify(sources) !== JSON.stringify(DEFAULT_SRC) ? (
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => upd("dictionary", { same_as_data: true, database: cfg.default_dictionary_db, sources: DEFAULT_SRC })}>
-                Varsayılana dön ({cfg.default_dictionary_db}, meta.dd_* tabloları)</button>
+            {kind !== "sqlserver" || dict.database !== cfg.default_dictionary_db || !dict.same_as_data || JSON.stringify(sources) !== JSON.stringify(DEFAULTS_BY_KIND.sqlserver) ? (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setCands(null); upd("dictionary", { kind: "sqlserver", same_as_data: true, database: cfg.default_dictionary_db, sources: DEFAULTS_BY_KIND.sqlserver, server: data.server, auth: data.auth }); }}>
+                Varsayılana dön (SQL Server · {cfg.default_dictionary_db}, meta.dd_* tabloları)</button>
             ) : null}
           </div>
           <div className="st-field st-sources">
             <div className="st-sources-head">
-              <label>Sözlük tabloları</label>
+              <label>{kind === "excel" ? "Sözlük sayfaları" : "Sözlük tabloları"}</label>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadCands()} disabled={!!busy}
-                title="Sözlük veritabanındaki tabloları getir; kolonlarına göre uygun olanlar önerilir">
-                {busy === "dict-tables" ? <span className="spinner" /> : <Ico d={P.list} />} Tabloları getir
+                title={kind === "excel" ? "Excel dosyasındaki sayfaları getir; kolonlarına göre uygun olanlar önerilir" : "Sözlük veritabanındaki tabloları getir; kolonlarına göre uygun olanlar önerilir"}>
+                {busy === "dict-tables" ? <span className="spinner" /> : <Ico d={P.list} />} {kind === "excel" ? "Sayfaları getir" : "Tabloları getir"}
               </button>
             </div>
-            <p className="muted small">Her bölüm bir ya da birden çok tablodan okunabilir; birden çok tablo birleştirilir. Tabloda olmayan isteğe bağlı kolonlar boş sayılır.</p>
+            <p className="muted small">Her bölüm bir ya da birden çok {kind === "excel" ? "sayfadan" : "tablodan"} okunabilir; birden çok seçilirse birleştirilir. Olmayan isteğe bağlı kolonlar boş sayılır. Tablo adları (table_name) rapor verisinin bulunduğu SQL Server'daki gibi yazılmalı (ör. dbo.FactInternetSales).</p>
             {cands && !cands.ok ? <div className="st-result is-bad">{cands.error}</div> : null}
             {DICT_ROLES.map((r) => {
-              const picked = sources[r.id];
+              const picked = sources[r.id] ?? [];
               const count = tests.dictionary?.dictionary_counts?.[r.id];
               const suggestions = (cands?.tables ?? []).filter((t) => t.role === r.id && !picked.some((p) => p.toLowerCase() === t.name.toLowerCase()));
               return (
@@ -298,7 +381,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                     ))}
                   </div>
                   <div className="st-row">
-                    <input className="st-input st-input-sm" list="st-dict-tables" value={addDraft[r.id]} placeholder="şema.tablo ekle"
+                    <input className="st-input st-input-sm" list="st-dict-tables" value={addDraft[r.id]} placeholder={kind === "excel" ? "sayfa adı ekle" : kind === "mysql" ? "tablo ya da veritabanı.tablo ekle" : "şema.tablo ekle"}
                       onChange={(e) => setAddDraft((d) => ({ ...d, [r.id]: e.target.value }))}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSource(r.id, addDraft[r.id]); } }} spellCheck={false} />
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => addSource(r.id, addDraft[r.id])} disabled={!addDraft[r.id].trim()}>Ekle</button>

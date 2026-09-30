@@ -205,33 +205,37 @@ class DataDictionary:
         cfg = load_toml(self.settings.dictionary_config)
         con = self._connector(cfg)
         q = cfg["queries"]
-        from app.data.connections import dictionary_sources
+        from app.data.connections import open_dictionary_reader, saved_dictionary
 
-        src = dictionary_sources()  # Bağlantı Ayarları'nda seçilen sözlük tabloları (birden çok olabilir)
-        if src:
-            from app.dictionary.sources import build_queries
+        saved = saved_dictionary()  # Bağlantı Ayarları: SQL Server / MySQL / Excel, rol başına bir ya da birden çok kaynak
+        collected = None
+        if saved:
+            from app.dictionary.sources import collect
 
-            built = build_queries(con, src)
-            for w in built.warnings:
+            reader, _ = open_dictionary_reader(saved[0])
+            collected = collect(reader, saved[1])
+            for w in collected.warnings:
                 log.info("Sözlük: %s", w)
-            if built.errors:
-                raise RuntimeError("Sözlük tabloları: " + " ".join(built.errors))
-            q = built.queries
+            if collected.errors:
+                raise RuntimeError("Sözlük tabloları: " + " ".join(collected.errors))
 
-        def rows(sql: str | None) -> list[dict[str, Any]]:
+        def rows(role: str) -> list[dict[str, Any]]:
+            if collected is not None:
+                return collected.rows.get(role, [])
+            sql = q.get(role)
             if not sql or not sql.strip():
                 return []
             r = con.execute(sql, 100_000)
             return [dict(zip([c.lower() for c in r.columns], row)) for row in r.rows]
 
         tables: dict[str, DDTable] = {}
-        for r in rows(q["tables"]):
+        for r in rows("tables"):
             name = str(r["table_name"]).lower()
             tables[name] = DDTable(name, r.get("business_name") or name, r.get("description") or "",
                                    r.get("subject_area") or "", r.get("grain") or "", r.get("row_count"),
                                    display_name=str(r["table_name"]),
                                    table_type=str(r.get("table_type") or "").lower())
-        for r in rows(q["columns"]):
+        for r in rows("columns"):
             t = str(r["table_name"]).lower()
             if t not in tables:
                 continue
@@ -243,7 +247,7 @@ class DataDictionary:
                 is_pii=bool(r.get("is_pii")), sample_values=r.get("sample_values") or "",
                 display_name=str(r["column_name"]),
             ))
-        rels = _group_relationships(rows(q.get("relationships")))
+        rels = _group_relationships(rows("relationships"))
         if cfg.get("infer_cardinality", True) and any(r.cardinality is None for r in rels):
             cache = self._cardinality_cache()
             for r in rels:
@@ -265,7 +269,7 @@ class DataDictionary:
         metrics = [DDMetric(r["metric_name"], r.get("business_name") or r["metric_name"], r.get("description") or "",
                             r.get("expression_sql") or "", (r.get("base_table") or "").lower(), r.get("value_format") or "number",
                             [s.strip() for s in (r.get("synonyms") or "").split(",") if s.strip()])
-                   for r in rows(q.get("metrics"))]
+                   for r in rows("metrics")]
         with self._lock:
             self.tables, self.relationships, self.metrics = tables, rels, metrics
         for entry in self._view_registry():

@@ -372,8 +372,12 @@ export interface ConnFields {
   encrypt: boolean;
   trust_server_certificate: boolean;
   same_as_data?: boolean;        // yalnız sözlük
-  sources?: Record<DictRole, string[]>;  // yalnız sözlük: rol → tablolar
+  sources?: Record<DictRole, string[]>;  // yalnız sözlük: rol → tablolar / sayfalar
+  kind?: DictKind;               // yalnız sözlük
+  port?: number | null;          // MySQL
+  excel_path?: string;           // Excel
 }
+export type DictKind = "sqlserver" | "excel" | "mysql";
 export type DictRole = "tables" | "columns" | "relationships" | "metrics";
 export interface DictCandidates {
   ok: boolean; error?: string;

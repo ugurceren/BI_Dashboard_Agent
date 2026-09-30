@@ -5,7 +5,10 @@ Model, veri kaynağı ve sözlük kaynağı tamamen ayardan değişir; kod model
 
 from __future__ import annotations
 
-import tomllib
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10: aynı API, ayrı paket (requirements.txt)
+    import tomli as tomllib  # type: ignore[no-redef]
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal

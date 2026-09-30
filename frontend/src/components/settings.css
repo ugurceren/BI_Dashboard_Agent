@@ -67,3 +67,5 @@
 .st-suggest { border-style: dashed; color: var(--muted); }
 .st-input-sm { height: 30px; font-size: 12px; }
 .st-warn-list { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-2); }
+.st-grid-host { grid-template-columns: 1fr 110px; }
+.st-field a { color: var(--accent); font-weight: 600; }

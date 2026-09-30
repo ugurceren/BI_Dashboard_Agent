@@ -31,6 +31,8 @@ export interface Api {
   saveConnections(data: ConnFields, dictionary: ConnFields): Promise<{ ok: boolean; error: string | null; tables: number }>;
   resetConnections(): Promise<{ ok: boolean; error: string | null }>;
   dictionaryTables(data: ConnFields, dictionary: ConnFields): Promise<DictCandidates>;
+  uploadDictionaryExcel(file: File): Promise<{ ok: boolean; path: string; tables: DictCandidates["tables"] }>;
+  dictionaryTemplateUrl(): string;
   listSessions(): Promise<SessionSummary[]>;
   createSession(): Promise<SessionState>;
   getSession(id: string): Promise<SessionState>;
@@ -150,6 +152,15 @@ export const httpApi: Api = {
   listDatabases: (target, data, dictionary) => req<{ ok: boolean; databases: string[]; error?: string }>("/api/settings/databases", { method: "POST", body: JSON.stringify({ target, data, dictionary }) }),
   saveConnections: (data, dictionary) => req<{ ok: boolean; error: string | null; tables: number }>("/api/settings/connections", { method: "PUT", body: JSON.stringify({ data, dictionary }) }),
   resetConnections: () => req<{ ok: boolean; error: string | null }>("/api/settings/connections", { method: "DELETE" }),
+  uploadDictionaryExcel: async (file) => {
+    const res = await fetch(`/api/settings/dictionary/upload?filename=${encodeURIComponent(file.name)}`, {
+      method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, detailLines(body?.detail ?? body)[0] ?? `${res.status}`);
+    return body;
+  },
+  dictionaryTemplateUrl: () => "/api/settings/dictionary/template.xlsx",
   dictionaryTables: (data, dictionary) => req<DictCandidates>("/api/settings/dictionary/tables", { method: "POST", body: JSON.stringify({ target: "dictionary", data, dictionary }) }),
   listSessions: () => req<SessionSummary[]>("/api/sessions"),
   createSession: () => req<SessionState>("/api/sessions", { method: "POST", body: "{}" }),

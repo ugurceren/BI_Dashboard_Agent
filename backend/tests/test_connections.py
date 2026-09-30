@@ -50,7 +50,8 @@ def test_settings_endpoints_save_and_mask_password(settings, services, conn_file
     monkeypatch.setattr(m, "_probe", lambda fields, database=None: {"server_name": fields["server"], "database": fields["database"]})
     monkeypatch.setattr(m, "build_services", lambda: services)
     from app.dictionary import sources as srcmod
-    monkeypatch.setattr(srcmod, "build_queries", lambda con, src: srcmod.BuiltQueries())
+    monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
     c = TestClient(m.app)
     body = {"data": {"server": r"SRV\BI", "database": "AW", "auth": "sql", "username": "ro", "password": "s3cret"},
             "dictionary": {"same_as_data": True, "database": ""}}
@@ -108,8 +109,34 @@ def test_save_rejected_when_dictionary_tables_invalid(settings, services, conn_f
     from app.dictionary import sources as srcmod
 
     m.state.services = services
-    monkeypatch.setattr(srcmod, "build_queries", lambda con, src: srcmod.BuiltQueries(errors=["Kolonlar: zorunlu kolon yok"]))
+    monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected(errors=["Kolonlar: zorunlu kolon yok"]))
     body = {"data": {"server": "srv", "database": "AW"},
             "dictionary": {"same_as_data": True, "sources": {"tables": ["meta.x"], "columns": ["meta.x"]}}}
     r = TestClient(m.app).put("/api/settings/connections", json=body)
     assert r.status_code == 422 and "Kaydedilmedi" in r.text and not conn_file.exists()
+
+
+def test_excel_and_mysql_dictionary_kinds_resolved(settings, services, conn_file, monkeypatch, tmp_path):
+    """Excel / MySQL sözlüğü: 'aynı sunucu' uygulanmaz, kendi alanları ve varsayılan sayfa / tablo adları saklanır."""
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.dictionary import sources as srcmod
+
+    m.state.services = services
+    m.state.agent = type("A", (), {"services": services})()
+    monkeypatch.setattr(m, "build_services", lambda: services)
+    monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    c = TestClient(m.app)
+    data = {"server": "srv", "database": "AW"}
+    x = {"kind": "excel", "excel_path": str(tmp_path / "s.xlsx"), "same_as_data": True}
+    assert c.put("/api/settings/connections", json={"data": data, "dictionary": x}).status_code == 200
+    d = conns.load_connections()["dictionary"]
+    assert d["kind"] == "excel" and not d["same_as_data"] and d["sources"]["columns"] == ["Kolonlar"]
+    my = {"kind": "mysql", "server": "mysqlhost", "database": "meta", "username": "ro", "password": "pw"}
+    assert c.put("/api/settings/connections", json={"data": data, "dictionary": my}).status_code == 200
+    d = conns.load_connections()["dictionary"]
+    assert d["kind"] == "mysql" and d["port"] == 3306 and d["auth"] == "sql" and "pw" not in str(d)
+    assert conns.saved_dictionary()[0]["server"] == "mysqlhost" and conns.dictionary_odbc(settings) is None

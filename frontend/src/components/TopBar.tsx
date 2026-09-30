@@ -72,7 +72,7 @@ export function TopBar({ onMode, canView, page, mock, sessions, currentId, curre
         <span className="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 13V9M6.5 13V5M10 13V7.5M13.5 13V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
         </span>
-        <span className="brand-name">BI Rapor Agent</span>
+        <span className="brand-name">BI Lens</span>
         {mock ? <span className="pill pill-warn" title="Backend olmadan sahte veriyle çalışıyor">mock</span> : null}
       </div>
 

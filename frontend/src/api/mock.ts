@@ -176,6 +176,8 @@ export const mockApi: Api = {
   async listDatabases() { return { ok: true, databases: ["AdventureWorksDW2025", "BI_Meta"] }; },
   async saveConnections() { return { ok: true, error: null, tables: 26 }; },
   async resetConnections() { return { ok: true, error: null }; },
+  async uploadDictionaryExcel(file) { return { ok: true, path: "C:/" + file.name, tables: [] }; },
+  dictionaryTemplateUrl() { return "#"; },
   async dictionaryTables() { return { ok: true, tables: [{ name: "meta.dd_tables", columns: ["table_name"], role: "tables" as const }] }; },
   async querySchema() {
     return { role: "analyst", max_rows: 1000, allow_pii: false, allowed_schemas: ["dbo"], datasets: [], objects: [

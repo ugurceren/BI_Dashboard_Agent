@@ -1,7 +1,8 @@
 import { createLogger, defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const BACKEND = "http://127.0.0.1:8000"; // uvicorn 127.0.0.1'de dinler; "localhost" önce IPv6 (::1) dener
+// uvicorn 127.0.0.1'de dinler ("localhost" önce IPv6 dener); port start.bat'tan (8000 doluysa başka bir boş port)
+const BACKEND = `http://127.0.0.1:${process.env.BI_BACKEND_PORT || 8000}`;
 
 // Backend kapalıyken (ECONNREFUSED) her istek için yığın izi basmak yerine 30 sn'de bir kısa uyarı.
 const logger = createLogger();
@@ -12,7 +13,7 @@ logger.error = (msg, opts) => {
     const now = Date.now();
     if (now - lastRefused > 30_000) {
       lastRefused = now;
-      logger.warn(`Backend'e ulaşılamıyor (${BACKEND}). "BI Agent - Backend" penceresi açık mı? start.bat ile yeniden başlatabilirsiniz.`,
+      logger.warn(`Backend'e ulaşılamıyor (${BACKEND}). "BI Lens - Backend" penceresi açık mı? start.bat ile yeniden başlatabilirsiniz.`,
         { timestamp: true });
     }
     return;

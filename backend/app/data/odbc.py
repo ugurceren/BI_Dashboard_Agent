@@ -61,6 +61,12 @@ def resolve_driver(conn_str: str, drivers: list[str] | None = None) -> str:
 
 
 _HINTS: list[tuple[str, str]] = [
+    (r"Access denied for user|\(1045", "MySQL oturumu açılamadı: kullanıcı adı / şifre hatalı ya da bu kullanıcının bu bilgisayardan bağlanma izni yok."),
+    (r"Can't connect to MySQL server|\(2003|\(2005", "MySQL sunucusuna ulaşılamadı: sunucu adı / port (varsayılan 3306) doğru mu, güvenlik duvarı açık mı?"),
+    (r"Unknown database|\(1049", "MySQL veritabanı bulunamadı: adı doğru mu?"),
+    (r"Excel dosyası bulunamadı", "Excel dosyası bulunamadı: yolu kontrol edin ya da dosyayı yeniden yükleyin."),
+    (r"File is not a zip file|BadZipFile|InvalidFileException", "Dosya geçerli bir Excel çalışma kitabı değil (.xlsx / .xlsm olmalı)."),
+    (r"Permission denied|PermissionError", "Dosyaya erişim izni yok: dosya başka bir programda açık olabilir ya da ağ klasörüne okuma yetkiniz yok."),
     (r"Error Locating Server/Instance|server was not found or was not accessible|SQL Server does not exist",
      "Sunucu / instance bulunamadı. Adı doğru mu (SUNUCU\\INSTANCE veya SUNUCU,port)? Adlandırılmış instance için "
      "SQL Server Browser servisi çalışmalı ve güvenlik duvarı UDP 1434'e izin vermeli."),

@@ -8,12 +8,13 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import quote
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ValidationError
 from sqlglot import exp
 
@@ -100,7 +101,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="BI Rapor Agent", lifespan=lifespan)
+app = FastAPI(title="BI Lens", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -757,7 +758,10 @@ class ConnIn(BaseModel):
     encrypt: bool = True
     trust_server_certificate: bool = True
     same_as_data: bool = True        # yalnız sözlük için
-    sources: dict[str, list[str]] | None = None   # yalnız sözlük: rol → tablolar (tables/columns/relationships/metrics)
+    sources: dict[str, list[str]] | None = None   # yalnız sözlük: rol → tablolar / sayfalar
+    kind: str = "sqlserver"          # yalnız sözlük: sqlserver | mysql | excel
+    port: int | None = None          # MySQL (varsayılan 3306)
+    excel_path: str = ""             # Excel dosyası (yüklenen ya da ağ yolu)
 
 
 class ConnectionsIn(BaseModel):
@@ -773,6 +777,8 @@ class ConnTestIn(BaseModel):
 
 def _fields(c: ConnIn, saved: dict[str, Any] | None) -> dict[str, Any]:
     d = c.model_dump()
+    if d.get("kind") == "mysql":     # MySQL her zaman kullanıcı adı / şifre ile
+        d["auth"] = "sql"
     if d["auth"] != "sql":
         d.update(username="", password="")
     elif d["password"] is None:      # boş bırakıldı: kayıtlı şifreyi kullan
@@ -786,15 +792,22 @@ def _resolved(body: ConnTestIn | ConnectionsIn) -> tuple[dict[str, Any], dict[st
     saved = conns.load_connections() or {}
     data = _fields(body.data, saved.get("data"))
     dic_in = body.dictionary or ConnIn(database=conns.DEFAULT_DICTIONARY_DB)
+    from app.dictionary.sources import KINDS, ROLES, default_sources
+    kind = dic_in.kind if dic_in.kind in KINDS else "sqlserver"
     dic = _fields(dic_in, saved.get("dictionary"))
-    if dic_in.same_as_data:
+    if kind == "sqlserver" and dic_in.same_as_data:
         dic = {**data, "database": dic["database"] or conns.DEFAULT_DICTIONARY_DB, "same_as_data": True}
     else:
         dic["same_as_data"] = False
-    from app.dictionary.sources import DEFAULT_SOURCES, ROLES
-    src = dic_in.sources or DEFAULT_SOURCES
+    dic["kind"] = kind
+    if kind == "mysql":
+        dic["port"] = dic_in.port or 3306
+    if kind == "excel":
+        dic["excel_path"] = (dic_in.excel_path or "").strip().strip('"')
+    src = dic_in.sources or default_sources(kind)
     dic["sources"] = {r: [n.strip() for n in (src.get(r) or []) if n and n.strip()] for r in ROLES}
-    data.pop("sources", None)
+    for k in ("sources", "kind", "port", "excel_path"):
+        data.pop(k, None)
     return data, dic
 
 
@@ -807,6 +820,77 @@ def _probe(fields: dict[str, Any], database: str | None = None) -> dict[str, Any
     srv, db, ver, ed, login = r.rows[0]
     return {"server_name": srv, "database": db, "version": ver, "edition": ed, "login": login,
             "driver": odbc.split(";")[0].replace("DRIVER=", "").strip("{}")}
+
+
+@app.post("/api/settings/dictionary/upload")
+async def upload_dictionary_excel(request: Request, filename: str = "sozluk.xlsx") -> dict[str, Any]:
+    """Excel sözlük dosyasını yükler (gövde: dosyanın kendisi). Sayfalar ve önerilen roller döner."""
+    _require_settings_access(request)
+    import re as _re
+    ext = Path(filename).suffix.lower()
+    if ext not in (".xlsx", ".xlsm"):
+        raise HTTPException(400, "Yalnızca .xlsx / .xlsm dosyaları yüklenebilir.")
+    body = await request.body()
+    if not body or len(body) > 30 * 1024 * 1024:
+        raise HTTPException(400, "Dosya boş ya da 30 MB'tan büyük.")
+    safe = _re.sub(r"[^\w.\-]+", "_", Path(filename).stem)[:60] or "sozluk"
+    conns.DICTIONARY_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    path = conns.DICTIONARY_FILES_DIR / f"{safe}{ext}"
+    path.write_bytes(body)
+    from app.dictionary.sources import ExcelReader, _norm_key, suggest_role
+    try:
+        sheets = ExcelReader(path).list_tables()
+    except Exception as e:  # noqa: BLE001
+        path.unlink(missing_ok=True)
+        raise HTTPException(400, f"Excel dosyası okunamadı: {e}")
+    return {"ok": True, "path": str(path),
+            "tables": [{"name": n, "columns": c, "role": suggest_role({_norm_key(x) for x in c})} for n, c in sheets.items()]}
+
+
+@app.get("/api/settings/dictionary/template.xlsx")
+def dictionary_template(request: Request) -> Response:
+    """Şu an yüklü sözlüğü Excel olarak indirir (Tablolar / Kolonlar / İlişkiler / Metrikler sayfaları);
+    düzenleyip Excel kaynağı olarak geri yüklenebilir."""
+    _require_settings_access(request)
+    import io
+
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    from app.dictionary.sources import DEFAULTS, ROLES
+    dd = state.services.dictionary
+    _disp = lambda t: (dd.tables[t].display_name or t) if t in dd.tables else t  # noqa: E731 — özgün yazım (dbo.FactX)
+    rows: dict[str, list[list[Any]]] = {
+        "tables": [[t.display_name or t.name, t.business_name, t.description, t.subject_area, t.grain, t.row_count, t.table_type]
+                   for t in dd.tables.values() if t.table_type != "view"],
+        "columns": [[t.display_name or t.name, c.display_name or c.name, c.business_name, c.description, c.data_type, c.role,
+                     c.default_aggregation, ", ".join(c.synonyms), "Evet" if c.is_pii else "", c.sample_values]
+                    for t in dd.tables.values() if t.table_type != "view" for c in t.columns],
+        # onaylı view'lar (ve onların ilişkileri) sözlüğe uygulamaca eklenir; şablona girmez
+        "relationships": [[r.id, _disp(r.from_table), a, _disp(r.to_table), b, r.cardinality, r.role, "Evet" if r.active else "Hayır"]
+                          for r in dd.relationships for a, b in r.pairs
+                          if not any((dd.tables.get(t) and dd.tables[t].table_type == "view") for t in (r.from_table, r.to_table))],
+        "metrics": [[m.name, m.expression_sql, m.business_name, m.description, m.base_table, m.value_format, ", ".join(m.synonyms)]
+                    for m in dd.metrics],
+    }
+    order = {"relationships": ["relationship_id", "from_table", "from_column", "to_table", "to_column", "cardinality", "role", "is_active"]}
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for role, spec in ROLES.items():
+        ws = wb.create_sheet(DEFAULTS["excel"][role][0])
+        header = order.get(role, spec["required"] + spec["optional"])
+        ws.append(header)
+        for c in ws[1]:
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor="2563EB")
+        for r in rows[role]:
+            ws.append(r)
+        ws.freeze_panes = "A2"
+        for i, h in enumerate(header, 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(14, min(40, len(h) + 6))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="veri_sozlugu.xlsx"'})
 
 
 @app.get("/api/settings/connections")
@@ -823,28 +907,25 @@ def get_connections(request: Request) -> dict[str, Any]:
 def test_connection(body: ConnTestIn, request: Request) -> dict[str, Any]:
     _require_settings_access(request)
     data, dic = _resolved(body)
-    fields = dic if body.target == "dictionary" else data
+    if body.target != "dictionary":
+        try:
+            return {"ok": True, **_probe(data)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": friendly_error(str(e))}
+    # sözlük: kaynağa bağlan (SQL Server / MySQL / Excel), seçilen tablo / sayfaları gerçekten oku (rol başına satır sayısı)
+    from app.dictionary.sources import collect
     try:
-        info = _probe(fields)
+        reader, info = conns.open_dictionary_reader(dic)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": friendly_error(str(e))}
-    if body.target == "dictionary":  # seçilen sözlük tabloları gerçekten okunuyor mu (rol başına satır sayısı)
-        from app.data.connector import SqlServerConnector
-        from app.dictionary.sources import ROLES, build_queries
-        con = SqlServerConnector(conns.build_odbc(fields), 30)
-        try:
-            built = build_queries(con, fields["sources"])
-        except Exception as e:  # noqa: BLE001
-            return {"ok": False, **info, "error": "Bağlantı kuruldu ama sözlük tabloları incelenemedi: " + friendly_error(str(e))}
-        counts: dict[str, int] = {}
-        for role, sql in built.queries.items():
-            try:
-                counts[role] = len(con.execute(sql, 100_000).rows)
-            except Exception as e:  # noqa: BLE001
-                built.errors.append(f"{ROLES[role]['label']}: okunamadı — {friendly_error(str(e))}")
-        info.update(dictionary_counts=counts, dictionary_tables=counts.get("tables", 0), warnings=built.warnings)
-        if built.errors:
-            return {"ok": False, **info, "error": " ".join(built.errors)}
+    try:
+        got = collect(reader, dic["sources"])
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, **info, "error": "Bağlantı kuruldu ama sözlük okunamadı: " + friendly_error(str(e))}
+    counts = got.counts
+    info.update(dictionary_counts=counts, dictionary_tables=counts.get("tables", 0), warnings=got.warnings)
+    if got.errors:
+        return {"ok": False, **info, "error": " ".join(got.errors)}
     return {"ok": True, **info}
 
 
@@ -853,19 +934,13 @@ def dictionary_candidate_tables(body: ConnTestIn, request: Request) -> dict[str,
     """Sözlük veritabanındaki tablolar + kolonlarına göre önerilen sözlük rolü."""
     _require_settings_access(request)
     _, dic = _resolved(body)
-    from app.data.connector import SqlServerConnector
-    from app.dictionary.sources import ROLES, suggest_role
+    from app.dictionary.sources import ROLES, _norm_key, suggest_role
     try:
-        r = SqlServerConnector(conns.build_odbc(dic), 30).execute(
-            "SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS c "
-            "JOIN INFORMATION_SCHEMA.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME "
-            "WHERE c.TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA') ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION", 50_000)
+        reader, _ = conns.open_dictionary_reader(dic)
+        tables = reader.list_tables()
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": friendly_error(str(e)), "tables": []}
-    tables: dict[str, list[str]] = {}
-    for schema, table, col in r.rows:
-        tables.setdefault(f"{schema}.{table}", []).append(str(col))
-    out = [{"name": n, "columns": cols, "role": suggest_role({c.lower() for c in cols})} for n, cols in tables.items()]
+    out = [{"name": n, "columns": cols, "role": suggest_role({_norm_key(c) for c in cols})} for n, cols in tables.items()]
     return {"ok": True, "tables": out,
             "roles": {k: {"label": v["label"], "required": v["required"], "optional": v["optional"], "must": v["must"]}
                       for k, v in ROLES.items()}}
@@ -884,6 +959,13 @@ def list_databases(body: ConnTestIn, request: Request) -> dict[str, Any]:
     _require_settings_access(request)
     data, dic = _resolved(body)
     fields = dic if body.target == "dictionary" else data
+    if body.target == "dictionary" and dic["kind"] == "mysql":
+        try:
+            from app.dictionary.sources import MySQLReader
+            r = MySQLReader(dic["server"], dic.get("port") or 3306, dic["username"], dic.get("password") or "", "")
+            return {"ok": True, "databases": r.databases()}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": friendly_error(str(e)), "databases": []}
     try:
         from app.data.connector import SqlServerConnector
         r = SqlServerConnector(conns.build_odbc(fields, "master"), 15).execute(
@@ -901,14 +983,13 @@ def save_connections(body: ConnectionsIn, request: Request) -> dict[str, Any]:
     if not data["database"]:
         raise HTTPException(400, "Veri kaynağı için veritabanı seçin.")
     # sözlük tabloları hatalıysa kaydetme: çalışan eski ayar korunsun (sunucuya o an ulaşılamıyorsa kayda izin ver)
-    from app.data.connector import SqlServerConnector
-    from app.dictionary.sources import build_queries
+    from app.dictionary import sources as dsrc
     try:
-        built = build_queries(SqlServerConnector(conns.build_odbc(dic), 30), dic["sources"])
+        got = dsrc.collect(conns.open_dictionary_reader(dic)[0], dic["sources"])
     except Exception:  # noqa: BLE001
-        built = None
-    if built and built.errors:
-        raise HTTPException(422, "Kaydedilmedi — sözlük tabloları hatalı: " + " ".join(built.errors))
+        got = None
+    if got and got.errors:
+        raise HTTPException(422, "Kaydedilmedi — sözlük tabloları hatalı: " + " ".join(got.errors))
     store = lambda f: {k: v for k, v in f.items() if k != "password"} | {"password_enc": conns.protect(f.get("password") or "")}  # noqa: E731
     conns.save_connections({"data": store(data), "dictionary": store(dic)})
     _rebuild_services()

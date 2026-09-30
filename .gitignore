@@ -11,3 +11,5 @@ backend/cache/
 backend/view_scripts/
 backend/config/views.json
 backend/config/connections.json
+backend/config/dictionary_files/
+backend/.port
