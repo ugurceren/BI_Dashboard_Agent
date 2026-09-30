@@ -116,3 +116,83 @@ def test_template_roundtrip(settings, services, tmp_path):
     dd = services.dictionary
     assert got.counts["tables"] == len([t for t in dd.tables.values() if t.table_type != "view"])
     assert got.counts["columns"] == sum(len(t.columns) for t in dd.tables.values() if t.table_type != "view")
+
+
+def test_single_flat_table_with_turkish_headers(tmp_path):
+    """Tek sayfa / tek tablo: tablolar kolon satırlarından çıkar, Türkçe başlıklar tanınır."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sözlük"
+    ws.append(["Tablo Adı", "Tablo Açıklaması", "Konu Alanı", "Kolon Adı", "İş Adı", "Açıklama", "Veri Tipi", "Kişisel Veri"])
+    ws.append(["dbo.FactSales", "Satış işlemleri", "Satış", "SalesAmount", "Satış tutarı", "KDV hariç", "money", "Hayır"])
+    ws.append(["dbo.FactSales", "Satış işlemleri", "Satış", "CustomerEmail", "E-posta", "", "nvarchar", "Evet"])
+    ws.append(["dbo.DimProduct", None, "Ürün", "ProductKey", "Ürün anahtarı", "", "int", ""])
+    path = tmp_path / "tek.xlsx"
+    wb.save(path)
+    got = collect(ExcelReader(path), {"tables": [], "columns": ["Sözlük"], "relationships": [], "metrics": []})
+    assert not got.errors, got.errors
+    tables = {t["table_name"]: t for t in got.rows["tables"]}
+    assert set(tables) == {"dbo.FactSales", "dbo.DimProduct"} and got.derived_tables == 2
+    assert tables["dbo.FactSales"]["description"] == "Satış işlemleri" and tables["dbo.FactSales"]["subject_area"] == "Satış"
+    assert tables["dbo.DimProduct"]["description"] is None and tables["dbo.DimProduct"]["subject_area"] == "Ürün"
+    cols = got.rows["columns"]
+    assert cols[0]["business_name"] == "Satış tutarı" and cols[0]["description"] == "KDV hariç"  # kolon açıklaması ≠ tablo açıklaması
+    assert [c["is_pii"] for c in cols] == [False, True, False]
+    assert any("kolon sözlüğünden çıkarıldı" in w for w in got.warnings)
+
+
+def test_mixed_tables_plus_extra_columns():
+    """Tablolar ayrı verilmiş ama bir tablo yalnız kolon sözlüğünde: o da eklenir, açık tablo bilgisi korunur."""
+    r = FakeReader({
+        "meta.t": [{"table_name": "dbo.A", "business_name": "A tablosu"}],
+        "meta.c": [{"table_name": "dbo.A", "column_name": "x", "table_description": "yok sayılır"},
+                   {"table_name": "dbo.B", "column_name": "y", "table_description": "B açıklaması"}],
+    })
+    got = collect(r, {"tables": ["meta.t"], "columns": ["meta.c"], "relationships": [], "metrics": []})
+    t = {x["table_name"]: x for x in got.rows["tables"]}
+    assert t["dbo.A"]["business_name"] == "A tablosu" and t["dbo.B"]["description"] == "B açıklaması"
+    assert any("Yalnız kolon sözlüğünde olan 1 tablo" in w for w in got.warnings)
+
+
+def _dd_with(tables: dict[str, list[str]], connector=None):
+    from app.config import Settings
+    from app.dictionary.repository import DataDictionary, DDColumn, DDTable
+
+    dd = DataDictionary(Settings(), connector)
+    tabs = {}
+    for name, cols in tables.items():
+        t = DDTable(name.lower(), name, "", "", "", None, display_name=name)
+        t.columns = [DDColumn(name.lower(), c.lower(), c, "", "int", "key", None, [], False, "", display_name=c) for c in cols]
+        tabs[name.lower()] = t
+    return dd, tabs
+
+
+def test_relationships_from_key_column_names():
+    dd, tabs = _dd_with({"dbo.FactInternetSales": ["SalesOrderNumber", "ProductKey", "CustomerKey", "OrderDateKey"],
+                         "dbo.DimProduct": ["ProductKey", "ProductSubcategoryKey"],
+                         "dbo.DimProductSubcategory": ["ProductSubcategoryKey"],
+                         "dbo.DimCustomer": ["CustomerKey"],
+                         "dbo.Other": ["CustomerKey"]})
+    rows, src = dd._auto_relationship_rows(tabs)
+    pairs = {(r["from_table"], r["to_table"], r["from_column"]) for r in rows}
+    assert src == "name_match"
+    assert ("dbo.FactInternetSales", "dbo.DimProduct", "productkey") in pairs
+    assert ("dbo.DimProduct", "dbo.DimProductSubcategory", "productsubcategorykey") in pairs
+    assert ("dbo.Other", "dbo.DimCustomer", "customerkey") in pairs
+    assert not any(r["from_column"] == "orderdatekey" for r in rows)  # hedef tablo yok → atlanır
+
+
+def test_relationships_prefer_foreign_keys():
+    from app.data.connector import QueryResult
+
+    class FK:
+        dialect = "tsql"
+
+        def execute(self, sql, max_rows):
+            assert "sys.foreign_keys" in sql
+            return QueryResult([], [], [["FK_Sales_Product", "dbo.FactSales", "ProductKey", "dbo.DimProduct", "ProductKey"],
+                                        ["FK_X", "dbo.NotInDict", "a", "dbo.DimProduct", "ProductKey"]])
+
+    dd, tabs = _dd_with({"dbo.FactSales": ["ProductKey"], "dbo.DimProduct": ["ProductKey"]}, FK())
+    rows, src = dd._auto_relationship_rows(tabs)
+    assert src == "foreign_keys" and len(rows) == 1 and rows[0]["relationship_id"] == "fk:FK_Sales_Product"

@@ -189,6 +189,7 @@ class DataDictionary:
         self.metrics: list[DDMetric] = []
         self.relationships: list[DDRelationship] = []
         self.view_lineage: dict[str, str] = {}   # "rpt.v_x.kolon" → view'ın kaynak model kolonu
+        self.relationship_source = "dictionary"   # dictionary | foreign_keys | name_match | none
 
     # ------------------------------------------------------------------ yükleme
     def _connector(self, cfg: dict) -> Connector:
@@ -200,6 +201,85 @@ class DataDictionary:
 
             return SqlServerConnector(odbc, self.settings.query_timeout_s)
         return self._data_connector or create_connector(self.settings)
+
+    # ------------------------------------------------------------------ otomatik ilişkiler
+    _PREFIX = re.compile(r"^(dim|fact|fct|tbl|lkp|lookup|ref|d|f|t)_?", re.IGNORECASE)
+
+    def _auto_relationship_rows(self, tables: dict[str, "DDTable"]) -> tuple[list[dict[str, Any]], str]:
+        """İlişki sözlüğü yoksa: 1) veri veritabanındaki foreign key'ler, 2) yoksa anahtar kolon adı eşleşmesi
+        (DimProduct.ProductKey ← FactSales.ProductKey gibi). Kardinalite sonra veriden otomatik bulunur."""
+        rows = self._foreign_key_rows(tables)
+        if rows:
+            log.info("İlişki sözlüğü yok: %d ilişki foreign key'lerden alındı.", len({r['relationship_id'] for r in rows}))
+            return rows, "foreign_keys"
+        rows = self._name_match_rows(tables)
+        if rows:
+            log.info("İlişki sözlüğü / foreign key yok: %d ilişki anahtar kolon adlarından çıkarıldı.", len(rows))
+            return rows, "name_match"
+        log.warning("İlişki bulunamadı: JOIN'ler sözlükle doğrulanamaz, filtreler görseller arasında yayılmaz.")
+        return [], "none"
+
+    def preview_auto_relationships(self, table_rows: list[dict[str, Any]], column_rows: list[dict[str, Any]]) -> tuple[int, str]:
+        """Ayarlar sayfası: ilişki sözlüğü seçilmediyse kaç ilişkinin otomatik bulunacağı (sayı, kaynak)."""
+        tabs: dict[str, DDTable] = {}
+        for r in table_rows:
+            n = str(r["table_name"]).lower()
+            tabs[n] = DDTable(n, n, "", "", "", None, display_name=str(r["table_name"]))
+        for r in column_rows:
+            n = str(r["table_name"]).lower()
+            if n in tabs:
+                c = str(r["column_name"])
+                tabs[n].columns.append(DDColumn(n, c.lower(), c, "", "", "attribute", None, [], False, "", display_name=c))
+        rows, src = self._auto_relationship_rows(tabs)
+        return len({r["relationship_id"] for r in rows}), src
+
+    def _foreign_key_rows(self, tables: dict[str, "DDTable"]) -> list[dict[str, Any]]:
+        con = self._data_connector
+        if con is None or getattr(con, "dialect", "") != "tsql":
+            return []
+        try:
+            r = con.execute(
+                "SELECT fk.name, SCHEMA_NAME(tp.schema_id) + '.' + tp.name, cp.name, SCHEMA_NAME(tr.schema_id) + '.' + tr.name, cr.name "
+                "FROM sys.foreign_keys fk JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id "
+                "JOIN sys.tables tp ON tp.object_id = fkc.parent_object_id "
+                "JOIN sys.columns cp ON cp.object_id = tp.object_id AND cp.column_id = fkc.parent_column_id "
+                "JOIN sys.tables tr ON tr.object_id = fkc.referenced_object_id "
+                "JOIN sys.columns cr ON cr.object_id = tr.object_id AND cr.column_id = fkc.referenced_column_id "
+                "WHERE fk.is_disabled = 0", 50_000)
+        except Exception as e:  # noqa: BLE001
+            log.info("Foreign key'ler okunamadı: %s", e)
+            return []
+        return [{"relationship_id": f"fk:{name}", "from_table": ft, "from_column": fc, "to_table": tt, "to_column": tc}
+                for name, ft, fc, tt, tc in r.rows if ft.lower() in tables and tt.lower() in tables]
+
+    def _name_match_rows(self, tables: dict[str, "DDTable"]) -> list[dict[str, Any]]:
+        """<Varlık>Key / <Varlık>Id / <Varlık>_id kolonu, adı o varlık olan tablonun anahtarı sayılır; aynı adlı
+        kolonu olan diğer tablolar ona bağlanır. Belirsiz eşleşmeler (hedef tablo bulunamayan ya da birden çok) atlanır."""
+        stems: dict[str, str] = {}
+        for name in tables:
+            base = name.split(".", 1)[-1]
+            stems[name] = self._PREFIX.sub("", base).lower()
+        by_col: dict[str, list[str]] = {}
+        for name, t in tables.items():
+            for c in t.columns:
+                by_col.setdefault(c.name.lower(), []).append(name)
+        rows: list[dict[str, Any]] = []
+        for col, owners in by_col.items():
+            if len(owners) < 2:
+                continue
+            m = re.match(r"^(.+?)_?(key|id|kod|kodu|no)$", col)
+            if not m:
+                continue
+            entity = m.group(1)
+            targets = [t for t in owners if stems[t] == entity]
+            if len(targets) != 1:
+                continue
+            target = targets[0]
+            for src in owners:
+                if src != target:
+                    rows.append({"relationship_id": f"name:{src}.{col}", "from_table": tables[src].display_name or src,
+                                 "from_column": col, "to_table": tables[target].display_name or target, "to_column": col})
+        return rows
 
     def load(self) -> "DataDictionary":
         cfg = load_toml(self.settings.dictionary_config)
@@ -247,7 +327,11 @@ class DataDictionary:
                 is_pii=bool(r.get("is_pii")), sample_values=r.get("sample_values") or "",
                 display_name=str(r["column_name"]),
             ))
-        rels = _group_relationships(rows("relationships"))
+        rel_rows = rows("relationships")
+        self.relationship_source = "dictionary"
+        if not rel_rows and tables:  # ilişki tablosu yok: foreign key'lerden ya da anahtar kolon adlarından çıkar
+            rel_rows, self.relationship_source = self._auto_relationship_rows(tables)
+        rels = _group_relationships(rel_rows)
         if cfg.get("infer_cardinality", True) and any(r.cardinality is None for r in rels):
             cache = self._cardinality_cache()
             for r in rels:

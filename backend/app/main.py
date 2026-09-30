@@ -818,7 +818,7 @@ def _probe(fields: dict[str, Any], database: str | None = None) -> dict[str, Any
     r = con.execute("SELECT @@SERVERNAME, DB_NAME(), CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(64)), "
                     "CAST(SERVERPROPERTY('Edition') AS nvarchar(128)), SUSER_SNAME()", 1)
     srv, db, ver, ed, login = r.rows[0]
-    return {"server_name": srv, "database": db, "version": ver, "edition": ed, "login": login,
+    return {"server_name": srv, "database": db, "version": f"SQL Server {ver}", "edition": ed, "login": login,
             "driver": odbc.split(";")[0].replace("DRIVER=", "").strip("{}")}
 
 
@@ -848,9 +848,10 @@ async def upload_dictionary_excel(request: Request, filename: str = "sozluk.xlsx
 
 
 @app.get("/api/settings/dictionary/template.xlsx")
-def dictionary_template(request: Request) -> Response:
-    """Şu an yüklü sözlüğü Excel olarak indirir (Tablolar / Kolonlar / İlişkiler / Metrikler sayfaları);
-    düzenleyip Excel kaynağı olarak geri yüklenebilir."""
+def dictionary_template(request: Request, layout: str = "multi") -> Response:
+    """Şu an yüklü sözlüğü Excel olarak indirir; düzenleyip Excel kaynağı olarak geri yüklenebilir.
+    layout=multi: Tablolar / Kolonlar / İlişkiler / Metrikler sayfaları · layout=single: tek "Sözlük" sayfası
+    (her satır bir kolon, tablo bilgileri table_* kolonlarında; ilişkiler foreign key / kolon adlarından çıkarılır)."""
     _require_settings_access(request)
     import io
 
@@ -873,16 +874,30 @@ def dictionary_template(request: Request) -> Response:
                     for m in dd.metrics],
     }
     order = {"relationships": ["relationship_id", "from_table", "from_column", "to_table", "to_column", "cardinality", "role", "is_active"]}
+    order["columns"] = ["table_name", "column_name", "business_name", "description", "data_type", "column_role",
+                        "default_aggregation", "synonyms", "is_pii", "sample_values"]
+    order["tables"] = ["table_name", "business_name", "description", "subject_area", "grain", "row_count", "table_type"]
+    sheets: list[tuple[str, list[str], list[list[Any]]]]
+    if layout == "single":
+        tinfo = {r[0].lower(): r for r in rows["tables"]}
+        flat = []
+        for c in rows["columns"]:
+            t = tinfo.get(str(c[0]).lower(), [c[0], None, None, None, None, None, None])
+            flat.append([c[0], t[1], t[2], t[3], t[4], t[5], t[6], *c[1:]])
+        sheets = [("Sözlük", ["table_name", "table_business_name", "table_description", "subject_area", "grain", "row_count",
+                              "table_type", *order["columns"][1:]], flat)]
+    else:
+        sheets = [(DEFAULTS["excel"][role][0], order[role] if role in order else spec["required"] + spec["optional"], rows[role])
+                  for role, spec in ROLES.items()]
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-    for role, spec in ROLES.items():
-        ws = wb.create_sheet(DEFAULTS["excel"][role][0])
-        header = order.get(role, spec["required"] + spec["optional"])
+    for title, header, data in sheets:
+        ws = wb.create_sheet(title)
         ws.append(header)
         for c in ws[1]:
             c.font = Font(bold=True, color="FFFFFF")
             c.fill = PatternFill("solid", fgColor="2563EB")
-        for r in rows[role]:
+        for r in data:
             ws.append(r)
         ws.freeze_panes = "A2"
         for i, h in enumerate(header, 1):
@@ -890,7 +905,7 @@ def dictionary_template(request: Request) -> Response:
     buf = io.BytesIO()
     wb.save(buf)
     return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": 'attachment; filename="veri_sozlugu.xlsx"'})
+                    headers={"Content-Disposition": f'attachment; filename="veri_sozlugu{"_tek_sayfa" if layout == "single" else ""}.xlsx"'})
 
 
 @app.get("/api/settings/connections")
@@ -923,7 +938,16 @@ def test_connection(body: ConnTestIn, request: Request) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         return {"ok": False, **info, "error": "Bağlantı kuruldu ama sözlük okunamadı: " + friendly_error(str(e))}
     counts = got.counts
-    info.update(dictionary_counts=counts, dictionary_tables=counts.get("tables", 0), warnings=got.warnings)
+    info.update(dictionary_counts=counts, dictionary_tables=counts.get("tables", 0), warnings=got.warnings,
+                derived_tables=got.derived_tables)
+    if "relationships" not in got.explicit and got.rows.get("columns"):  # ilişki sözlüğü yok: otomatik kaç ilişki bulunur?
+        try:
+            n, src = DataDictionary(get_settings(), state.services.connector).preview_auto_relationships(
+                got.rows.get("tables") or [], got.rows["columns"])
+            counts["relationships"] = n
+            info["relationship_source"] = src
+        except Exception as e:  # noqa: BLE001
+            log.info("Otomatik ilişki önizlemesi yapılamadı: %s", e)
     if got.errors:
         return {"ok": False, **info, "error": " ".join(got.errors)}
     return {"ok": True, **info}

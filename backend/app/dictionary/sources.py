@@ -1,5 +1,13 @@
 """Sözlük kaynakları: her sözlük rolü (tablolar / kolonlar / ilişkiler / metrikler) bir ya da birden çok
-tablodan (SQL Server, MySQL) ya da Excel sayfasından okunur.
+tablodan (SQL Server, MySQL) ya da Excel sayfasından okunur. Yapı esnektir:
+
+  * TEK TABLO: yalnız "Kolonlar" yeterli. Tablo listesi kolon satırlarındaki table_name'den çıkarılır; tablo
+    düzeyindeki bilgiler aynı satırlardaki table_business_name / table_description / subject_area / grain /
+    row_count / table_type kolonlarından okunur (tabloya ait satırlarda tekrar edebilir).
+  * ÇOK TABLO: Tablolar / Kolonlar / İlişkiler / Metrikler ayrı tablolarda; aynı role birden çok tablo verilebilir.
+  * KARIŞIK: ör. Kolonlar + İlişkiler; ya da Tablolar ayrı ama bazı tablolar yalnız kolon sözlüğünde.
+  * İlişkiler seçilmezse repository SQL Server foreign key'lerinden ya da anahtar kolon adlarından çıkarır.
+  * Kolon adları esnek: "Tablo Adı", "Kolon Adı", "Açıklama", "Kişisel Veri" gibi Türkçe / İngilizce karşılıklar tanınır.
 
   * her kaynakta var olan beklenen kolonlar alınır, eksik İSTEĞE BAĞLI kolonlar boş (None) gelir;
   * ZORUNLU kolon eksikse o tablo / sayfa kullanılmaz ve açık bir hata döner;
@@ -20,12 +28,14 @@ ROLES: dict[str, dict[str, Any]] = {
     "tables": {
         "label": "Tablolar", "required": ["table_name"],
         "optional": ["business_name", "description", "subject_area", "grain", "row_count", "table_type"],
-        "must": True,
+        "must": False,   # seçilmezse Kolonlar'dan çıkarılır
     },
     "columns": {
         "label": "Kolonlar", "required": ["table_name", "column_name"],
         "optional": ["business_name", "description", "data_type", "column_role", "default_aggregation",
-                     "synonyms", "is_pii", "sample_values"],
+                     "synonyms", "is_pii", "sample_values",
+                     # tek tablolu sözlükler için tablo düzeyi bilgiler
+                     "table_business_name", "table_description", "subject_area", "grain", "row_count", "table_type"],
         "must": True,
     },
     "relationships": {
@@ -70,8 +80,43 @@ def suggest_role(columns: set[str]) -> str | None:
     return best
 
 
+_FOLD = str.maketrans({"ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "Ğ": "g", "ü": "u", "Ü": "u",
+                       "ö": "o", "Ö": "o", "ç": "c", "Ç": "c", "â": "a", "î": "i", "û": "u"})
+# yaygın Türkçe / İngilizce kolon adı karşılıkları → standart ad (karşılaştırma katlanmış, küçük harfle)
+ALIASES: dict[str, str] = {
+    **dict.fromkeys(["tablo", "tablo_adi", "tablo_ismi", "tablename", "table", "object_name", "nesne_adi", "tam_tablo_adi"], "table_name"),
+    **dict.fromkeys(["kolon", "kolon_adi", "kolon_ismi", "alan", "alan_adi", "sutun", "sutun_adi", "columnname", "column", "field_name", "field"], "column_name"),
+    **dict.fromkeys(["is_adi", "is_ismi", "gorunen_ad", "gorunen_adi", "kolon_is_adi", "alan_is_adi", "display_name", "label", "etiket"], "business_name"),
+    **dict.fromkeys(["aciklama", "kolon_aciklamasi", "alan_aciklamasi", "tanim", "desc", "comment", "yorum"], "description"),
+    **dict.fromkeys(["tablo_is_adi", "tablo_gorunen_ad", "table_label", "table_display_name"], "table_business_name"),
+    **dict.fromkeys(["tablo_aciklamasi", "tablo_tanimi", "table_desc", "table_comment"], "table_description"),
+    **dict.fromkeys(["konu_alani", "konu", "domain", "alan_grubu", "is_alani"], "subject_area"),
+    **dict.fromkeys(["granularite", "tanecik", "satir_duzeyi"], "grain"),
+    **dict.fromkeys(["satir_sayisi", "kayit_sayisi", "rows"], "row_count"),
+    **dict.fromkeys(["tablo_turu", "tablo_tipi", "table_kind"], "table_type"),
+    **dict.fromkeys(["veri_tipi", "veri_turu", "tip", "type", "datatype"], "data_type"),
+    **dict.fromkeys(["kolon_rolu", "rol_tipi", "role_type"], "column_role"),
+    **dict.fromkeys(["varsayilan_toplama", "toplama", "aggregation"], "default_aggregation"),
+    **dict.fromkeys(["es_anlamlilar", "es_anlamli", "anahtar_kelimeler", "keywords", "aliases"], "synonyms"),
+    **dict.fromkeys(["kisisel_veri", "kvkk", "pii", "hassas", "hassas_veri", "is_sensitive"], "is_pii"),
+    **dict.fromkeys(["ornek_degerler", "ornek", "samples"], "sample_values"),
+    **dict.fromkeys(["kaynak_tablo", "from_tablo"], "from_table"),
+    **dict.fromkeys(["kaynak_kolon", "from_kolon"], "from_column"),
+    **dict.fromkeys(["hedef_tablo", "to_tablo"], "to_table"),
+    **dict.fromkeys(["hedef_kolon", "to_kolon"], "to_column"),
+    **dict.fromkeys(["iliski_id", "iliski_adi"], "relationship_id"),
+    **dict.fromkeys(["kardinalite"], "cardinality"),
+    **dict.fromkeys(["aktif", "aktif_mi"], "is_active"),
+    **dict.fromkeys(["metrik", "metrik_adi", "olcu_adi"], "metric_name"),
+    **dict.fromkeys(["formul", "ifade", "expression", "sql_ifadesi"], "expression_sql"),
+    **dict.fromkeys(["temel_tablo"], "base_table"),
+    **dict.fromkeys(["bicim", "format"], "value_format"),
+}
+
+
 def _norm_key(k: Any) -> str:
-    return re.sub(r"\s+", "_", str(k or "").strip().lower())
+    key = re.sub(r"[\s\-./]+", "_", str(k or "").strip().translate(_FOLD).lower()).strip("_")
+    return ALIASES.get(key, key)
 
 
 def _norm_value(key: str, v: Any) -> Any:
@@ -266,6 +311,8 @@ class Collected:
     rows: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    explicit: set[str] = field(default_factory=set)   # kaynak seçilmiş roller
+    derived_tables: int = 0
 
     @property
     def counts(self) -> dict[str, int]:
@@ -309,6 +356,35 @@ def collect(reader: Reader, sources: dict[str, list[str]]) -> Collected:
                 out.warnings.append(f"{spec['label']}: '{name}' içinde zorunlu alanı boş {skipped} satır atlandı.")
         if used:
             out.rows[role] = rows
+            out.explicit.add(role)
         elif spec["must"]:
             out.errors.append(f"{spec['label']} için en az bir geçerli {what} seçilmeli.")
+    _derive_tables(out)
     return out
+
+
+def _derive_tables(out: Collected) -> None:
+    """Kolon satırlarında olup Tablolar'da olmayan tabloları ekler (tek tablolu sözlük). Tablo düzeyi bilgiler
+    kolon satırlarındaki table_* / subject_area / grain / row_count / table_type alanlarından (ilk dolu değer) alınır."""
+    cols = out.rows.get("columns") or []
+    if not cols:
+        return
+    have = {str(t["table_name"]).lower() for t in out.rows.get("tables") or []}
+    derived: dict[str, dict[str, Any]] = {}
+    src = {"business_name": "table_business_name", "description": "table_description", "subject_area": "subject_area",
+           "grain": "grain", "row_count": "row_count", "table_type": "table_type"}
+    for c in cols:
+        key = str(c["table_name"]).lower()
+        if key in have:
+            continue
+        t = derived.setdefault(key, {"table_name": c["table_name"], **{k: None for k in ROLES["tables"]["optional"]}})
+        for k, from_k in src.items():
+            if t[k] is None and c.get(from_k) not in (None, ""):
+                t[k] = c[from_k]
+    if derived:
+        out.rows["tables"] = (out.rows.get("tables") or []) + list(derived.values())
+        out.derived_tables = len(derived)
+        if "tables" not in out.explicit:
+            out.warnings.append(f"Tablolar kolon sözlüğünden çıkarıldı ({len(derived)} tablo).")
+        else:
+            out.warnings.append(f"Yalnız kolon sözlüğünde olan {len(derived)} tablo da eklendi.")

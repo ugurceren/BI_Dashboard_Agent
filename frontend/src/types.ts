@@ -398,4 +398,5 @@ export interface ConnTestResult {
   ok: boolean; error?: string; server_name?: string; database?: string; version?: string; edition?: string;
   login?: string; driver?: string; dictionary_tables?: number;
   dictionary_counts?: Partial<Record<DictRole, number>>; warnings?: string[];
+  derived_tables?: number; relationship_source?: "foreign_keys" | "name_match" | "none";
 }

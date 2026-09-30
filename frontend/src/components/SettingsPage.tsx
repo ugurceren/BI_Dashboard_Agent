@@ -8,12 +8,17 @@ import "./settings.css";
 type Target = "data" | "dictionary";
 type Busy = null | "load" | "instances" | "dict-tables" | `db-${Target}` | `test-${Target}` | "save" | "reset";
 
-const DICT_ROLES: { id: DictRole; label: string; hint: string; must: boolean }[] = [
-  { id: "tables", label: "Tablolar", hint: "table_name (+ business_name, description, subject_area, grain, row_count, table_type)", must: true },
-  { id: "columns", label: "Kolonlar", hint: "table_name, column_name (+ business_name, description, data_type, column_role, default_aggregation, synonyms, is_pii, sample_values)", must: true },
-  { id: "relationships", label: "İlişkiler", hint: "from_table, from_column, to_table, to_column (+ relationship_id, cardinality, role, is_active)", must: false },
-  { id: "metrics", label: "Metrikler", hint: "metric_name, expression_sql (+ business_name, description, base_table, value_format, synonyms)", must: false },
+const DICT_ROLES: { id: DictRole; label: string; hint: string; must: boolean; empty: string }[] = [
+  { id: "tables", label: "Tablolar", must: false, empty: "Seçilmedi — tablolar Kolonlar'dan çıkarılır",
+    hint: "table_name (+ business_name, description, subject_area, grain, row_count, table_type). Seçilmezse tablo listesi Kolonlar'daki table_name'den çıkarılır." },
+  { id: "columns", label: "Kolonlar", must: true, empty: "En az bir tablo seçin",
+    hint: "table_name, column_name (+ business_name, description, data_type, column_role, default_aggregation, synonyms, is_pii, sample_values). Tek tablolu sözlükte tablo bilgileri de burada olabilir: table_business_name, table_description, subject_area, grain, row_count, table_type. Türkçe başlıklar da tanınır (Tablo Adı, Kolon Adı, Açıklama, Kişisel Veri …)." },
+  { id: "relationships", label: "İlişkiler", must: false, empty: "Seçilmedi — SQL Server foreign key'lerinden / anahtar kolon adlarından otomatik bulunur",
+    hint: "from_table, from_column, to_table, to_column (+ relationship_id, cardinality, role, is_active). Seçilmezse ilişkiler foreign key'lerden, yoksa ProductKey gibi anahtar kolon adlarından çıkarılır." },
+  { id: "metrics", label: "Metrikler", must: false, empty: "Kullanılmıyor",
+    hint: "metric_name, expression_sql (+ business_name, description, base_table, value_format, synonyms)" },
 ];
+const REL_SRC: Record<string, string> = { foreign_keys: "foreign key'lerden", name_match: "anahtar kolon adlarından", none: "bulunamadı" };
 const EMPTY_SOURCES: Record<DictRole, string[]> = { tables: [], columns: [], relationships: [], metrics: [] };
 const DEFAULTS_BY_KIND: Record<DictKind, Record<DictRole, string[]>> = {
   sqlserver: { tables: ["meta.dd_tables"], columns: ["meta.dd_columns"], relationships: ["meta.dd_relationships"], metrics: ["meta.dd_metrics"] },
@@ -241,8 +246,8 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
             {r.ok ? (
               <>
                 <b>✓ Bağlandı</b> — {r.server_name} / {r.database}
-                <span className="muted"> · SQL Server {r.version}{r.login ? ` · ${r.login}` : ""}{r.driver ? ` · ${r.driver}` : ""}</span>
-                {r.dictionary_counts ? <div>Sözlükte <b>{r.dictionary_counts.tables ?? 0}</b> tablo, <b>{r.dictionary_counts.columns ?? 0}</b> kolon, <b>{r.dictionary_counts.relationships ?? 0}</b> ilişki, <b>{r.dictionary_counts.metrics ?? 0}</b> metrik tanımı bulundu.</div>
+                <span className="muted"> · {r.version}{r.login ? ` · ${r.login}` : ""}{r.driver ? ` · ${r.driver}` : ""}</span>
+                {r.dictionary_counts ? <div>Sözlükte <b>{r.dictionary_counts.tables ?? 0}</b> tablo{r.derived_tables ? ` (${r.derived_tables} kolonlardan)` : ""}, <b>{r.dictionary_counts.columns ?? 0}</b> kolon, <b>{r.dictionary_counts.relationships ?? 0}</b> ilişki{r.relationship_source ? ` (otomatik: ${REL_SRC[r.relationship_source]})` : ""}, <b>{r.dictionary_counts.metrics ?? 0}</b> metrik tanımı bulundu.</div>
                   : r.dictionary_tables !== undefined ? <div>Sözlükte <b>{r.dictionary_tables}</b> tablo tanımı bulundu.</div> : null}
               </>
             ) : <><b>{r.server_name ? "✕ Bağlandı ama sözlük tabloları hatalı" : "✕ Bağlanılamadı"}</b><div>{r.error}</div></>}
@@ -301,7 +306,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
               </div>
               <p className="muted small">
                 Her sayfa bir tablo gibi okunur; ilk satır kolon başlıklarıdır.{" "}
-                <a href={api.dictionaryTemplateUrl()} download>Mevcut sözlüğü Excel şablonu olarak indir</a> — düzenleyip buradan geri yükleyebilirsiniz.
+                Mevcut sözlüğü Excel şablonu olarak indir: <a href={api.dictionaryTemplateUrl("multi")} download>4 sayfa</a> ya da <a href={api.dictionaryTemplateUrl("single")} download>tek sayfa</a> — düzenleyip buradan geri yükleyebilirsiniz.
               </p>
             </div>
           ) : kind === "mysql" ? (
@@ -352,7 +357,16 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                 {busy === "dict-tables" ? <span className="spinner" /> : <Ico d={P.list} />} {kind === "excel" ? "Sayfaları getir" : "Tabloları getir"}
               </button>
             </div>
-            <p className="muted small">Her bölüm bir ya da birden çok {kind === "excel" ? "sayfadan" : "tablodan"} okunabilir; birden çok seçilirse birleştirilir. Olmayan isteğe bağlı kolonlar boş sayılır. Tablo adları (table_name) rapor verisinin bulunduğu SQL Server'daki gibi yazılmalı (ör. dbo.FactInternetSales).</p>
+            <div className="st-layouts" role="group" aria-label="Sözlük düzeni">
+              <span className="muted small">Düzen:</span>
+              <button type="button" className="st-chip-btn" onClick={() => {
+                const one = sources.columns[0] ?? sources.tables[0] ?? (kind === "excel" ? "Sözlük" : "");
+                upd("dictionary", { sources: { tables: [], columns: one ? [one] : [], relationships: [], metrics: [] } });
+              }} title="Tek bir tablo / sayfa: her satır bir kolon; tablolar ve ilişkiler otomatik">Tek tablo</button>
+              <button type="button" className="st-chip-btn" onClick={() => upd("dictionary", { sources: DEFAULTS_BY_KIND[kind] })}
+                title="Tablolar / Kolonlar / İlişkiler / Metrikler ayrı tablolarda">Ayrı tablolar ({kind === "excel" ? "4 sayfa" : "4 tablo"})</button>
+            </div>
+            <p className="muted small">Sözlük tek bir {kind === "excel" ? "sayfa" : "tablo"} (her satır bir kolon) ya da ayrı ayrı {kind === "excel" ? "sayfalar" : "tablolar"} olabilir; yalnız <b>Kolonlar</b> zorunlu. Her bölüm birden çok kaynaktan okunabilir, birleştirilir; olmayan isteğe bağlı kolonlar boş sayılır. Tablo adları (table_name) rapor verisinin bulunduğu SQL Server'daki gibi yazılmalı (ör. dbo.FactInternetSales).</p>
             {cands && !cands.ok ? <div className="st-result is-bad">{cands.error}</div> : null}
             {DICT_ROLES.map((r) => {
               const picked = sources[r.id] ?? [];
@@ -373,7 +387,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                         <button type="button" onClick={() => setSources(r.id, picked.filter((x) => x !== n))} aria-label={`${n} kaldır`} title="Kaldır">×</button>
                       </span>
                     ))}
-                    {!picked.length ? <span className="muted small">{r.must ? "En az bir tablo seçin" : "Kullanılmıyor"}</span> : null}
+                    {!picked.length ? <span className={`small ${r.must ? "st-src-missing" : "muted"}`}>{r.empty}</span> : null}
                     {suggestions.map((t) => (
                       <button key={t.name} type="button" className="st-chip-btn st-suggest" onClick={() => addSource(r.id, t.name)} title={`Kolonlar: ${t.columns.join(", ")}`}>
                         + {t.name}
