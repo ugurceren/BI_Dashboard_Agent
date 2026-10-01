@@ -300,3 +300,78 @@ def test_llm_settings_saved_encrypted_and_sections_independent(settings, service
     c.delete("/api/settings/llm")
     from app.config import get_settings
     assert not conn_file.exists() and m.state.gateway.s.llm_model == get_settings().llm_model   # .env ayarına döndü
+
+
+def test_catalog_loaded_even_if_dictionary_fails(settings, monkeypatch, conn_file):
+    """Sözlük yüklenemese de (ör. dictionary.toml localhost/BI_Meta'yı gösteriyor) yetkili tablolar katalogdan gelir."""
+    import app.main as m
+    from app.dictionary.repository import DataDictionary, DDTable
+
+    def boom(self):
+        raise RuntimeError("[08001] [Microsoft][ODBC Driver 17 for SQL Server]Cannot open database \"BI_Meta\" (4060)")
+
+    def cat(self):
+        self.tables["dbo.satis"] = DDTable("dbo.satis", "dbo.Satis", "", "Sözlükte tanımsız", "", None, display_name="dbo.Satis",
+                                           documented=False, in_db=True, can_select=True)
+    monkeypatch.setattr(DataDictionary, "load", boom)
+    monkeypatch.setattr(DataDictionary, "_merge_catalog", cat)
+    svc = m.build_services()
+    assert "dbo.satis" in svc.dictionary.tables and "Veri sözlüğü" in (m.state.startup_error or "")
+
+
+def test_no_dictionary_kind_uses_catalog_only(settings, services, conn_file, monkeypatch):
+    """'Sözlük yok': sözlük kaynağı okunmaz (hata yok), tablolar yalnız veritabanı kataloğundan."""
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.dictionary.repository import DataDictionary
+
+    m.state.services = services
+    m.state.agent = type("A", (), {"services": services})()
+    monkeypatch.setattr(m, "build_services", lambda: services)
+    c = TestClient(m.app)
+    body = {"data": {"server": "PASIFIK", "database": "EDWDM"}, "dictionary": {"kind": "none"}}
+    t = c.post("/api/settings/connections/test", json={"target": "dictionary", **body}).json()
+    assert t["ok"] and t["database"] == "Sözlük kullanılmıyor"
+    assert c.put("/api/settings/connections", json=body).status_code == 200
+    assert conns.load_connections()["dictionary"]["kind"] == "none" and conns.dictionary_odbc(settings) is None
+    called = {"catalog": False}
+    monkeypatch.setattr(DataDictionary, "_merge_catalog", lambda self: called.__setitem__("catalog", True))
+    dd = DataDictionary(settings, services.connector).load()   # sözlük okunmadan yüklenir
+    # sözlük tablosu okunmadı; yalnız uygulamanın onaylı view kayıtları (views.json) eklenir
+    assert all(t.table_type == "view" for t in dd.tables.values()) and called["catalog"]
+
+
+def test_sections_saved_and_reset_independently(settings, services, conn_file, monkeypatch):
+    """Veri kaynağı ve sözlük ayrı kaydedilir; "aynı sunucu" sözlüğü veri kaynağının GEÇERLİ ayarını izler (.env ya da arayüz)."""
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.dictionary import sources as srcmod
+
+    m.state.services = services
+    m.state.agent = type("A", (), {"services": services})()
+    monkeypatch.setattr(m, "build_services", lambda: services)
+    monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    env = "DRIVER={ODBC Driver 17 for SQL Server};SERVER=PASIFIK;DATABASE=EDWDM;Trusted_Connection=yes;"
+    monkeypatch.setattr(m, "get_settings", lambda: settings.model_copy(update={"sqlserver_odbc": env}))
+    monkeypatch.setattr(conns, "get_settings", lambda: settings.model_copy(update={"sqlserver_odbc": env}))
+    c = TestClient(m.app)
+    # 1) yalnız sözlük: veri kaynağı .env'den gelir, sözlük aynı sunucuda BI_Meta
+    r = c.put("/api/settings/connections/dictionary", json={"dictionary": {"kind": "sqlserver", "same_as_data": True, "database": "BI_Meta"}})
+    assert r.status_code == 200
+    cfg = conns.load_connections()
+    assert set(cfg) == {"dictionary"} and "server" not in cfg["dictionary"]          # sunucu kopyalanmaz
+    odbc = conns.dictionary_odbc(settings.model_copy(update={"sqlserver_odbc": env}))
+    assert "SERVER=PASIFIK" in odbc and "DATABASE=BI_Meta" in odbc
+    e = c.get("/api/settings/connections").json()
+    assert e["data_source"] == "env" and e["dictionary_source"] == "ui" and e["dictionary"]["server"] == "PASIFIK"
+    # 2) yalnız veri kaynağı: sözlük artık yeni sunucuyu izler
+    assert c.put("/api/settings/connections/data", json={"data": {"server": r"YENI\BI", "database": "DW"}}).status_code == 200
+    assert r"SERVER=YENI\BI" in conns.dictionary_odbc(settings) and "DATABASE=BI_Meta" in conns.dictionary_odbc(settings)
+    # 3) bölüm sıfırlama diğerine dokunmaz
+    assert c.delete("/api/settings/connections/data").status_code == 200
+    assert set(conns.load_connections()) == {"dictionary"}
+    assert c.delete("/api/settings/connections/dictionary").status_code == 200
+    assert not conn_file.exists()

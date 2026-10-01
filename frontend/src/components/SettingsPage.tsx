@@ -1,13 +1,16 @@
 // Bağlantı Ayarları: veri kaynağı (SQL Server instance + veritabanı) ve veri sözlüğü (varsayılan: aynı sunucuda BI_Meta).
-// Kaydedince backend yeniden başlatılmadan yeni bağlantılarla servisleri kurar.
+// Her kart (veri kaynağı / sözlük / LLM) ayrı kaydedilir; kaydedince backend yeniden başlatılmadan servisler kurulur.
+// Kartlar küçültülüp açılabilir, tam / yarım genişliğe alınabilir.
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../api/client";
 import type { ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole, LlmSettings } from "../types";
 import { LlmSettingsCard } from "./LlmSettingsCard";
+import { SettingsCardHead, useCardLayout } from "./SettingsCardHead";
 import "./settings.css";
 
 type Target = "data" | "dictionary";
-type Busy = null | "load" | "instances" | "dict-tables" | `db-${Target}` | `test-${Target}` | "save" | "reset";
+type Busy = null | "load" | "instances" | "dict-tables" | `db-${Target}` | `test-${Target}` | `save-${Target}` | `reset-${Target}`;
+type Msg = { ok: boolean; text: string } | null;
 
 const DICT_ROLES: { id: DictRole; label: string; hint: string; must: boolean; empty: string }[] = [
   { id: "tables", label: "Tablolar", must: false, empty: "Seçilmedi — tablolar Kolonlar'dan çıkarılır",
@@ -25,8 +28,9 @@ const DEFAULTS_BY_KIND: Record<DictKind, Record<DictRole, string[]>> = {
   sqlserver: { tables: ["meta.dd_tables"], columns: ["meta.dd_columns"], relationships: ["meta.dd_relationships"], metrics: ["meta.dd_metrics"] },
   mysql: { tables: ["dd_tables"], columns: ["dd_columns"], relationships: ["dd_relationships"], metrics: ["dd_metrics"] },
   excel: { tables: ["Tablolar"], columns: ["Kolonlar"], relationships: ["İlişkiler"], metrics: ["Metrikler"] },
+  none: { tables: [], columns: [], relationships: [], metrics: [] },
 };
-const KIND_LABEL: Record<DictKind, string> = { sqlserver: "SQL Server", excel: "Excel dosyası", mysql: "MySQL / MariaDB" };
+const KIND_LABEL: Record<DictKind, string> = { sqlserver: "SQL Server", excel: "Excel dosyası", mysql: "MySQL / MariaDB", none: "Sözlük yok" };
 
 const Ico = ({ d, size = 14 }: { d: string; size?: number }) => (
   <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
@@ -50,7 +54,9 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const [dbs, setDbs] = useState<Record<Target, string[] | null>>({ data: null, dictionary: null });
   const [tests, setTests] = useState<Record<Target, ConnTestResult | null>>({ data: null, dictionary: null });
   const [busy, setBusy] = useState<Busy>("load");
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msgs, setMsgs] = useState<Record<"page" | Target, Msg>>({ page: null, data: null, dictionary: null });
+  const setMsg = (where: "page" | Target, m: Msg) => setMsgs((s) => ({ ...s, [where]: m }));
+  const { layout, set: setLayout, all: setAllCollapsed } = useCardLayout();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cands, setCands] = useState<DictCandidates | null>(null);
   const [addDraft, setAddDraft] = useState<Record<DictRole, string>>({ tables: "", columns: "", relationships: "", metrics: "" });
@@ -58,13 +64,13 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const importRef = useRef<HTMLInputElement>(null);
   const [llmImport, setLlmImport] = useState<Partial<LlmSettings> | null>(null);
 
-  const load = async () => {
+  const load = async (only?: Target) => {
     setBusy("load");
     try {
       const c = await api.getConnections();
       setCfg(c);
-      setData({ ...c.data, password: null });
-      setDict({ ...c.dictionary, password: null, same_as_data: c.dictionary.same_as_data ?? true });
+      if (only !== "dictionary") setData({ ...c.data, password: null });
+      if (only !== "data") setDict({ ...c.dictionary, password: null, same_as_data: c.dictionary.same_as_data ?? true });
       setLoadError(null);
     } catch (e) { setLoadError(errText(e)); }
     setBusy(null);
@@ -78,7 +84,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
     (t === "data" ? setData : setDict)((f) => (f ? { ...f, ...patch } : f));
     setTests((s) => ({ ...s, [t]: null }));
     if ("server" in patch || "auth" in patch || "username" in patch || "password" in patch) setDbs((s) => ({ ...s, [t]: null }));
-    setMsg(null);
+    setMsg(t, null);
   };
   // "aynı sunucu" seçiliyse sözlüğün bağlantı alanları veri kaynağından gelir
   const kind: DictKind = dict.kind ?? "sqlserver";
@@ -124,7 +130,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
 
   const findInstances = async () => {
     setBusy("instances");
-    try { setInstances(await api.findInstances()); } catch (e) { setMsg({ ok: false, text: errText(e) }); }
+    try { setInstances(await api.findInstances()); } catch (e) { setMsg("data", { ok: false, text: errText(e) }); }
     setBusy(null);
   };
   const listDbs = async (t: Target) => {
@@ -142,15 +148,15 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
     catch (e) { setTests((s) => ({ ...s, [t]: { ok: false, error: errText(e) } })); }
     setBusy(null);
   };
-  const save = async () => {
-    setBusy("save");
+  const save = async (t: Target) => {
+    setBusy(`save-${t}`);
     try {
-      const r = await api.saveConnections(data, dictEff);
-      setMsg(r.ok ? { ok: true, text: `Kaydedildi ve uygulandı. Veri sözlüğünde ${r.tables} tablo yüklendi.` }
+      const r = t === "data" ? await api.saveDataConnection(data) : await api.saveDictionaryConnection(dictEff, data);
+      setMsg(t, r.ok ? { ok: true, text: `Kaydedildi ve uygulandı. Veri sözlüğünde ${r.tables} tablo yüklendi.` }
         : { ok: false, text: `Kaydedildi ama bağlantıda sorun var: ${r.error}` });
-      await load();
+      await load(t);
       onSaved?.();
-    } catch (e) { setMsg({ ok: false, text: errText(e) }); }
+    } catch (e) { setMsg(t, { ok: false, text: errText(e) }); }
     setBusy(null);
   };
   /** Dışa aktarılmış ayar dosyasını forma yükler (kaydetmez): şifre girilip test edildikten sonra "Kaydet ve uygula". */
@@ -160,7 +166,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       if (d?.type !== "connection-settings" || !d.data || !d.dictionary) throw new Error("Bu dosya bir BI Lens bağlantı ayarları dosyası değil.");
       const base: ConnFields = { server: "localhost", database: "", auth: "windows", username: "", encrypt: true, trust_server_certificate: true };
       const nd: ConnFields = { ...base, ...d.data, password: null, has_password: false };
-      const dk = (["sqlserver", "excel", "mysql"].includes(d.dictionary.kind) ? d.dictionary.kind : "sqlserver") as DictKind;
+      const dk = (["sqlserver", "excel", "mysql", "none"].includes(d.dictionary.kind) ? d.dictionary.kind : "sqlserver") as DictKind;
       const ndict: ConnFields = { ...base, ...d.dictionary, kind: dk, password: null, has_password: false,
         sources: { ...EMPTY_SOURCES, ...(d.dictionary.sources ?? DEFAULTS_BY_KIND[dk]) } };
       setData(nd);
@@ -170,25 +176,49 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       setDbs({ data: null, dictionary: null });
       setCands(null);
       const needPwd = nd.auth === "sql" || (dk !== "excel" && ndict.auth === "sql") || dk === "mysql";
-      setMsg({ ok: true, text: `"${file.name}" yüklendi (${d.exported_by ? `${d.exported_by} · ` : ""}${(d.exported_at ?? "").slice(0, 10)}) — henüz KAYDEDİLMEDİ. `
-        + (needPwd ? "SQL / MySQL şifresini girin, " : "") + "bağlantıları test edip Kaydet ve uygula'ya basın."
+      setMsg("page", { ok: true, text: `"${file.name}" yüklendi (${d.exported_by ? `${d.exported_by} · ` : ""}${(d.exported_at ?? "").slice(0, 10)}) — henüz KAYDEDİLMEDİ. `
+        + (needPwd ? "SQL / MySQL şifresini girin, " : "") + "bağlantıları test edip her kartta Kaydet ve uygula'ya basın."
         + (Array.isArray(d.notes) && d.notes.length > 1 ? " " + d.notes.slice(1).join(" ") : "") });
     } catch (e) {
-      setMsg({ ok: false, text: `Ayar dosyası okunamadı: ${errText(e)}` });
+      setMsg("page", { ok: false, text: `Ayar dosyası okunamadı: ${errText(e)}` });
     }
   };
 
-  const reset = async () => {
-    if (!window.confirm("Arayüzden kaydedilen bağlantı ayarları silinsin ve .env / dictionary.toml ayarlarına dönülsün mü?")) return;
-    setBusy("reset");
+  const reset = async (t: Target) => {
+    const what = t === "data" ? "veri kaynağı ayarı silinsin ve backend/.env (SQLSERVER_ODBC)" : "veri sözlüğü ayarı silinsin ve dictionary.toml";
+    if (!window.confirm(`Arayüzden kaydedilen ${what} ayarına dönülsün mü?`)) return;
+    setBusy(`reset-${t}`);
     try {
-      const r = await api.resetConnections();
-      setMsg(r.ok ? { ok: true, text: ".env / dictionary.toml ayarlarına dönüldü." } : { ok: false, text: `Dönüldü ama bağlantıda sorun var: ${r.error}` });
-      await load();
+      const r = await api.resetConnectionSection(t);
+      setMsg(t, r.ok ? { ok: true, text: t === "data" ? ".env ayarına dönüldü." : "dictionary.toml ayarına dönüldü." }
+        : { ok: false, text: `Dönüldü ama bağlantıda sorun var: ${r.error}` });
+      await load(t);
       onSaved?.();
-    } catch (e) { setMsg({ ok: false, text: errText(e) }); }
+    } catch (e) { setMsg(t, { ok: false, text: errText(e) }); }
     setBusy(null);
   };
+  const cardFoot = (t: Target, canSave: boolean) => {
+    const m = msgs[t];
+    const src = t === "data" ? cfg.data_source : cfg.dictionary_source;
+    return (
+      <div className="st-llm-foot">
+        {m ? <div className={`st-result ${m.ok ? "is-ok" : "is-bad"}`} role="status">{m.text}</div> : <span />}
+        <div className="st-row">
+          {src === "ui" ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => void reset(t)} disabled={!!busy}>
+            {busy === `reset-${t}` ? <span className="spinner" /> : null} {t === "data" ? ".env ayarına dön" : "dictionary.toml ayarına dön"}</button> : null}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => void save(t)} disabled={!!busy || !canSave}>
+            {busy === `save-${t}` ? <span className="spinner" /> : null} {t === "data" ? "Veri kaynağını kaydet ve uygula" : "Sözlüğü kaydet ve uygula"}
+          </button>
+        </div>
+      </div>
+    );
+  };
+  const authText = (f: ConnFields) => (f.auth === "sql" ? `SQL: ${f.username || "—"}` : "Windows oturumu");
+  const dataSummary = <>{data.server || "—"} · <b>{data.database || "veritabanı seçilmedi"}</b> · {authText(data)}</>;
+  const dictSummary = kind === "none" ? <>Sözlük yok — yalnız veritabanı kataloğu</>
+    : kind === "excel" ? <>Excel · <b>{(dict.excel_path ?? "").split(/[\\/]/).pop() || "dosya seçilmedi"}</b></>
+    : kind === "mysql" ? <>MySQL · {dict.server || "—"}:{dict.port ?? 3306} · <b>{dict.database || "—"}</b></>
+    : <>SQL Server · {dict.same_as_data ? "veri sunucusu" : dict.server || "—"} · <b>{dict.database || "—"}</b> · {(sources.columns ?? []).length + (sources.tables ?? []).length} kaynak tablo</>;
 
   const allInstances = [...(instances?.local ?? []), ...(instances?.network ?? [])];
 
@@ -293,6 +323,13 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
         <div className="st-alert is-bad"><b>Şu anki bağlantıda sorun var</b><p>{cfg.startup_error}</p></div>
       ) : null}
       <div className="st-toolbar">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAllCollapsed(true)} title="Tüm kartları küçült">
+          <Ico d="M4 10l4-4 4 4" /> Tümünü daralt
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAllCollapsed(false)} title="Tüm kartları aç">
+          <Ico d="M4 6l4 4 4-4" /> Tümünü genişlet
+        </button>
+        <span className="st-toolbar-sep" />
         <a className="btn btn-secondary btn-sm" href={api.connectionsExportUrl()} download
           title="Geçerli bağlantı ayarlarını JSON dosyası olarak indir (şifreler dahil edilmez) — başka bir bilgisayara taşımak için">
           <Ico d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" /> Ayarları dışa aktar
@@ -304,27 +341,30 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
         <input ref={importRef} type="file" accept=".json,application/json" hidden
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void importSettings(f); }} />
       </div>
+      {msgs.page ? <div className={`st-result st-page-msg ${msgs.page.ok ? "is-ok" : "is-bad"}`} role="status">{msgs.page.text}</div> : null}
       <div className="st-meta muted small">
-        {cfg.source === "ui" ? <>Ayarlar arayüzden kaydedildi (<code>{cfg.file}</code>).</> : <>Şu an <code>backend/.env</code> ve <code>dictionary.toml</code> ayarları kullanılıyor; kaydedince buradaki ayarlar geçerli olur.</>}
+        Her kart ayrı kaydedilir. Arayüzden kaydedilenler <code>{cfg.file}</code> dosyasında tutulur; kaydedilmemiş bölümde <code>backend/.env</code> / <code>dictionary.toml</code> geçerlidir.
         {" "}ODBC sürücüsü: <b>{cfg.driver ?? "bulunamadı"}</b> (otomatik seçilir{cfg.drivers.length > 1 ? `; kurulu: ${cfg.drivers.join(", ")}` : ""}).
       </div>
 
       <div className="st-cards">
-        <section className="st-card">
-          <header className="st-card-head">
-            <span className="st-card-icon"><Ico d={P.db} size={18} /></span>
-            <div><h2>Veri kaynağı</h2><p className="muted">Raporların verisinin okunduğu SQL Server veritabanı (salt-okunur hesap önerilir).</p></div>
-          </header>
+        <section className={`st-card${layout.data.wide ? " st-card-wide" : ""}${layout.data.collapsed ? " is-collapsed" : ""}`}>
+          <SettingsCardHead icon={<Ico d={P.db} size={18} />} title="Veri kaynağı" source={cfg.data_source}
+            desc="Raporların verisinin okunduğu SQL Server veritabanı (salt-okunur hesap önerilir)." summary={dataSummary}
+            layout={layout.data} onChange={(x) => setLayout("data", x)} />
+          {layout.data.collapsed ? null : <>
           {connFields("data", data)}
           {dbField("data", data, "ör. AdventureWorksDW2025")}
           {testBox("data")}
+          {cardFoot("data", !!data.database.trim())}
+          </>}
         </section>
 
-        <section className="st-card">
-          <header className="st-card-head">
-            <span className="st-card-icon is-dict"><Ico d={P.book} size={18} /></span>
-            <div><h2>Veri sözlüğü</h2><p className="muted">Tablo / kolon açıklamaları ve ilişkilerin tutulduğu kaynak. Varsayılan: veri sunucusunda <b>{cfg.default_dictionary_db}</b>.</p></div>
-          </header>
+        <section className={`st-card${layout.dictionary.wide ? " st-card-wide" : ""}${layout.dictionary.collapsed ? " is-collapsed" : ""}`}>
+          <SettingsCardHead icon={<Ico d={P.book} size={18} />} iconClass="is-dict" title="Veri sözlüğü" source={cfg.dictionary_source}
+            desc={<>Tablo / kolon açıklamaları ve ilişkilerin tutulduğu kaynak. Varsayılan: veri sunucusunda <b>{cfg.default_dictionary_db}</b>.</>}
+            summary={dictSummary} layout={layout.dictionary} onChange={(x) => setLayout("dictionary", x)} />
+          {layout.dictionary.collapsed ? null : <>
           <div className="st-field">
             <label>Kaynak türü</label>
             <div className="st-seg" role="group" aria-label="Sözlük kaynak türü">
@@ -333,7 +373,12 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
               ))}
             </div>
           </div>
-          {kind === "excel" ? (
+          {kind === "none" ? (
+            <p className="muted small st-nodict">
+              Ayrı bir veri sözlüğü kullanılmaz: tablo ve view'lar <b>veri kaynağından, yetkinize göre</b> listelenir; açıklamalar veritabanındaki
+              <code>MS_Description</code> tanımlarından, ilişkiler <b>foreign key</b>'lerden gelir. Kurum sözlüğü hazır olduğunda SQL Server / Excel / MySQL seçeneğine geçebilirsiniz.
+            </p>
+          ) : kind === "excel" ? (
             <div className="st-field">
               <label htmlFor="dict-excel">Excel dosyası</label>
               <div className="st-row">
@@ -389,7 +434,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                 Varsayılana dön (SQL Server · {cfg.default_dictionary_db}, meta.dd_* tabloları)</button>
             ) : null}
           </div>
-          <div className="st-field st-sources">
+          {kind === "none" ? null : <div className="st-field st-sources">
             <div className="st-sources-head">
               <label>{kind === "excel" ? "Sözlük sayfaları" : "Sözlük tabloları"}</label>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadCands()} disabled={!!busy}
@@ -449,21 +494,14 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                 <ul className="st-warn-list">{tests.dictionary.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
               </details>
             ) : null}
-          </div>
+          </div>}
           {testBox("dictionary")}
+          {cardFoot("dictionary", kind === "excel" ? !!dict.excel_path?.trim() : kind === "none" || !!dictEff.database?.trim())}
+          </>}
         </section>
-        <LlmSettingsCard api={api} imported={llmImport} onSaved={onSaved} />
+        <LlmSettingsCard api={api} imported={llmImport} onSaved={onSaved} layout={layout.llm} onLayout={(x) => setLayout("llm", x)} />
       </div>
 
-      <footer className="st-foot">
-        {msg ? <div className={`st-result ${msg.ok ? "is-ok" : "is-bad"}`} role="status">{msg.text}</div> : <span />}
-        <div className="st-row">
-          {cfg.source === "ui" ? <button type="button" className="btn btn-ghost" onClick={() => void reset()} disabled={!!busy}>.env ayarlarına dön</button> : null}
-          <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={!!busy || !data.database.trim()}>
-            {busy === "save" ? <span className="spinner" /> : null} Veritabanı ayarlarını kaydet ve uygula
-          </button>
-        </div>
-      </footer>
     </div>
   );
 }

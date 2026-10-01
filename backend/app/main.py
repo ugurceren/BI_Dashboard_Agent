@@ -5,12 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import quote
+
+# Kurum içi HTTPS (LLM geçidi vb.): Python kendi sertifika listesini değil Windows sertifika deposunu kullansın;
+# böylece kurumun kendi sertifika otoritesiyle imzalanmış adresler tarayıcıdaki gibi tanınır. Kapatmak: BI_SYSTEM_CERTS=0
+if os.environ.get("BI_SYSTEM_CERTS", "1") != "0":
+    try:
+        import truststore
+
+        truststore.inject_into_ssl()
+    except Exception:  # noqa: BLE001 — truststore yoksa Python'un kendi listesiyle devam
+        pass
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,6 +96,11 @@ def build_services() -> Services:
         msg = friendly_error(str(e))
         log.error("Veri sözlüğü yüklenemedi: %s", msg)
         state.startup_error = (state.startup_error + " | " if state.startup_error else "") + f"Veri sözlüğü: {msg}"
+        # sözlük olmasa da veritabanındaki yetkili tablo / view'lar görünsün ve sorgulanabilsin
+        try:
+            dictionary._merge_catalog()
+        except Exception as ce:  # noqa: BLE001
+            log.warning("Veritabanı kataloğu da okunamadı: %s", ce)
     policy_cfg = load_toml(settings.policy_config)
     policies = {name: RolePolicy(name=name, **cfg) for name, cfg in policy_cfg.get("roles", {}).items()}
     validator = SqlValidator(dictionary, connector.dialect, policy_cfg.get("sql", {}).get("denied_functions", []))
@@ -1192,6 +1208,10 @@ def test_connection(body: ConnTestIn, request: Request) -> dict[str, Any]:
             return {"ok": False, "error": friendly_error(str(e))}
     # sözlük: kaynağa bağlan (SQL Server / MySQL / Excel), seçilen tablo / sayfaları gerçekten oku (rol başına satır sayısı)
     from app.dictionary.sources import collect
+    if dic["kind"] == "none":
+        return {"ok": True, "server_name": "—", "database": "Sözlük kullanılmıyor", "version": "yalnız veritabanı kataloğu",
+                "dictionary_counts": {}, "warnings": ["Tablo ve view'lar veritabanından (yetkinize göre), açıklamalar MS_Description'dan, "
+                                                      "ilişkiler foreign key'lerden gelir."]}
     try:
         reader, info = conns.open_dictionary_reader(dic)
     except Exception as e:  # noqa: BLE001
@@ -1272,18 +1292,87 @@ def save_connections(body: ConnectionsIn, request: Request) -> dict[str, Any]:
     # sözlük tabloları hatalıysa kaydetme: çalışan eski ayar korunsun (sunucuya o an ulaşılamıyorsa kayda izin ver)
     from app.dictionary import sources as dsrc
     try:
-        got = dsrc.collect(conns.open_dictionary_reader(dic)[0], dic["sources"])
+        got = None if dic["kind"] == "none" else dsrc.collect(conns.open_dictionary_reader(dic)[0], dic["sources"])
     except Exception:  # noqa: BLE001
         got = None
     if got and got.errors:
         raise HTTPException(422, "Kaydedilmedi — sözlük tabloları hatalı: " + " ".join(got.errors))
     store = lambda f: {k: v for k, v in f.items() if k != "password"} | {"password_enc": conns.protect(f.get("password") or "")}  # noqa: E731
-    conns.save_connections({"data": store(data), "dictionary": store(dic)})  # llm bölümü korunur
+    dic_section = ({"kind": "sqlserver", "same_as_data": True, "database": dic["database"], "sources": dic["sources"]}
+                   if dic["kind"] == "sqlserver" and dic.get("same_as_data") else store(dic))
+    conns.save_connections({"data": store(data), "dictionary": dic_section})  # llm bölümü korunur
     _rebuild_services()
     log.info("Bağlantı ayarları güncellendi (%s): veri=%s/%s sözlük=%s/%s", ident.username,
              data["server"], data["database"], dic["server"], dic["database"])
     return {"ok": state.startup_error is None, "error": state.startup_error,
             "tables": len(state.services.dictionary.tables)}
+
+
+# ---------------------------------------------------------------- bölüm bazlı kayıt (veri kaynağı / sözlük ayrı ayrı)
+class DataSectionIn(BaseModel):
+    data: ConnIn
+
+
+class DictSectionIn(BaseModel):
+    dictionary: ConnIn
+    data: ConnIn | None = None       # yalnız doğrulama için (kaydedilmez)
+
+
+def _store(f: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in f.items() if k not in ("password", "odbc")} | {"password_enc": conns.protect(f.get("password") or "")}
+
+
+@app.put("/api/settings/connections/data")
+def save_data_connection(body: DataSectionIn, request: Request) -> dict[str, Any]:
+    """Yalnız veri kaynağını kaydeder (sözlük ve LLM ayarına dokunmaz)."""
+    ident = _require_settings_access(request)
+    data, _ = _resolved(ConnTestIn(target="data", data=body.data))
+    if not data["database"]:
+        raise HTTPException(400, "Veri kaynağı için veritabanı seçin.")
+    conns.save_connections({"data": _store(data)})
+    _rebuild_services()
+    log.info("Veri kaynağı güncellendi (%s): %s/%s", ident.username, data["server"], data["database"])
+    return {"ok": state.startup_error is None, "error": state.startup_error, "tables": len(state.services.dictionary.tables)}
+
+
+@app.put("/api/settings/connections/dictionary")
+def save_dictionary_connection(body: DictSectionIn, request: Request) -> dict[str, Any]:
+    """Yalnız veri sözlüğünü kaydeder. "Veri kaynağıyla aynı" seçiliyse sunucu / kimlik bilgisi kopyalanmaz:
+    çalışma anında veri kaynağının geçerli ayarı (arayüz ya da .env) kullanılır."""
+    ident = _require_settings_access(request)
+    saved = conns.load_connections() or {}
+    _, dic = _resolved(ConnTestIn(target="dictionary", data=body.data or ConnIn(), dictionary=body.dictionary))
+    if dic["kind"] == "sqlserver" and dic.get("same_as_data"):
+        section = {"kind": "sqlserver", "same_as_data": True, "database": dic["database"], "sources": dic["sources"]}
+    else:
+        section = _store(dic)
+    # sözlük tabloları hatalıysa kaydetme (sunucuya o an ulaşılamıyorsa kayda izin ver); doğrulama çalışma anındaki bağlantıyla
+    from app.dictionary import sources as dsrc
+    runtime = conns.dictionary_conn_fields({"data": saved.get("data"), "dictionary": section})
+    runtime["kind"] = dic["kind"]
+    if dic["kind"] != "sqlserver" or not dic.get("same_as_data"):
+        runtime = dic
+    try:
+        got = None if dic["kind"] == "none" else dsrc.collect(conns.open_dictionary_reader(runtime)[0], dic["sources"])
+    except Exception:  # noqa: BLE001
+        got = None
+    if got and got.errors:
+        raise HTTPException(422, "Kaydedilmedi — sözlük tabloları hatalı: " + " ".join(got.errors))
+    conns.save_connections({"dictionary": section})
+    _rebuild_services()
+    log.info("Veri sözlüğü güncellendi (%s): %s %s", ident.username, dic["kind"], dic.get("database", ""))
+    return {"ok": state.startup_error is None, "error": state.startup_error, "tables": len(state.services.dictionary.tables)}
+
+
+@app.delete("/api/settings/connections/{section}")
+def reset_connection_section(section: str, request: Request) -> dict[str, Any]:
+    """Tek bölümü sil (data → .env SQLSERVER_ODBC, dictionary → dictionary.toml)."""
+    _require_settings_access(request)
+    if section not in ("data", "dictionary"):
+        raise HTTPException(404, "Bölüm data ya da dictionary olmalı.")
+    conns.save_connections({section: None})
+    _rebuild_services()
+    return {"ok": state.startup_error is None, "error": state.startup_error}
 
 
 @app.delete("/api/settings/connections")
@@ -1312,4 +1401,13 @@ _DIST = BACKEND_DIR.parent / "frontend" / "dist"
 if (_DIST / "index.html").exists():
     from fastapi.staticfiles import StaticFiles
 
-    app.mount("/", StaticFiles(directory=_DIST, html=True), name="frontend")
+    class _Frontend(StaticFiles):
+        """index.html önbelleğe alınmaz (yeni sürümde eski arayüz gelmesin); assets/ dosyaları adında hash taşır."""
+
+        async def get_response(self, path, scope):  # type: ignore[override]
+            resp = await super().get_response(path, scope)
+            if resp.media_type == "text/html" or path in ("", ".", "index.html"):
+                resp.headers["Cache-Control"] = "no-cache"
+            return resp
+
+    app.mount("/", _Frontend(directory=_DIST, html=True), name="frontend")

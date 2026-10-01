@@ -293,7 +293,11 @@ class DataDictionary:
 
         saved = saved_dictionary()  # Bağlantı Ayarları: SQL Server / MySQL / Excel, rol başına bir ya da birden çok kaynak
         collected = None
-        if saved:
+        if saved and saved[0].get("kind") == "none":  # sözlük yok: tablolar / ilişkiler katalogdan gelir
+            from app.dictionary.sources import Collected
+
+            collected = Collected()
+        elif saved:
             from app.dictionary.sources import collect
 
             reader, _ = open_dictionary_reader(saved[0])

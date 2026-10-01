@@ -30,6 +30,9 @@ export interface Api {
   listDatabases(target: "data" | "dictionary", data: ConnFields, dictionary: ConnFields): Promise<{ ok: boolean; databases: string[]; error?: string }>;
   saveConnections(data: ConnFields, dictionary: ConnFields): Promise<{ ok: boolean; error: string | null; tables: number }>;
   resetConnections(): Promise<{ ok: boolean; error: string | null }>;
+  saveDataConnection(data: ConnFields): Promise<{ ok: boolean; error: string | null; tables: number }>;
+  saveDictionaryConnection(dictionary: ConnFields, data: ConnFields): Promise<{ ok: boolean; error: string | null; tables: number }>;
+  resetConnectionSection(section: "data" | "dictionary"): Promise<{ ok: boolean; error: string | null }>;
   dictionaryTables(data: ConnFields, dictionary: ConnFields): Promise<DictCandidates>;
   uploadDictionaryExcel(file: File): Promise<{ ok: boolean; path: string; tables: DictCandidates["tables"] }>;
   dictionaryTemplateUrl(layout?: "multi" | "single"): string;
@@ -158,6 +161,9 @@ export const httpApi: Api = {
   listDatabases: (target, data, dictionary) => req<{ ok: boolean; databases: string[]; error?: string }>("/api/settings/databases", { method: "POST", body: JSON.stringify({ target, data, dictionary }) }),
   saveConnections: (data, dictionary) => req<{ ok: boolean; error: string | null; tables: number }>("/api/settings/connections", { method: "PUT", body: JSON.stringify({ data, dictionary }) }),
   resetConnections: () => req<{ ok: boolean; error: string | null }>("/api/settings/connections", { method: "DELETE" }),
+  saveDataConnection: (data) => req<{ ok: boolean; error: string | null; tables: number }>("/api/settings/connections/data", { method: "PUT", body: JSON.stringify({ data }) }),
+  saveDictionaryConnection: (dictionary, data) => req<{ ok: boolean; error: string | null; tables: number }>("/api/settings/connections/dictionary", { method: "PUT", body: JSON.stringify({ dictionary, data }) }),
+  resetConnectionSection: (section) => req<{ ok: boolean; error: string | null }>(`/api/settings/connections/${section}`, { method: "DELETE" }),
   uploadDictionaryExcel: async (file) => {
     const res = await fetch(`/api/settings/dictionary/upload?filename=${encodeURIComponent(file.name)}`, {
       method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" },

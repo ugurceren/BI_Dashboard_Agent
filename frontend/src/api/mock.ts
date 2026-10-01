@@ -168,7 +168,7 @@ export const mockApi: Api = {
   },
   async getConnections() {
     const f = { server: "localhost", database: "AdventureWorksDW2025", auth: "windows" as const, username: "", encrypt: true, trust_server_certificate: true };
-    return { source: "env" as const, data: f, dictionary: { ...f, database: "BI_Meta", same_as_data: true }, drivers: ["ODBC Driver 18 for SQL Server"],
+    return { source: "env" as const, data_source: "env" as const, dictionary_source: "env" as const, data: f, dictionary: { ...f, database: "BI_Meta", same_as_data: true }, drivers: ["ODBC Driver 18 for SQL Server"],
       driver: "ODBC Driver 18 for SQL Server", default_dictionary_db: "BI_Meta", startup_error: null, file: "backend/config/connections.json" };
   },
   async testConnection() { return { ok: true, server_name: "MOCK", database: "AdventureWorksDW2025", version: "16.0", login: "KURUM\demo" }; },
@@ -176,6 +176,9 @@ export const mockApi: Api = {
   async listDatabases() { return { ok: true, databases: ["AdventureWorksDW2025", "BI_Meta"] }; },
   async saveConnections() { return { ok: true, error: null, tables: 26 }; },
   async resetConnections() { return { ok: true, error: null }; },
+  async saveDataConnection() { return { ok: true, error: null, tables: 0 }; },
+  async saveDictionaryConnection() { return { ok: true, error: null, tables: 0 }; },
+  async resetConnectionSection() { return { ok: true, error: null }; },
   async uploadDictionaryExcel(file) { return { ok: true, path: "C:/" + file.name, tables: [] }; },
   dictionaryTemplateUrl() { return "#"; },
   connectionsExportUrl() { return "#"; },

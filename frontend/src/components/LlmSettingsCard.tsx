@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import type { Api } from "../api/client";
 import type { LlmSettings, LlmTestResult, ToolMode } from "../types";
+import { SettingsCardHead } from "./SettingsCardHead";
+import type { CardLayout } from "./SettingsCardHead";
 
 type Target = "main" | "vision";
 type Busy = null | "load" | `models-${Target}` | `test-${Target}` | "save" | "reset";
@@ -23,7 +25,9 @@ const TOOL_MODES: { id: ToolMode; label: string; hint: string }[] = [
 ];
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function LlmSettingsCard({ api, imported, onSaved }: { api: Api; imported?: Partial<LlmSettings> | null; onSaved?: () => void }) {
+export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: false, wide: true }, onLayout }: {
+  api: Api; imported?: Partial<LlmSettings> | null; onSaved?: () => void; layout?: CardLayout; onLayout?: (patch: Partial<CardLayout>) => void;
+}) {
   const [llm, setLlm] = useState<LlmSettings | null>(null);
   const [source, setSource] = useState<"ui" | "env">("env");
   const [models, setModels] = useState<Record<Target, string[] | null>>({ main: null, vision: null });
@@ -54,7 +58,8 @@ export function LlmSettingsCard({ api, imported, onSaved }: { api: Api; imported
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imported]);
 
-  if (!llm) return <section className="st-card st-card-wide"><div className="panel-empty"><span className="spinner" /><p>Yükleniyor…</p></div></section>;
+  const cls = `st-card${layout.wide ? " st-card-wide" : ""}${layout.collapsed ? " is-collapsed" : ""}`;
+  if (!llm) return <section className={cls}><div className="panel-empty"><span className="spinner" /><p>Yükleniyor…</p></div></section>;
 
   const upd = (patch: Partial<LlmSettings>) => { setLlm((c) => (c ? { ...c, ...patch } : c)); setTests((t) => ({ ...t, main: null })); setMsg(null); };
   const updV = (patch: Partial<LlmSettings["vision"]>) => {
@@ -158,15 +163,13 @@ export function LlmSettingsCard({ api, imported, onSaved }: { api: Api; imported
 
   const v = llm.vision;
   return (
-    <section className="st-card st-card-wide">
-      <header className="st-card-head">
-        <span className="st-card-icon is-llm"><Ico d={P.brain} size={18} /></span>
-        <div>
-          <h2>Dil modeli (LLM)</h2>
-          <p className="muted">OpenAI uyumlu API (vLLM, Ollama, kurum LLM geçidi …). {source === "ui"
-            ? "Ayarlar arayüzden kaydedildi." : <>Şu an <code>backend/.env</code> (LLM_* / VISION_*) ayarları kullanılıyor; kaydedince buradakiler geçerli olur.</>}</p>
-        </div>
-      </header>
+    <section className={cls}>
+      <SettingsCardHead icon={<Ico d={P.brain} size={18} />} iconClass="is-llm" title="Dil modeli (LLM)" source={source}
+        desc={<>OpenAI uyumlu API (vLLM, Ollama, kurum LLM geçidi …). {source === "ui"
+          ? "Ayarlar arayüzden kaydedildi." : <>Şu an <code>backend/.env</code> (LLM_* / VISION_*) ayarları kullanılıyor; kaydedince buradakiler geçerli olur.</>}</>}
+        summary={<><b>{llm.model || "model seçilmedi"}</b> @ {llm.base_url.replace(/^https?:\/\//, "") || "—"} · görsel: {v.enabled ? <b>{v.model || "—"}</b> : "kapalı"}</>}
+        layout={layout} onChange={(x) => onLayout?.(x)} />
+      {layout.collapsed ? null : <>
 
       <div className="st-llm-grid">
         <div className="st-llm-col">
@@ -233,6 +236,7 @@ export function LlmSettingsCard({ api, imported, onSaved }: { api: Api; imported
           </button>
         </div>
       </div>
+      </>}
     </section>
   );
 }

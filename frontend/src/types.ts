@@ -378,7 +378,7 @@ export interface ConnFields {
   port?: number | null;          // MySQL
   excel_path?: string;           // Excel
 }
-export type DictKind = "sqlserver" | "excel" | "mysql";
+export type DictKind = "sqlserver" | "excel" | "mysql" | "none";
 export type DictRole = "tables" | "columns" | "relationships" | "metrics";
 export interface DictCandidates {
   ok: boolean; error?: string;
@@ -387,6 +387,8 @@ export interface DictCandidates {
 }
 export interface ConnectionSettings {
   source: "ui" | "env";
+  data_source: "ui" | "env";
+  dictionary_source: "ui" | "env";
   data: ConnFields;
   dictionary: ConnFields;
   drivers: string[];

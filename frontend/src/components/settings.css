@@ -86,3 +86,23 @@
 .st-llm-foot .btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; }
 .st-field > .st-input { flex: none; }
 .st-field > textarea.st-input { min-height: 64px; }
+.st-nodict { margin: 0; line-height: 1.55; }
+.st-nodict code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-3); padding: 0 4px; border-radius: 4px; }
+
+/* kart başlığı: küçült / aç, tam / yarım genişlik */
+.st-card-head { align-items: center; }
+.st-card-title { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0; margin: 0; color: inherit; font: inherit; cursor: pointer; }
+.st-card-title h2 { display: flex; align-items: center; gap: 8px; }
+.st-card-summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-card-summary b { color: var(--text); font-weight: 650; }
+.st-card-tools { display: flex; gap: 4px; flex: none; }
+.st-icon-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; border: 1px solid transparent; background: none; color: var(--text-2); cursor: pointer; }
+.st-icon-btn:hover { background: var(--surface-3); border-color: var(--border); color: var(--text); }
+.st-chevron svg { transition: transform .18s ease; }
+.st-chevron.is-collapsed svg { transform: rotate(-90deg); }
+.st-card.is-collapsed { padding-bottom: 18px; gap: 0; }
+.st-src-badge { font-size: 10.5px; font-weight: 650; padding: 1px 7px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); letter-spacing: .02em; }
+.st-src-badge.is-ui { background: var(--accent-soft); color: var(--accent); }
+.st-toolbar-sep { width: 1px; align-self: stretch; background: var(--border); margin: 2px 4px; }
+.st-page-msg { margin: 0 0 10px; }
+@container (max-width: 980px) { .st-wide-btn { display: none; } }

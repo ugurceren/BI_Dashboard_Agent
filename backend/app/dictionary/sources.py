@@ -55,6 +55,8 @@ DEFAULTS: dict[str, dict[str, list[str]]] = {
                   "relationships": ["meta.dd_relationships"], "metrics": ["meta.dd_metrics"]},
     "mysql": {"tables": ["dd_tables"], "columns": ["dd_columns"], "relationships": ["dd_relationships"], "metrics": ["dd_metrics"]},
     "excel": {"tables": ["Tablolar"], "columns": ["Kolonlar"], "relationships": ["İlişkiler"], "metrics": ["Metrikler"]},
+    # sözlük yok: yalnız veritabanı kataloğu (yetkili tablo / view, MS_Description, foreign key'ler)
+    "none": {"tables": [], "columns": [], "relationships": [], "metrics": []},
 }
 DEFAULT_SOURCES = DEFAULTS["sqlserver"]
 KINDS = tuple(DEFAULTS)

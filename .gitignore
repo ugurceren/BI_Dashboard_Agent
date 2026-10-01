@@ -17,3 +17,4 @@ offline/
 wheelhouse/
 pip.ini
 frontend/dist/.prebuilt
+*.tsbuildinfo

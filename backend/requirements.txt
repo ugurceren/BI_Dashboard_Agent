@@ -4,6 +4,7 @@ pydantic>=2.8
 pydantic-settings>=2.4
 tomli>=2.0; python_version < "3.11"   # Python 3.10 için TOML okuyucu
 openai>=1.50
+truststore>=0.9         # Windows sertifika deposu (kurum içi HTTPS / kurumsal CA)
 sqlglot>=25
 python-multipart>=0.0.9
 pillow>=10.4
