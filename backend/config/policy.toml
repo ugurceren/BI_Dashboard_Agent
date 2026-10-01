@@ -1,14 +1,21 @@
 # Rol bazlı veri erişim politikası. SQL doğrulayıcı her sorguyu buna göre kontrol eder.
-# Sözlükte olmayan tablolar zaten sorgulanamaz. Gerçek ortamda rol AD/Entra ID grubundan eşlenir.
+#
+# Erişimin asıl kaynağı VERİTABANIDIR: bağlanan hesabın SELECT yetkisi olan her tablo / view görünür ve sorgulanabilir
+# (HAS_PERMS_BY_NAME; sözlükte tanımlı olmasa da). Buradaki ayarlar yalnızca ek KISITLAMA içindir:
+#   allowed_schemas = ["*"]          → tüm şemalar (varsayılan); ör. ["dbo", "satis"] yalnız bu şemalar
+#   denied_schemas  = ["stg"]        → bu şemalar kapalı
+#   denied_tables   = ["dbo.maas"]   → bu tablolar kapalı
+# sys ve INFORMATION_SCHEMA her zaman kapalıdır. Gerçek ortamda rol AD/Entra ID grubundan eşlenir.
 
-[roles.analyst]
-allowed_schemas = ["dbo", "rpt"]   # rpt: onaylı rapor view'ları
+[roles.standart]
+allowed_schemas = ["*"]   # "*": bağlanan hesabın veritabanı yetkisi neyse o (tablo / view farkı yok)
 denied_tables = []                  # ör. ["dbo.factfinance"]
+denied_schemas = []                 # ör. ["stg"]
 allow_pii = false
 max_rows = 5000
 
 [roles.admin]
-allowed_schemas = ["dbo", "rpt"]   # rpt: onaylı rapor view'ları
+allowed_schemas = ["*"]   # "*": bağlanan hesabın veritabanı yetkisi neyse o (tablo / view farkı yok)
 denied_tables = []
 allow_pii = true
 max_rows = 20000
@@ -22,8 +29,8 @@ denied_functions = [
 
 # Kullanıcı → rol eşlemesi. Kullanıcı Windows oturumundan (ya da LDAP / X-Remote-User) tanınır.
 [identity]
-default_role = "analyst"
+default_role = "standart"
 # Kişi bazında: "DOMAIN\kullanici" ya da "kullanici" = "rol"
 users = { }
-# AD/LDAP grubu (CN) → rol, ör. { "BI_Admins" = "admin", "BI_Analysts" = "analyst" }
+# AD/LDAP grubu (CN) → rol, ör. { "BI_Admins" = "admin", "BI_Kullanicilar" = "standart" }
 groups = { }

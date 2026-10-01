@@ -220,7 +220,8 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
           </button>
           <button type="button" className="qp-mini" onClick={() => preview(o)} title="İlk 100 satırı getir"><Ico size={12} d="M5 3.5 12 8l-7 4.5z" /></button>
         </div>
-        {o.business_name ? <div className="qp-obj-bn muted">{o.business_name}</div> : null}
+        {o.documented === false ? <div className="qp-obj-bn muted"><span className="qp-undoc" title="Veritabanında var, veri sözlüğünde tanımlı değil">sözlükte yok</span>{o.description ? ` ${o.description}` : ""}</div>
+          : o.business_name ? <div className="qp-obj-bn muted">{o.business_name}</div> : null}
         {isOpen ? (
           <ul className="qp-cols">
             {o.columns.map((c) => (

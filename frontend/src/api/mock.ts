@@ -160,11 +160,11 @@ export const mockApi: Api = {
     return state(get(id));
   },
   async me() {
-    return { username: "KURUM\\demo", display_name: "Demo Kullanıcı", domain: "KURUM", groups: [], role: "analyst", source: "windows", domain_joined: true };
+    return { username: "KURUM\\demo", display_name: "Demo Kullanıcı", domain: "KURUM", groups: [], role: "standart", source: "windows", domain_joined: true };
   },
   async myAccess() {
     const user = await this.me();
-    return { user, role: "analyst", policy: { allowed_schemas: ["dbo"], denied_tables: [], allow_pii: false, max_rows: 5000 }, objects: [] };
+    return { user, role: "standart", policy: { allowed_schemas: ["dbo"], denied_tables: [], allow_pii: false, max_rows: 5000 }, objects: [] };
   },
   async getConnections() {
     const f = { server: "localhost", database: "AdventureWorksDW2025", auth: "windows" as const, username: "", encrypt: true, trust_server_certificate: true };
@@ -178,9 +178,16 @@ export const mockApi: Api = {
   async resetConnections() { return { ok: true, error: null }; },
   async uploadDictionaryExcel(file) { return { ok: true, path: "C:/" + file.name, tables: [] }; },
   dictionaryTemplateUrl() { return "#"; },
+  connectionsExportUrl() { return "#"; },
+  async getLlm() { return { source: "env" as const, base_url: "http://localhost:8001/v1", model: "qwen", tool_mode: "auto" as const, has_api_key: false,
+    vision: { enabled: false, same_as_main: true, base_url: "", model: "" } }; },
+  async saveLlm() { return { ok: true, reachable: true }; },
+  async resetLlm() { return { ok: true }; },
+  async llmModels() { return { ok: true, models: ["qwen"] }; },
+  async testLlm() { return { ok: true, model: "qwen", elapsed_ms: 10, reply: "Tamam", tools: "native" as const }; },
   async dictionaryTables() { return { ok: true, tables: [{ name: "meta.dd_tables", columns: ["table_name"], role: "tables" as const }] }; },
   async querySchema() {
-    return { role: "analyst", max_rows: 1000, allow_pii: false, allowed_schemas: ["dbo"], datasets: [], objects: [
+    return { role: "standart", max_rows: 1000, allow_pii: false, allowed_schemas: ["dbo"], datasets: [], objects: [
       { id: "dbo.factinternetsales", name: "dbo.FactInternetSales", kind: "fact", subject_area: "Satış", business_name: "İnternet satışları",
         columns: [{ name: "SalesAmount", type: "money", business_name: "Satış tutarı" }, { name: "OrderDateKey", type: "int" }] }] };
   },

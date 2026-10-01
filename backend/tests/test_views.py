@@ -29,7 +29,7 @@ def test_registered_view_is_queryable_and_filterable(services):
         {"name": "region", "label": "Bölge", "type": "string", "lineage": lineage["region"]},
         {"name": "sales_amount", "label": "Satış", "type": "number", "lineage": None}]})
     sql = select_from_view("rpt", "v_region_sales", ["region", "sales_amount"])
-    v = services.validator.validate(sql, services.policy("analyst"))
+    v = services.validator.validate(sql, services.policy("standart"))
     assert v.ok, v.errors
     eng = ModelFilterEngine(services.dictionary, "tsql")
     out, applied = eng.apply(sql, [ModelFilter("dbo.dimsalesterritory", "salesterritorygroup", ["Europe"])])

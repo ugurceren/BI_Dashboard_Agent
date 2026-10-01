@@ -164,8 +164,12 @@ def test_query_schema_lists_procedures_with_domain(settings, services, monkeypat
     m.state.services = services
     monkeypatch.setattr(services, "connector", Con())
     monkeypatch.setattr(m.state, "store", type("S", (), {"list": lambda self: []})(), raising=False)
+    # veritabanı yetkisi (EXECUTE) sorguda süzülür; politika ayrıca şema kapatabilir
+    import dataclasses
+    pol = dataclasses.replace(services.policy("standart"), denied_schemas=["secret"])
+    monkeypatch.setattr(services, "policies", {**services.policies, "standart": pol})
     d = TestClient(m.app).get("/api/query/schema").json()
-    assert [p["name"] for p in d["procedures"]] == ["dbo.uspSatisOzeti"]  # 'secret' şemasına yetki yok
+    assert [p["name"] for p in d["procedures"]] == ["dbo.uspSatisOzeti"]  # 'secret' şeması politikada kapalı
     sp = d["procedures"][0]
     assert sp["parameters"] == ["@Yil int", "@Bolge nvarchar"] and sp["description"] == "Aylık satış özeti"
     assert sp["subject_area"] == services.dictionary.tables["dbo.factinternetsales"].subject_area
@@ -179,7 +183,7 @@ def test_my_access_returns_typed_objects_with_domains(settings, services, monkey
 
     m.state.services = services
     monkeypatch.setattr(m.state, "store", type("S", (), {"list": lambda self: []})(), raising=False)
-    monkeypatch.setattr(m, "_procedures", lambda allowed, denied, kinds: [
+    monkeypatch.setattr(m, "_procedures", lambda pol, kinds: [
         {"id": "dbo.usp", "name": "dbo.usp", "description": "d", "parameters": ["@Yil int"], "tables": [], "subject_area": "Satış"}])
     d = TestClient(m.app).get("/api/me/access").json()
     types = {o["type"] for o in d["objects"]}
@@ -188,3 +192,111 @@ def test_my_access_returns_typed_objects_with_domains(settings, services, monkey
     assert t["type"] == "table" and t["subject_area"] and t["accessible"] and "column_count" in t
     sp = next(o for o in d["objects"] if o["type"] == "procedure")
     assert sp["parameters"] == ["@Yil int"] and sp["accessible"]
+
+
+def test_export_connections_without_passwords(settings, services, conn_file, monkeypatch):
+    """Dışa aktarılan ayar dosyasında şifre (ne düz ne şifreli) olmamalı; alanlar içe aktarmaya yetmeli."""
+    import json as _json
+
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.dictionary import sources as srcmod
+
+    m.state.services = services
+    m.state.agent = type("A", (), {"services": services})()
+    monkeypatch.setattr(m, "build_services", lambda: services)
+    monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    c = TestClient(m.app)
+    body = {"data": {"server": r"SRV\BI", "database": "AW", "auth": "sql", "username": "ro", "password": "s3cret"},
+            "dictionary": {"kind": "sqlserver", "same_as_data": True, "database": "BI_Meta",
+                           "sources": {"tables": [], "columns": ["meta.sozluk"], "relationships": [], "metrics": []}}}
+    assert c.put("/api/settings/connections", json=body).status_code == 200
+    r = c.get("/api/settings/connections/export")
+    assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+    assert "s3cret" not in r.text and "password" not in r.text
+    d = _json.loads(r.text)
+    assert d["type"] == "connection-settings" and d["data"]["server"] == r"SRV\BI" and d["data"]["auth"] == "sql"
+    assert d["dictionary"]["sources"]["columns"] == ["meta.sozluk"] and d["dictionary"]["database"] == "BI_Meta"
+
+
+
+def test_access_follows_database_permissions(settings, services, monkeypatch):
+    """Erişim veritabanı yetkisinden gelir: SELECT yetkisi olan her şema görünür, olmayan gizlenir / reddedilir."""
+    import dataclasses
+
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.dictionary.repository import DDColumn, DDTable
+
+    dd = services.dictionary
+    m.state.services = services
+    monkeypatch.setattr(m.state, "store", type("S", (), {"list": lambda self: []})(), raising=False)
+    monkeypatch.setattr(m, "_procedures", lambda pol, kinds: [])
+    pol = dataclasses.replace(services.policy("standart"), allowed_schemas=["*"])
+    monkeypatch.setattr(services, "policies", {**services.policies, "standart": pol})
+    extra = DDTable("satis.siparis", "satis.Siparis", "Sipariş başlıkları", "Sözlükte tanımsız", "", 10, display_name="satis.Siparis",
+                    documented=False, in_db=True, can_select=True)
+    extra.columns = [DDColumn("satis.siparis", "tutar", "Tutar", "", "money", "attribute", None, [], False, "", display_name="Tutar")]
+    monkeypatch.setitem(dd.tables, "satis.siparis", extra)
+    monkeypatch.setattr(dd.tables["dbo.dimdate"], "can_select", False)
+    c = TestClient(m.app)
+    acc = {o["id"]: o for o in c.get("/api/me/access").json()["objects"]}
+    assert acc["satis.siparis"]["accessible"] and acc["satis.siparis"]["documented"] is False   # dbo dışı şema da görünür
+    assert not acc["dbo.dimdate"]["accessible"] and "SELECT yetkiniz yok" in acc["dbo.dimdate"]["reason"]
+    names = {o["id"] for o in c.get("/api/query/schema").json()["objects"]}
+    assert "satis.siparis" in names and "dbo.dimdate" not in names
+    v = services.validator
+    assert v.validate("SELECT Tutar FROM satis.Siparis", pol).ok
+    r = v.validate("SELECT DateKey FROM dbo.DimDate", pol)
+    assert not r.ok and "SELECT yetkiniz yok" in r.errors[0]
+    assert not v.validate("SELECT name FROM sys.tables", pol).ok   # sistem şeması her zaman kapalı
+
+
+def test_llm_settings_saved_encrypted_and_sections_independent(settings, services, conn_file, monkeypatch):
+    """LLM bağlantısı: anahtar şifreli; görsel model ayrı / aynı; veritabanı kaydı ve sıfırlaması LLM bölümünü silmez."""
+    import json as _json
+
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.dictionary import sources as srcmod
+    from app.llm.gateway import LLMGateway
+
+    m.state.services = services
+    m.state.agent = type("A", (), {"services": services, "llm": None})()
+    m.state.gateway = LLMGateway(settings)
+    monkeypatch.setattr(m, "build_services", lambda: services)
+    monkeypatch.setattr(LLMGateway, "health", lambda self: {"reachable": True, "model": self.s.llm_model})
+    monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    c = TestClient(m.app)
+    llm = {"base_url": "https://llm.kurum/v1", "api_key": "sk-gizli", "model": "qwen-32b", "tool_mode": "native",
+           "vision": {"enabled": True, "same_as_main": False, "base_url": "https://vl.kurum/v1", "api_key": "vk-gizli", "model": "qwen-vl"}}
+    r = c.put("/api/settings/llm", json=llm)
+    assert r.status_code == 200 and r.json()["model"] == "qwen-32b"
+    raw = conn_file.read_text(encoding="utf-8")
+    assert "sk-gizli" not in raw and "vk-gizli" not in raw
+    g = m.state.gateway.s   # yeniden başlatmadan uygulandı
+    assert (g.llm_base_url, g.llm_api_key, g.llm_model, g.llm_tool_mode) == ("https://llm.kurum/v1", "sk-gizli", "qwen-32b", "native")
+    assert (g.vision_base_url, g.vision_api_key, g.vision_model) == ("https://vl.kurum/v1", "vk-gizli", "qwen-vl")
+    assert m.state.agent.llm is m.state.gateway
+    e = c.get("/api/settings/llm").json()
+    assert e["source"] == "ui" and e["has_api_key"] and e["vision"]["has_api_key"] and "sk-gizli" not in _json.dumps(e)
+    # anahtar boş bırakılırsa (None) kayıtlı anahtar korunur; görsel "aynı bağlantı"
+    c.put("/api/settings/llm", json={**llm, "api_key": None, "vision": {"enabled": True, "same_as_main": True, "model": "qwen-vl"}})
+    g = m.state.gateway.s
+    assert g.llm_api_key == "sk-gizli" and g.vision_base_url is None and g.vision_model == "qwen-vl"
+    # veritabanı ayarlarını kaydetmek / sıfırlamak LLM bölümünü korur
+    db = {"data": {"server": "srv", "database": "AW"}, "dictionary": {"same_as_data": True}}
+    assert c.put("/api/settings/connections", json=db).status_code == 200
+    assert "llm" in conns.load_connections() and "data" in conns.load_connections()
+    c.delete("/api/settings/connections")
+    assert set(conns.load_connections()) == {"llm"}
+    exp = c.get("/api/settings/connections/export").text
+    assert "sk-gizli" not in exp and '"qwen-32b"' in exp
+    c.delete("/api/settings/llm")
+    from app.config import get_settings
+    assert not conn_file.exists() and m.state.gateway.s.llm_model == get_settings().llm_model   # .env ayarına döndü

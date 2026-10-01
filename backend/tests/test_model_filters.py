@@ -7,7 +7,7 @@ from app.data.validator import RolePolicy
 from app.dictionary.repository import _group_relationships
 from tests.test_join_guard import _DD, _t
 
-ANALYST = RolePolicy("analyst", ["dbo"])
+STANDART = RolePolicy("standart", ["dbo"])
 EUROPE = ModelFilter("dbo.dimsalesterritory", "salesterritorygroup", ["Europe"])
 
 
@@ -96,7 +96,7 @@ def test_composite_key_path(toy):
 
 # --------------------------------------------------------------------------- gerçek SQL Server
 def _rows(svc, sql):
-    v = svc.validator.validate(sql, ANALYST)
+    v = svc.validator.validate(sql, STANDART)
     assert v.ok, v.errors
     return svc.connector.execute(v.sql, 5000).rows
 

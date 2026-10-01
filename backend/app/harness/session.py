@@ -89,7 +89,7 @@ class Session(BaseModel):
     dataset_profiles: dict[str, Any] = Field(default_factory=dict)  # faz geçişinde bulgular kaybolmasın
     # faz içi çalışma hafızası: doğrulanan sorgular + tekrar eden araç çağrılarının önbelleği (faz değişince sıfırlanır)
     phase_memory: dict[str, Any] = Field(default_factory=dict)
-    user_role: str = "analyst"
+    user_role: str = "standart"
     status: Literal["idea", "design", "test", "live"] | None = None   # yaşam döngüsü; None → içerikten türetilir
     title_locked: bool = False        # kullanıcı adı elle verdiyse True: agent başlığı değiştirmez
     owner: str | None = None          # oluşturan kullanıcı (DOMAIN\kullanıcı)

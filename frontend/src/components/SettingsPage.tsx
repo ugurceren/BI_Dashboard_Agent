@@ -2,7 +2,8 @@
 // Kaydedince backend yeniden başlatılmadan yeni bağlantılarla servisleri kurar.
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../api/client";
-import type { ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole } from "../types";
+import type { ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole, LlmSettings } from "../types";
+import { LlmSettingsCard } from "./LlmSettingsCard";
 import "./settings.css";
 
 type Target = "data" | "dictionary";
@@ -54,6 +55,8 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const [cands, setCands] = useState<DictCandidates | null>(null);
   const [addDraft, setAddDraft] = useState<Record<DictRole, string>>({ tables: "", columns: "", relationships: "", metrics: "" });
   const fileRef = useRef<HTMLInputElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const [llmImport, setLlmImport] = useState<Partial<LlmSettings> | null>(null);
 
   const load = async () => {
     setBusy("load");
@@ -150,6 +153,31 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
     } catch (e) { setMsg({ ok: false, text: errText(e) }); }
     setBusy(null);
   };
+  /** Dışa aktarılmış ayar dosyasını forma yükler (kaydetmez): şifre girilip test edildikten sonra "Kaydet ve uygula". */
+  const importSettings = async (file: File) => {
+    try {
+      const d = JSON.parse(await file.text());
+      if (d?.type !== "connection-settings" || !d.data || !d.dictionary) throw new Error("Bu dosya bir BI Lens bağlantı ayarları dosyası değil.");
+      const base: ConnFields = { server: "localhost", database: "", auth: "windows", username: "", encrypt: true, trust_server_certificate: true };
+      const nd: ConnFields = { ...base, ...d.data, password: null, has_password: false };
+      const dk = (["sqlserver", "excel", "mysql"].includes(d.dictionary.kind) ? d.dictionary.kind : "sqlserver") as DictKind;
+      const ndict: ConnFields = { ...base, ...d.dictionary, kind: dk, password: null, has_password: false,
+        sources: { ...EMPTY_SOURCES, ...(d.dictionary.sources ?? DEFAULTS_BY_KIND[dk]) } };
+      setData(nd);
+      setDict(ndict);
+      if (d.llm && typeof d.llm === "object") setLlmImport({ ...d.llm });
+      setTests({ data: null, dictionary: null });
+      setDbs({ data: null, dictionary: null });
+      setCands(null);
+      const needPwd = nd.auth === "sql" || (dk !== "excel" && ndict.auth === "sql") || dk === "mysql";
+      setMsg({ ok: true, text: `"${file.name}" yüklendi (${d.exported_by ? `${d.exported_by} · ` : ""}${(d.exported_at ?? "").slice(0, 10)}) — henüz KAYDEDİLMEDİ. `
+        + (needPwd ? "SQL / MySQL şifresini girin, " : "") + "bağlantıları test edip Kaydet ve uygula'ya basın."
+        + (Array.isArray(d.notes) && d.notes.length > 1 ? " " + d.notes.slice(1).join(" ") : "") });
+    } catch (e) {
+      setMsg({ ok: false, text: `Ayar dosyası okunamadı: ${errText(e)}` });
+    }
+  };
+
   const reset = async () => {
     if (!window.confirm("Arayüzden kaydedilen bağlantı ayarları silinsin ve .env / dictionary.toml ayarlarına dönülsün mü?")) return;
     setBusy("reset");
@@ -264,6 +292,18 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       {cfg.startup_error ? (
         <div className="st-alert is-bad"><b>Şu anki bağlantıda sorun var</b><p>{cfg.startup_error}</p></div>
       ) : null}
+      <div className="st-toolbar">
+        <a className="btn btn-secondary btn-sm" href={api.connectionsExportUrl()} download
+          title="Geçerli bağlantı ayarlarını JSON dosyası olarak indir (şifreler dahil edilmez) — başka bir bilgisayara taşımak için">
+          <Ico d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" /> Ayarları dışa aktar
+        </a>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => importRef.current?.click()} disabled={!!busy}
+          title="Dışa aktarılmış ayar dosyasını forma yükle; test edip kaydedene kadar uygulanmaz">
+          <Ico d="M8 13.5v-8M4.5 9 8 5.5 11.5 9M3 2.5h10" /> Ayarları içe aktar
+        </button>
+        <input ref={importRef} type="file" accept=".json,application/json" hidden
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void importSettings(f); }} />
+      </div>
       <div className="st-meta muted small">
         {cfg.source === "ui" ? <>Ayarlar arayüzden kaydedildi (<code>{cfg.file}</code>).</> : <>Şu an <code>backend/.env</code> ve <code>dictionary.toml</code> ayarları kullanılıyor; kaydedince buradaki ayarlar geçerli olur.</>}
         {" "}ODBC sürücüsü: <b>{cfg.driver ?? "bulunamadı"}</b> (otomatik seçilir{cfg.drivers.length > 1 ? `; kurulu: ${cfg.drivers.join(", ")}` : ""}).
@@ -412,6 +452,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           </div>
           {testBox("dictionary")}
         </section>
+        <LlmSettingsCard api={api} imported={llmImport} onSaved={onSaved} />
       </div>
 
       <footer className="st-foot">
@@ -419,7 +460,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
         <div className="st-row">
           {cfg.source === "ui" ? <button type="button" className="btn btn-ghost" onClick={() => void reset()} disabled={!!busy}>.env ayarlarına dön</button> : null}
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={!!busy || !data.database.trim()}>
-            {busy === "save" ? <span className="spinner" /> : null} Kaydet ve uygula
+            {busy === "save" ? <span className="spinner" /> : null} Veritabanı ayarlarını kaydet ve uygula
           </button>
         </div>
       </footer>

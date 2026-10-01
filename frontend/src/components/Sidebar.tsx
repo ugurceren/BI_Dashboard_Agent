@@ -81,12 +81,12 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, heal
 
       <div className="sb-spacer" />
       <HealthBadge health={health} healthError={healthError} compact={collapsed} onClick={() => onNavigate("settings")} />
-      <div className="sb-user" title={me ? [me.display_name, me.username, me.title, me.department, `Rol: ${me.role}`,
+      <div className="sb-user" title={me ? [me.display_name, me.username, me.title, me.department,
         `Kaynak: ${SOURCE[me.source] ?? me.source}`, me.domain_joined ? "" : "Bu bilgisayar bir etki alanına bağlı değil (yerel hesap)"].filter(Boolean).join("\n") : "Kullanıcı bilgisi alınıyor…"}>
         <span className="sb-avatar" aria-hidden="true">{me ? initials(me.display_name || me.username) : "…"}</span>
         <span className="sb-user-text sb-label">
           <span className="sb-user-name">{me?.display_name ?? "…"}</span>
-          <span className="sb-user-sub">{me ? `${me.username} · ${me.role}` : ""}</span>
+          <span className="sb-user-sub">{me ? me.username : ""}</span>
         </span>
       </div>
     </nav>

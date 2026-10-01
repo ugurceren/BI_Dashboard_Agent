@@ -59,7 +59,7 @@ def test_full_flow(settings, services):
     llm = FakeLLM(script, settings)
     store = SessionStore(settings.sessions_dir)
     agent = Agent(llm, services, store)
-    s = store.create("analyst")
+    s = store.create("standart")
 
     ev = _run(agent, s.id, "İnternet satış raporu istiyorum")
     assert ev[-1].type == "done"
@@ -106,7 +106,7 @@ def test_step_limit_and_unknown_tool(settings, services):
     llm = FakeLLM([AssistantTurn("", [call("hack_the_db")])] * 5, settings)
     store = SessionStore(settings.sessions_dir)
     agent = Agent(llm, services, store)
-    s = store.create("analyst")
+    s = store.create("standart")
     _run(agent, s.id, "merhaba")
     s = store.get(s.id)
     assert len(llm.calls) == 3
@@ -118,7 +118,7 @@ def test_tool_not_allowed_in_phase(settings, services):
     llm = FakeLLM([AssistantTurn("", [call("run_sql", sql="SELECT 1")]), AssistantTurn("tamam")], settings)
     store = SessionStore(settings.sessions_dir)
     agent = Agent(llm, services, store)
-    s = store.create("analyst")
+    s = store.create("standart")
     _run(agent, s.id, "sql çalıştır")
     s = store.get(s.id)
     t = next(t for t in s.transcript if t.role == "tool")
@@ -155,7 +155,7 @@ def test_repeat_guard_and_working_memory(settings, services):
     ], settings)
     store = SessionStore(settings.sessions_dir)
     agent = Agent(llm, services, store)
-    s = store.create("analyst")
+    s = store.create("standart")
     _run(agent, s.id, "rapor")
     s = store.get(s.id)
     runs = [t.tool for t in s.transcript if t.role == "tool" and t.tool.name == "run_sql"]
@@ -199,14 +199,14 @@ def test_save_dataset_by_verified_number_and_loop_breaker(settings, services):
         AssistantTurn("hazır"),
     ], settings)
     store = SessionStore(settings.sessions_dir)
-    s = store.create("analyst")
+    s = store.create("standart")
     list(Agent(llm, services, store).run_turn(s.id, "rapor"))
     s = store.get(s.id)
     assert s.phase == "design" and s.datasets[0].sql == sql
 
     # döngü kırıcı: aynı çağrı üst üste tekrarlanınca tur biter
     llm2 = FakeLLM([AssistantTurn("", [call("run_sql", sql=bad)])] * 10, settings)
-    s2 = store.create("analyst")
+    s2 = store.create("standart")
     s2.set_phase("data")
     s2.requirements = s.requirements
     store.save(s2)
@@ -228,7 +228,7 @@ def test_unfulfilled_claim_is_nudged(settings, services):
     ], settings)
     store = SessionStore(settings.sessions_dir)
     agent = Agent(llm, services, store)
-    s = store.create("analyst")
+    s = store.create("standart")
     _run(agent, s.id, "rapor")
     _run(agent, s.id, "koyu tema")
     s = store.get(s.id)
@@ -272,7 +272,7 @@ def test_user_message_carried_into_next_phase(settings, services):
         AssistantTurn("tamam"),
     ], settings)
     store = SessionStore(settings.sessions_dir)
-    s = store.create("analyst")
+    s = store.create("standart")
     list(Agent(llm, services, store).run_turn(s.id, "Koyu tema olsun"))
     design_call = next(c for c in llm.calls if "create_report_spec" in c["tools"])
     assert "Koyu tema olsun" in design_call["messages"][1]["content"]
@@ -309,8 +309,8 @@ def test_literal_only_dataset_is_rejected(settings, services):
 
 def test_same_title_overwrites_older_report(settings):
     store = SessionStore(settings.sessions_dir)
-    a = store.create("analyst"); a.title = "Bayi Satış Raporu"; store.save(a)
-    b = store.create("analyst"); store.create("analyst")          # iki "Yeni rapor" taslağı birbirini silmez
+    a = store.create("standart"); a.title = "Bayi Satış Raporu"; store.save(a)
+    b = store.create("standart"); store.create("standart")          # iki "Yeni rapor" taslağı birbirini silmez
     b.title = "bayi  satış RAPORU"; store.save(b)                # aynı isim (büyük/küçük harf, boşluk farkı)
     titles = [x["title"] for x in store.list()]
     assert titles.count("Yeni rapor") == 1 and len([t for t in titles if "satış" in t.lower()]) == 1
@@ -325,8 +325,8 @@ def test_rename_conflict_and_summary(settings):
 
     m.state.store = SS(settings.sessions_dir)
     c = TestClient(m.app)
-    a = m.state.store.create("analyst"); a.title = "A Raporu"; m.state.store.save(a)
-    b = m.state.store.create("analyst")
+    a = m.state.store.create("standart"); a.title = "A Raporu"; m.state.store.save(a)
+    b = m.state.store.create("standart")
     r = c.put(f"/api/sessions/{b.id}/title", json={"title": "a  raporu"})
     assert r.status_code == 409 and r.json()["conflict_id"] == a.id
     r = c.put(f"/api/sessions/{b.id}/title", json={"title": "A Raporu", "overwrite": True})
@@ -344,7 +344,7 @@ def test_report_status(settings):
 
     m.state.store = SS(settings.sessions_dir)
     c = TestClient(m.app)
-    s = m.state.store.create("analyst")
+    s = m.state.store.create("standart")
     assert m.state.store.list()[0]["status"] == "idea" and not m.state.store.list()[0]["status_explicit"]
     assert c.put(f"/api/sessions/{s.id}/status", json={"status": "live"}).status_code == 200
     assert m.state.store.list()[0]["status"] == "live"
@@ -372,14 +372,14 @@ def test_user_title_not_overwritten_by_agent(settings, services):
 
     m.state.store = SS(settings.sessions_dir)
     c = TestClient(m.app)
-    s = m.state.store.create("analyst")
+    s = m.state.store.create("standart")
     assert c.put(f"/api/sessions/{s.id}/title", json={"title": "Bölge Satış Özeti"}).status_code == 200
     s = m.state.store.get(s.id)
     assert s.title_locked
     r = h_save_requirements(ToolContext(s, services), {"report_title": "Agent Başlığı", "business_goal": "x", "kpis": ["Ciro"], "dimensions": []})
     assert r.ok and s.title == "Bölge Satış Özeti" and s.requirements.report_title == "Bölge Satış Özeti"
 
-    s2 = m.state.store.create("analyst")  # adlandırılmamış yeni rapor: agent adı verir
+    s2 = m.state.store.create("standart")  # adlandırılmamış yeni rapor: agent adı verir
     h_save_requirements(ToolContext(s2, services), {"report_title": "Agent Başlığı", "business_goal": "x", "kpis": ["Ciro"], "dimensions": []})
     assert s2.title == "Agent Başlığı" and not s2.title_locked
 
@@ -390,7 +390,7 @@ def test_data_phase_shows_saved_dataset_sql(settings):
     from app.harness.session import Session
     from app.spec.models import Dataset, DatasetField
 
-    s = Session(user_role="analyst")
+    s = Session(user_role="standart")
     s.phase = "data"
     s.datasets = [Dataset(id="promo_sales", description="Promosyon bazında satış",
                           sql="SELECT PromotionKey, SUM(SalesAmount) AS sales FROM dbo.FactInternetSales GROUP BY PromotionKey",
@@ -408,7 +408,7 @@ def test_cross_filter_reaches_view_backed_dataset(settings, services):
     m.state.services = services
     src = ("SELECT t.SalesTerritoryRegion AS region, SUM(f.SalesAmount) AS sales_amount FROM dbo.FactResellerSales f "
            "JOIN dbo.DimSalesTerritory t ON t.SalesTerritoryKey = f.SalesTerritoryKey GROUP BY t.SalesTerritoryRegion")
-    s = Session(user_role="analyst")
+    s = Session(user_role="standart")
     s.datasets = [Dataset(id="region_sales", sql="SELECT region, sales_amount FROM rpt.v_bolge", view="rpt.v_bolge", original_sql=src,
                           fields=[DatasetField(name="region"), DatasetField(name="sales_amount", type="number")])]
     key = "dbo.dimproductcategory.englishproductcategoryname"

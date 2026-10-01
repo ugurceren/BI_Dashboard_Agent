@@ -45,6 +45,9 @@ class DDTable:
     columns: list[DDColumn] = field(default_factory=list)
     display_name: str = ""
     table_type: str = ""     # fact | dimension | bridge (sözlükte yoksa ilişkilerden çıkarılır)
+    documented: bool = True        # False: veritabanında var, sözlükte tanımsız (katalogdan eklendi)
+    in_db: bool | None = None      # veritabanı kataloğunda bulundu mu (None: bilinmiyor / katalog okunamadı)
+    can_select: bool | None = None # bağlanan hesabın SELECT yetkisi (HAS_PERMS_BY_NAME)
 
 
 @dataclass
@@ -190,6 +193,7 @@ class DataDictionary:
         self.relationships: list[DDRelationship] = []
         self.view_lineage: dict[str, str] = {}   # "rpt.v_x.kolon" → view'ın kaynak model kolonu
         self.relationship_source = "dictionary"   # dictionary | foreign_keys | name_match | none
+        self.catalog_error: str | None = None    # veritabanı kataloğu (yetkiler) okunamadıysa
 
     # ------------------------------------------------------------------ yükleme
     def _connector(self, cfg: dict) -> Connector:
@@ -361,7 +365,103 @@ class DataDictionary:
                 self.add_view(entry)
             except Exception as e:  # noqa: BLE001 — bozuk kayıt sözlüğü düşürmesin
                 log.warning("View sözlüğe eklenemedi (%s): %s", entry.get("name"), e)
+        self._merge_catalog()
         return self
+
+    # ------------------------------------------------------------------ veritabanı kataloğu (yetkiler)
+    UNDOCUMENTED_AREA = "Sözlükte tanımsız"
+    # sözlükte tanımsız kolonlarda kişisel veri (PII) tahmini — sözlük işaretlemediği için güvenli tarafta kal
+    _PII_NAME = re.compile(
+        r"(e_?mail|eposta|e_?posta|phone|telefon|gsm|cep_?tel|mobile|fax|address|adres|addressline|postal|posta_?kodu|zip|"
+        r"birth|dogum|tckn|tc_?kimlik|kimlik_?no|national_?id|ssn|passport|pasaport|iban|card_?number|kart_?no|"
+        r"first_?name|last_?name|middle_?name|full_?name|ad_?soyad|^ad$|^soyad|isim|salary|maas|income|gelir)", re.IGNORECASE)
+    _SKIP_OBJECTS = {"dbo.sysdiagrams"}   # SSMS diyagram tablosu
+
+    @classmethod
+    def _guess_pii(cls, column: str) -> bool:
+        return bool(cls._PII_NAME.search(re.sub(r"(?<=[a-z])(?=[A-Z])", "_", column)))
+
+    def _merge_catalog(self) -> None:
+        """Veritabanındaki tablo / view'ları bağlanan hesabın yetkisiyle okur:
+          * sözlükteki nesnelere in_db / can_select işlenir (yetki veritabanından gelir, sabit şema listesinden değil);
+          * sözlükte olmayan ama SELECT yetkisi olan nesneler eklenir (documented=False; açıklama MS_Description'dan);
+          * sözlükteki tablolara veritabanında olup sözlükte olmayan kolonlar eklenir (sorgu ekranı / öneriler için);
+          * eklenen nesneler arasındaki foreign key'ler ilişki olarak alınır (N:1).
+        Katalog okunamazsa (izin / bağlantı) sözlük olduğu gibi kalır."""
+        con = self._data_connector
+        self.catalog_error = None
+        if con is None or getattr(con, "dialect", "") != "tsql":
+            return
+        try:
+            objs = con.execute(
+                "SELECT s.name, o.name, o.type, "
+                "HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT'), "
+                "CAST(ep.value AS nvarchar(1000)), "
+                "(SELECT SUM(p.rows) FROM sys.partitions p WHERE p.object_id = o.object_id AND p.index_id IN (0, 1)) "
+                "FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id "
+                "LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = o.object_id AND ep.minor_id = 0 "
+                "AND ep.name = 'MS_Description' "
+                "WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 AND s.name NOT IN ('sys', 'INFORMATION_SCHEMA')", 200_000).rows
+            cols = con.execute(
+                "SELECT s.name, o.name, c.name, TYPE_NAME(c.user_type_id), CAST(ep.value AS nvarchar(1000)) "
+                "FROM sys.columns c JOIN sys.objects o ON o.object_id = c.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id "
+                "LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = c.object_id AND ep.minor_id = c.column_id "
+                "AND ep.name = 'MS_Description' "
+                "WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 AND s.name NOT IN ('sys', 'INFORMATION_SCHEMA') "
+                "ORDER BY s.name, o.name, c.column_id", 2_000_000).rows
+        except Exception as e:  # noqa: BLE001
+            self.catalog_error = str(e)[:300]
+            log.warning("Veritabanı kataloğu okunamadı (yetkiler sözlükten bilinemiyor): %s", e)
+            return
+        by_obj: dict[str, list[tuple[str, str, str]]] = {}
+        for sch, obj, col, typ, desc in cols:
+            by_obj.setdefault(f"{sch}.{obj}".lower(), []).append((str(col), str(typ or ""), str(desc or "")))
+        seen: set[str] = set()
+        added = 0
+        with self._lock:
+            for sch, obj, typ, perm, desc, rows in objs:
+                full = f"{sch}.{obj}".lower()
+                seen.add(full)
+                can = bool(perm)
+                t = self.tables.get(full)
+                if t is not None:  # sözlükte var: yetkiyi işle, eksik kolonları ekle
+                    t.in_db, t.can_select = True, can
+                    have = {c.name for c in t.columns}
+                    for cname, ctyp, cdesc in by_obj.get(full, []):
+                        if cname.lower() not in have:
+                            t.columns.append(DDColumn(full, cname.lower(), cname, cdesc, ctyp, "attribute", None, [],
+                                                      self._guess_pii(cname), "", display_name=cname))
+                    if not t.description and desc:
+                        t.description = str(desc)
+                    continue
+                if not can or full in self._SKIP_OBJECTS:  # yetki yoksa listelenmez (SQL Server zaten çoğu zaman göstermez)
+                    continue
+                name = f"{sch}.{obj}"
+                t = DDTable(full, name, str(desc or ""), self.UNDOCUMENTED_AREA, "", int(rows) if rows is not None else None,
+                            display_name=name, table_type="view" if str(typ).strip().upper() == "V" else "",
+                            documented=False, in_db=True, can_select=True)
+                t.columns = [DDColumn(full, c.lower(), c, cd, ct, "attribute", None, [], self._guess_pii(c), "", display_name=c)
+                             for c, ct, cd in by_obj.get(full, [])]
+                self.tables[full] = t
+                added += 1
+            for name, t in self.tables.items():
+                if name not in seen and t.in_db is None:
+                    t.in_db = False
+            if added:
+                self._add_catalog_foreign_keys()
+        log.info("Veritabanı kataloğu: %d nesne, %d tanesi sözlükte tanımsız olarak eklendi.", len(seen), added)
+
+    def _add_catalog_foreign_keys(self) -> None:
+        """Sözlükte tanımsız eklenen nesnelerin foreign key'lerini (henüz ilişki yoksa) N:1 ilişki olarak ekler."""
+        existing = {frozenset((r.from_table, r.to_table)) for r in self.relationships}
+        rows = [r for r in self._foreign_key_rows(self.tables)
+                if (not self.tables[r["from_table"].lower()].documented or not self.tables[r["to_table"].lower()].documented)
+                and frozenset((r["from_table"].lower(), r["to_table"].lower())) not in existing]
+        if not rows:
+            return
+        for r in rows:
+            r["cardinality"] = "N:1"   # foreign key: başvuran tablo çok, başvurulan tek
+        self.relationships = self.relationships + _group_relationships(rows)
 
     # ------------------------------------------------------------------ onaylı view'lar
     def _view_registry(self) -> list[dict[str, Any]]:

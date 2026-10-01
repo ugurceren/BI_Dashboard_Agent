@@ -31,7 +31,8 @@ class Services:
     policies: dict[str, RolePolicy]
 
     def policy(self, role: str) -> RolePolicy:
-        return self.policies.get(role) or self.policies["analyst"]
+        # tanımsız rol (ör. eski kayıtlardaki ad) varsayılan "standart" role düşer
+        return self.policies.get(role) or self.policies.get("standart") or next(iter(self.policies.values()))
 
 
 @dataclass

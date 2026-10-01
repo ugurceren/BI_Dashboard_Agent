@@ -20,13 +20,34 @@ from app.data.join_guard import JoinGuard
 from app.dictionary.repository import DataDictionary
 
 
+# sistem / katalog şemaları her zaman kapalı (sunucu ve veritabanı bilgisi sızmasın)
+ALWAYS_DENIED_SCHEMAS = {"sys", "information_schema"}
+
+
 @dataclass
 class RolePolicy:
     name: str
-    allowed_schemas: list[str]
+    allowed_schemas: list[str] = field(default_factory=lambda: ["*"])   # "*": veritabanı yetkisi neyse o
     denied_tables: list[str] = field(default_factory=list)
     allow_pii: bool = False
     max_rows: int = 5000
+    denied_schemas: list[str] = field(default_factory=list)
+
+    def schema_allowed(self, schema: str) -> bool:
+        s = (schema or "").lower()
+        if s in ALWAYS_DENIED_SCHEMAS or s in {x.lower() for x in self.denied_schemas}:
+            return False
+        allowed = {x.lower() for x in self.allowed_schemas}
+        return "*" in allowed or s in allowed
+
+    def denial_reason(self, full_name: str) -> str | None:
+        """Politika gerekçesi (veritabanı yetkisinden bağımsız): None → politika izin veriyor."""
+        schema = full_name.split(".", 1)[0]
+        if not self.schema_allowed(schema):
+            return f"'{schema}' şeması bu rol için kapalı"
+        if full_name.lower() in {d.lower() for d in self.denied_tables}:
+            return "tablo bu rol için yasaklı"
+        return None
 
 
 @dataclass
@@ -96,7 +117,7 @@ class SqlValidator:
                 continue
             full = f"{t.db}.{t.name}".lower()
             schema = t.db.lower()
-            if schema not in {s.lower() for s in policy.allowed_schemas}:
+            if not policy.schema_allowed(schema):
                 errors.append(f"'{full}': '{schema}' şemasına erişim yetkiniz yok.")
                 continue
             if full in {d.lower() for d in policy.denied_tables}:
@@ -104,6 +125,13 @@ class SqlValidator:
                 continue
             if not self.dictionary.has_table(full):
                 errors.append(f"'{full}' veri sözlüğünde yok. Önce search_dictionary ile doğru tabloyu bulun.")
+                continue
+            dt = self.dictionary.tables.get(full)
+            if dt is not None and dt.can_select is False:  # veritabanı yetkisi (HAS_PERMS_BY_NAME) — katalogdan
+                errors.append(f"'{full}': veritabanında bu nesne için SELECT yetkiniz yok.")
+                continue
+            if dt is not None and dt.in_db is False:
+                errors.append(f"'{full}' sözlükte var ama veritabanında bulunamadı (adı değişmiş ya da silinmiş olabilir).")
                 continue
             tables.add(full)
             alias_to_table[t.alias_or_name.lower()] = full

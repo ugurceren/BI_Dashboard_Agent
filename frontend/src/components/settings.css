@@ -71,3 +71,18 @@
 .st-field a { color: var(--accent); font-weight: 600; }
 .st-layouts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .st-src-missing { color: var(--bad); font-weight: 600; }
+.st-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
+.st-toolbar .btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; text-decoration: none; }
+
+/* dil modeli kartı */
+.st-card-wide { grid-column: 1 / -1; }
+.st-card-icon.is-llm { background: rgba(16, 185, 129, .14); color: #10b981; }
+.st-llm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+@container (max-width: 980px) { .st-llm-grid { grid-template-columns: 1fr; } }
+.st-llm-col { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.st-sub-head { display: flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; }
+.st-textarea { height: auto; padding: 8px 12px; resize: vertical; font-size: 12px; }
+.st-llm-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px dashed var(--border); }
+.st-llm-foot .btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; }
+.st-field > .st-input { flex: none; }
+.st-field > textarea.st-input { min-height: 64px; }

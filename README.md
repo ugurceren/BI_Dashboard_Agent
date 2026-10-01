@@ -102,7 +102,7 @@ backend/.venv/Scripts/python backend/scripts/seed_adventureworks_dictionary.py -
 
 Script tabloları/kolonları ve foreign key'leri otomatik okur; Türkçe iş adları, eş anlamlılar ve PII işaretleri
 scriptin içindeki `TABLES` / `COLUMNS` sözlüklerinde. Müşteri kimlik/iletişim bilgileri ile çalışan kimlik, doğum tarihi,
-iletişim ve ücret bilgileri PII olarak işaretli (analyst rolü sorgulayamaz); satış temsilcisi ad-soyadı raporlanabilir.
+iletişim ve ücret bilgileri PII olarak işaretli (standart rol sorgulayamaz; admin görebilir); satış temsilcisi ad-soyadı raporlanabilir.
 
 ## Dataset'leri onaylı view'a dönüştürmek
 

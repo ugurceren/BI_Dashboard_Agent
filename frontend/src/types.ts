@@ -337,17 +337,19 @@ export interface AccessObject {
   row_count?: number | null; column_count?: number; pii_columns?: string[]; pii_blocked?: boolean;   // tablo / view
   report_id?: string | null; report_title?: string; dataset_id?: string | null; created_at?: string | null;  // view / dataset
   view?: string | null; fields?: number; tables?: string[]; parameters?: string[];
+  documented?: boolean;   // false: veritabanında var, sözlükte tanımsız
 }
 
 export interface AccessInfo {
   user: Me; role: string; policy: Policy; objects: AccessObject[];
+  catalog?: { ok: boolean; error: string | null; undocumented: number };
 }
 
 // ---------------------------------------------------------------- sorgu çalıştır
 export interface QueryColumn { name: string; type: string; business_name?: string; description?: string; pii?: boolean; blocked?: boolean }
 export interface QueryObject {
   id: string; name: string; kind: string; business_name?: string; description?: string; subject_area: string;
-  row_count?: number | null; columns: QueryColumn[];
+  row_count?: number | null; columns: QueryColumn[]; documented?: boolean;
 }
 export interface QueryDataset { report_id: string; report_title: string; id: string; description?: string; sql: string; view?: string | null; subject_area?: string; domains?: string[] }
 export interface QueryProcedure { id: string; name: string; description?: string; parameters: string[]; tables: string[]; subject_area: string }
@@ -399,3 +401,14 @@ export interface ConnTestResult {
   dictionary_counts?: Partial<Record<DictRole, number>>; warnings?: string[];
   derived_tables?: number; relationship_source?: "foreign_keys" | "name_match" | "none";
 }
+
+// ---------------------------------------------------------------- dil modeli (LLM) bağlantısı
+export type ToolMode = "auto" | "native" | "prompt";
+export interface LlmVision { enabled: boolean; same_as_main: boolean; base_url: string; model: string; api_key?: string | null; has_api_key?: boolean }
+export interface LlmSettings {
+  source?: "ui" | "env";
+  base_url: string; model: string; tool_mode: ToolMode; extra_body?: Record<string, unknown> | null;
+  api_key?: string | null; has_api_key?: boolean;
+  vision: LlmVision;
+}
+export interface LlmTestResult { ok: boolean; error?: string; model?: string; elapsed_ms?: number; reply?: string; tools?: "native" | "prompt" }

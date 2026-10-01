@@ -11,6 +11,8 @@ const lsWrite = (k: string, v: string) => { try { localStorage.setItem(k, v); } 
 const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString("tr-TR") : "");
 
 const Badge = ({ type }: { type: ObjType }) => <span className={`acc-badge k-${type}`}>{TYPE_BADGE[type]}</span>;
+const Undoc = ({ o }: { o: AccessObject }) => (o.documented === false
+  ? <span className="acc-undoc" title="Veritabanında var, veri sözlüğünde tanımlı değil — açıklama veritabanından (MS_Description)">sözlükte yok</span> : null);
 
 const Access = ({ o }: { o: AccessObject }) => (o.type === "procedure"
   ? <span className="acc-note" title={o.reason ?? ""}>Yalnız liste</span>
@@ -32,7 +34,7 @@ function TypeTable({ type, items, onOpenReport }: { type: ObjType; items: Access
       <thead><tr><th>Tablo</th><th>Açıklama</th><th>Satır</th><th>Kolon</th><th>Kişisel veri</th><th>Erişim</th></tr></thead>
       <tbody>{items.map((o) => (
         <tr key={o.id} className={o.accessible ? undefined : "is-denied"}>
-          <td><code>{o.name}</code><div className="acc-note">{o.business_name}</div></td>
+          <td><code>{o.name}</code> <Undoc o={o} />{o.documented !== false ? <div className="acc-note">{o.business_name}</div> : null}</td>
           <td className="acc-note">{o.description}</td>
           <td>{o.row_count != null ? o.row_count.toLocaleString("tr-TR") : "—"}</td>
           <td>{o.column_count}</td>
@@ -47,7 +49,7 @@ function TypeTable({ type, items, onOpenReport }: { type: ObjType; items: Access
       <thead><tr><th>View</th><th>Açıklama</th><th>Kaynak tablolar</th><th>Kolon</th><th>Kaynak rapor</th><th>Oluşturma</th><th>Erişim</th></tr></thead>
       <tbody>{items.map((o) => (
         <tr key={o.id} className={o.accessible ? undefined : "is-denied"}>
-          <td><code>{o.name}</code><div className="acc-note">{o.business_name}</div></td>
+          <td><code>{o.name}</code> <Undoc o={o} />{o.documented !== false ? <div className="acc-note">{o.business_name}</div> : null}</td>
           <td className="acc-note">{o.description}</td>
           <td className="acc-note">{o.tables?.length ? o.tables.join(", ") : "—"}</td>
           <td>{o.column_count}</td>
@@ -122,13 +124,23 @@ export function AccessPage({ api, onOpenReport }: { api: Api; onOpenReport: (id:
     <div className="access">
       <div className="access-inner">
         <div className="acc-summary">
-          <div className="acc-stat"><div className="k">Rol</div><div className="v">{info.role}</div></div>
-          <div className="acc-stat"><div className="k">İzinli şemalar</div><div className="v">{info.policy.allowed_schemas.join(", ")}</div></div>
+          <div className="acc-stat"><div className="k">İzinli şemalar</div><div className="v">{info.policy.allowed_schemas.includes("*") ? "Tümü (veritabanı yetkisi)" : info.policy.allowed_schemas.join(", ")}</div></div>
           <div className="acc-stat"><div className="k">Erişilebilir tablo</div><div className="v">{accessible} / {tables.length}</div></div>
           <div className="acc-stat"><div className="k">View · SP · Dataset</div><div className="v">{of("view").length} · {of("procedure").length} · {of("dataset").length}</div></div>
           <div className="acc-stat"><div className="k">Kişisel veri (PII)</div><div className="v">{info.policy.allow_pii ? "Görülebilir" : `Engelli (${piiTables} tabloda)`}</div></div>
           <div className="acc-stat"><div className="k">Sorgu satır limiti</div><div className="v">{info.policy.max_rows.toLocaleString("tr-TR")}</div></div>
         </div>
+
+        {info.catalog && !info.catalog.ok ? (
+          <div className="banner-error">
+            Veritabanı kataloğu okunamadı; yetkiler veritabanından alınamadı, yalnızca sözlükteki nesneler gösteriliyor. {info.catalog.error}
+          </div>
+        ) : info.catalog?.undocumented ? (
+          <p className="muted small acc-info">
+            Liste bağlandığınız veritabanındaki <b>SELECT yetkiniz olan</b> tablo ve view'lardan oluşur. {info.catalog.undocumented} nesne veri sözlüğünde
+            tanımlı değil ("sözlükte yok"); açıklamaları veritabanından gelir, kişisel veri olabilecek kolonlar (e-posta, telefon, adres …) adlarına göre korunur.
+          </p>
+        ) : null}
 
         <div className="acc-tools">
           <label className="acc-search">

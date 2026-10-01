@@ -1,6 +1,6 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
 import type {
-  AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates } from "../types";
+  AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -33,6 +33,12 @@ export interface Api {
   dictionaryTables(data: ConnFields, dictionary: ConnFields): Promise<DictCandidates>;
   uploadDictionaryExcel(file: File): Promise<{ ok: boolean; path: string; tables: DictCandidates["tables"] }>;
   dictionaryTemplateUrl(layout?: "multi" | "single"): string;
+  connectionsExportUrl(): string;
+  getLlm(): Promise<LlmSettings>;
+  saveLlm(llm: LlmSettings): Promise<{ ok: boolean; reachable?: boolean; error?: string }>;
+  resetLlm(): Promise<{ ok: boolean }>;
+  llmModels(target: "main" | "vision", llm: LlmSettings): Promise<{ ok: boolean; models: string[]; error?: string }>;
+  testLlm(target: "main" | "vision", llm: LlmSettings): Promise<LlmTestResult>;
   listSessions(): Promise<SessionSummary[]>;
   createSession(): Promise<SessionState>;
   getSession(id: string): Promise<SessionState>;
@@ -161,6 +167,12 @@ export const httpApi: Api = {
     return body;
   },
   dictionaryTemplateUrl: (layout = "multi") => `/api/settings/dictionary/template.xlsx?layout=${layout}`,
+  connectionsExportUrl: () => "/api/settings/connections/export",
+  getLlm: () => req<LlmSettings>("/api/settings/llm"),
+  saveLlm: (llm) => req<{ ok: boolean; reachable?: boolean; error?: string }>("/api/settings/llm", { method: "PUT", body: JSON.stringify(llm) }),
+  resetLlm: () => req<{ ok: boolean }>("/api/settings/llm", { method: "DELETE" }),
+  llmModels: (target, llm) => req<{ ok: boolean; models: string[]; error?: string }>("/api/settings/llm/models", { method: "POST", body: JSON.stringify({ target, llm }) }),
+  testLlm: (target, llm) => req<LlmTestResult>("/api/settings/llm/test", { method: "POST", body: JSON.stringify({ target, llm }) }),
   dictionaryTables: (data, dictionary) => req<DictCandidates>("/api/settings/dictionary/tables", { method: "POST", body: JSON.stringify({ target: "dictionary", data, dictionary }) }),
   listSessions: () => req<SessionSummary[]>("/api/sessions"),
   createSession: () => req<SessionState>("/api/sessions", { method: "POST", body: "{}" }),

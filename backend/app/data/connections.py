@@ -124,11 +124,62 @@ def load_connections() -> dict[str, Any] | None:
 
 
 def save_connections(cfg: dict[str, Any]) -> None:
+    """Bölüm bazlı kayıt: verilen bölümler (data / dictionary / llm) güncellenir, diğerleri korunur.
+    Değeri None olan bölüm silinir; dosyada bölüm kalmazsa dosya silinir."""
     with _lock:
+        cur = load_connections() or {}
+        for k, v in cfg.items():
+            if v is None:
+                cur.pop(k, None)
+            else:
+                cur[k] = v
+        if not cur:
+            CONNECTIONS_FILE.unlink(missing_ok=True)
+            return
         CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = CONNECTIONS_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(CONNECTIONS_FILE)
+
+
+# ------------------------------------------------------------------ dil modeli (LLM) bağlantısı
+def llm_overrides() -> dict[str, Any]:
+    """connections.json 'llm' bölümü → Settings alanları (.env'deki LLM_* / VISION_* yerine geçer)."""
+    cfg = (load_connections() or {}).get("llm")
+    if not cfg:
+        return {}
+    out: dict[str, Any] = {"llm_base_url": cfg.get("base_url") or "", "llm_model": cfg.get("model") or "",
+                           "llm_api_key": unprotect(cfg.get("api_key_enc") or "") or "EMPTY",
+                           "llm_tool_mode": cfg.get("tool_mode") or "auto", "llm_extra_body": cfg.get("extra_body") or None}
+    v = cfg.get("vision") or {}
+    if not v.get("enabled", True) or not v.get("model"):
+        out.update(vision_model=None, vision_base_url=None, vision_api_key=None)
+    elif v.get("same_as_main", True):
+        out.update(vision_model=v["model"], vision_base_url=None, vision_api_key=None)
+    else:
+        out.update(vision_model=v["model"], vision_base_url=v.get("base_url") or None,
+                   vision_api_key=unprotect(v.get("api_key_enc") or "") or None)
+    return out
+
+
+def llm_settings(settings: Settings) -> Settings:
+    """Dil modeli için geçerli ayarlar: .env + arayüzden kaydedilen LLM bağlantısı."""
+    ov = llm_overrides()
+    return settings.model_copy(update=ov) if ov else settings
+
+
+def llm_effective(settings: Settings) -> dict[str, Any]:
+    """Arayüz formu için geçerli LLM ayarları (anahtarlar hariç)."""
+    cfg = (load_connections() or {}).get("llm")
+    s = llm_settings(settings)
+    vision_same = not s.vision_base_url and not s.vision_api_key
+    return {
+        "source": "ui" if cfg else "env",
+        "base_url": s.llm_base_url, "model": s.llm_model, "tool_mode": s.llm_tool_mode,
+        "extra_body": s.llm_extra_body, "has_api_key": bool(s.llm_api_key and s.llm_api_key != "EMPTY"),
+        "vision": {"enabled": bool(s.vision_model), "model": s.vision_model or "", "same_as_main": vision_same,
+                   "base_url": s.vision_base_url or "", "has_api_key": bool(s.vision_api_key)},
+    }
 
 
 DICTIONARY_FILES_DIR = BACKEND_DIR / "config" / "dictionary_files"

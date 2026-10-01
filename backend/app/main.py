@@ -29,6 +29,11 @@ from app.harness.agent import Agent, Audit, Event
 from app.harness.session import PHASES, Requirements, SessionStore, TranscriptItem, now_iso
 from app.harness.tools import Services, ToolContext, _build_dataset, _short_db_error, _validate_spec
 from app.llm.gateway import LLMGateway
+
+
+def conns_llm_settings(settings):
+    from app.data.connections import llm_settings
+    return llm_settings(settings)
 from app.spec.models import DatasetField, ReportSpec
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -90,14 +95,15 @@ def build_services() -> Services:
 async def lifespan(_: FastAPI):
     settings = get_settings()
     state.services = build_services()
-    state.gateway = LLMGateway(settings)
+    state.gateway = LLMGateway(conns_llm_settings(settings))
     state.store = SessionStore(settings.sessions_dir)
     removed = state.store.dedupe_titles()
     if removed:
         log.info("Aynı başlıklı %d eski rapor oturumu kaldırıldı (aynı isimle tek rapor).", removed)
     state.agent = Agent(state.gateway, state.services, state.store)
     log.info("Sözlük: %d tablo, %d metrik | LLM: %s @ %s | vision: %s", len(state.services.dictionary.tables),
-             len(state.services.dictionary.metrics), settings.llm_model, settings.llm_base_url, settings.vision_model or "-")
+             len(state.services.dictionary.metrics), state.gateway.s.llm_model, state.gateway.s.llm_base_url,
+             state.gateway.s.vision_model or "-")
     yield
 
 
@@ -129,7 +135,7 @@ def health() -> dict[str, Any]:
         from app.data.odbc import friendly_error
         data["error"] = friendly_error(data.get("error", ""))[:400]
     return {"ok": llm["reachable"] and data["ok"], "llm": llm,
-            "vision": {"configured": bool(s.vision_model), "model": s.vision_model}, "data": data,
+            "vision": {"configured": bool(state.gateway.s.vision_model), "model": state.gateway.s.vision_model}, "data": data,
             "dictionary": dic}
 
 
@@ -186,6 +192,18 @@ def me(request: Request) -> dict[str, Any]:
                                           "allow_pii": pol.allow_pii, "max_rows": pol.max_rows}}
 
 
+def _object_access(pol: RolePolicy, t) -> tuple[bool, str | None]:
+    """Nesne erişimi: önce rol politikası (yasaklı şema / tablo), sonra veritabanının kendi yetkisi (SELECT)."""
+    reason = pol.denial_reason(t.name)
+    if reason:
+        return False, reason
+    if t.can_select is False:
+        return False, "veritabanında SELECT yetkiniz yok"
+    if t.in_db is False:
+        return False, "sözlükte var, veritabanında bulunamadı"
+    return True, None
+
+
 @app.get("/api/me/access")
 def my_access(request: Request) -> dict[str, Any]:
     """Kullanıcının yetkili olduğu nesneler — tek liste: tablo / view / stored procedure / dataset;
@@ -195,14 +213,10 @@ def my_access(request: Request) -> dict[str, Any]:
     pol = state.services.policy(ident.role)
     dd = state.services.dictionary
     kinds = dd._table_kinds()
-    allowed = {x.lower() for x in pol.allowed_schemas}
-    denied = {x.lower() for x in pol.denied_tables}
     registry = {str(v.get("name", "")).lower(): v for v in ViewRegistry(get_settings().views_registry).all()}
     objects: list[dict[str, Any]] = []
     for t in dd.tables.values():
-        schema = t.name.split(".")[0]
-        ok = schema in allowed and t.name not in denied
-        reason = None if ok else ("tablo yasaklı" if t.name in denied else f"'{schema}' şemasına yetki yok")
+        ok, reason = _object_access(pol, t)
         pii = [c.display_name or c.name for c in t.columns if c.is_pii]
         is_view = kinds.get(t.name) == "view"
         area = t.subject_area
@@ -217,9 +231,10 @@ def my_access(request: Request) -> dict[str, Any]:
             "type": "view" if is_view else "table", "id": t.name, "name": t.display_name or t.name,
             "business_name": t.business_name, "description": t.description, "subject_area": area or "Diğer",
             "row_count": t.row_count, "column_count": len(t.columns), "pii_columns": pii,
-            "pii_blocked": bool(pii) and not pol.allow_pii, "accessible": ok, "reason": reason, **extra,
+            "pii_blocked": bool(pii) and not pol.allow_pii, "accessible": ok, "reason": reason,
+            "documented": t.documented, **extra,
         })
-    for sp in _procedures(allowed, denied, kinds):  # yalnız yetkili şemalardakiler listelenir
+    for sp in _procedures(pol, kinds):  # yalnız EXECUTE yetkisi olanlar listelenir
         objects.append({"type": "procedure", "id": sp["id"], "name": sp["name"], "business_name": "", "description": sp["description"],
                         "subject_area": sp["subject_area"], "parameters": sp["parameters"], "tables": sp["tables"],
                         "accessible": True, "reason": "Salt-okunur ekranlarda çalıştırılamaz (yalnız listeleme)"})
@@ -239,6 +254,8 @@ def my_access(request: Request) -> dict[str, Any]:
     return {"user": ident.public(), "role": ident.role,
             "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
                        "allow_pii": pol.allow_pii, "max_rows": pol.max_rows},
+            "catalog": {"ok": dd.catalog_error is None, "error": dd.catalog_error,
+                        "undocumented": sum(1 for t in dd.tables.values() if not t.documented)},
             "objects": objects}
 
 
@@ -254,14 +271,12 @@ def query_schema(request: Request) -> dict[str, Any]:
     pol = state.services.policy(ident.role)
     dd = state.services.dictionary
     kinds = dd._table_kinds()
-    allowed = {x.lower() for x in pol.allowed_schemas}
-    denied = {x.lower() for x in pol.denied_tables}
     from app.harness.session import _source_tables
     view_sources = {str(v.get("name", "")).lower(): _source_tables([{"sql": v.get("original_sql")}])
                     for v in ViewRegistry(get_settings().views_registry).all() if v.get("original_sql")}
     objects = []
     for t in dd.tables.values():
-        if t.name.split(".")[0] not in allowed or t.name in denied:
+        if not _object_access(pol, t)[0]:  # yalnız yetkili nesneler (politika + veritabanı SELECT yetkisi)
             continue
         kind = kinds.get(t.name) or "table"
         # view'ın domain'i: kaynak SQL'indeki tabloların konu alanı (sözlükteki "Onaylı rapor view'ları" değil)
@@ -272,7 +287,7 @@ def query_schema(request: Request) -> dict[str, Any]:
         objects.append({
             "id": t.name, "name": t.display_name or t.name, "kind": kind,
             "business_name": t.business_name, "description": t.description, "subject_area": area or "Diğer",
-            "row_count": t.row_count,
+            "row_count": t.row_count, "documented": t.documented,
             "columns": [{"name": c.display_name or c.name, "type": c.data_type, "business_name": c.business_name,
                          "description": c.description, "pii": c.is_pii, "blocked": c.is_pii and not pol.allow_pii}
                         for c in t.columns],
@@ -292,11 +307,11 @@ def query_schema(request: Request) -> dict[str, Any]:
                                  "subject_area": doms[0] if doms else "Diğer", "domains": doms})
     return {"role": ident.role, "max_rows": min(QUERY_MAX_ROWS, pol.max_rows), "allow_pii": pol.allow_pii,
             "allowed_schemas": pol.allowed_schemas, "objects": objects, "datasets": datasets,
-            "procedures": _procedures(allowed, denied, kinds)}
+            "procedures": _procedures(pol, kinds)}
 
 
-def _procedures(allowed: set[str], denied: set[str], kinds: dict[str, str]) -> list[dict[str, Any]]:
-    """Yetkili şemalardaki stored procedure'ler (yalnız listeleme; salt-okunur ekranda EXEC engellidir).
+def _procedures(pol: RolePolicy, kinds: dict[str, str]) -> list[dict[str, Any]]:
+    """EXECUTE yetkisi olan stored procedure'ler (yalnız listeleme; salt-okunur ekranda EXEC engellidir).
     Domain: SP'nin kullandığı sözlük tablolarının konu alanı (sys.sql_expression_dependencies)."""
     con = state.services.connector
     if getattr(con, "dialect", "") != "tsql":
@@ -305,7 +320,8 @@ def _procedures(allowed: set[str], denied: set[str], kinds: dict[str, str]) -> l
         procs = con.execute(
             "SELECT p.object_id, SCHEMA_NAME(p.schema_id), p.name, CAST(ep.value AS nvarchar(400)) "
             "FROM sys.procedures p LEFT JOIN sys.extended_properties ep ON ep.major_id = p.object_id AND ep.minor_id = 0 "
-            "AND ep.class = 1 AND ep.name = 'MS_Description' WHERE p.is_ms_shipped = 0", 5_000).rows
+            "AND ep.class = 1 AND ep.name = 'MS_Description' WHERE p.is_ms_shipped = 0 "
+            "AND HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(p.schema_id)) + '.' + QUOTENAME(p.name), 'OBJECT', 'EXECUTE') = 1", 5_000).rows
         if not procs:
             return []
         params = con.execute("SELECT pr.object_id, pr.name, TYPE_NAME(pr.user_type_id) FROM sys.parameters pr "
@@ -326,7 +342,7 @@ def _procedures(allowed: set[str], denied: set[str], kinds: dict[str, str]) -> l
     out = []
     for oid, sch, name, desc in procs:
         full = f"{sch}.{name}"
-        if sch.lower() not in allowed or full.lower() in denied:
+        if pol.denial_reason(full):
             continue
         doms = _report_domains(sorted(set(by_deps.get(oid, []))), kinds)
         out.append({"id": full.lower(), "name": full, "description": desc or "", "parameters": by_params.get(oid, []),
@@ -977,6 +993,184 @@ def dictionary_template(request: Request, layout: str = "multi") -> Response:
                     headers={"Content-Disposition": f'attachment; filename="veri_sozlugu{"_tek_sayfa" if layout == "single" else ""}.xlsx"'})
 
 
+# ---------------------------------------------------------------- dil modeli (LLM) bağlantısı
+class VisionIn(BaseModel):
+    enabled: bool = True
+    same_as_main: bool = True
+    base_url: str = ""
+    api_key: str | None = None       # None → kayıtlı anahtar korunur
+    model: str = ""
+
+
+class LlmIn(BaseModel):
+    base_url: str
+    api_key: str | None = None       # None → kayıtlı anahtar korunur
+    model: str
+    tool_mode: str = "auto"          # auto | native | prompt
+    extra_body: dict[str, Any] | None = None
+    vision: VisionIn = VisionIn()
+
+
+class LlmTestIn(BaseModel):
+    target: str = "main"             # main | vision
+    llm: LlmIn
+
+
+def _llm_keys(body: LlmIn) -> tuple[str, str]:
+    """Formdan gelen anahtar yoksa kayıtlı (connections.json ya da .env) anahtar kullanılır."""
+    cur = conns.llm_settings(get_settings())
+    main = body.api_key if body.api_key is not None else (cur.llm_api_key or "")
+    vis = body.vision.api_key if body.vision.api_key is not None else (cur.vision_api_key or "")
+    return main, vis
+
+
+def _llm_target(body: LlmIn, target: str) -> tuple[str, str, str]:
+    main_key, vis_key = _llm_keys(body)
+    if target == "vision" and not body.vision.same_as_main:
+        return body.vision.base_url.strip(), vis_key, body.vision.model.strip()
+    return body.base_url.strip(), main_key, (body.vision.model if target == "vision" else body.model).strip()
+
+
+@app.post("/api/settings/llm/models")
+def llm_models(body: LlmTestIn, request: Request) -> dict[str, Any]:
+    """Sunucudaki modeller (OpenAI uyumlu /models)."""
+    _require_settings_access(request)
+    from openai import OpenAI
+    url, key, _ = _llm_target(body.llm, body.target)
+    try:
+        ms = OpenAI(base_url=url, api_key=key or "EMPTY", timeout=15, max_retries=0).models.list().data
+        return {"ok": True, "models": sorted(m.id for m in ms)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": _llm_error(e), "models": []}
+
+
+_PIXEL = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/"
+          "P8Hj9zQrAAAAAElFTkSuQmCC")
+
+
+@app.post("/api/settings/llm/test")
+def llm_test(body: LlmTestIn, request: Request) -> dict[str, Any]:
+    """Modele gerçek kısa bir istek: ana model → metin + araç çağırma desteği; görsel model → küçük bir görsel."""
+    _require_settings_access(request)
+    import time as _t
+
+    from openai import OpenAI
+    url, key, model = _llm_target(body.llm, body.target)
+    if not url or not model:
+        return {"ok": False, "error": "API adresi ve model adı gerekli."}
+    cli = OpenAI(base_url=url, api_key=key or "EMPTY", timeout=60, max_retries=0)
+    extra = {"extra_body": body.llm.extra_body} if body.llm.extra_body else {}
+    t0 = _t.perf_counter()
+    try:
+        if body.target == "vision":
+            r = cli.chat.completions.create(model=model, max_tokens=40, temperature=0, messages=[{"role": "user", "content": [
+                {"type": "text", "text": "Bu görselde hangi renk var? Tek kelimeyle yanıtla."},
+                {"type": "image_url", "image_url": {"url": _PIXEL}}]}], **extra)
+            return {"ok": True, "model": model, "elapsed_ms": int((_t.perf_counter() - t0) * 1000),
+                    "reply": (r.choices[0].message.content or "").strip()[:120]}
+        r = cli.chat.completions.create(model=model, max_tokens=20, temperature=0,
+                                        messages=[{"role": "user", "content": "Yalnızca 'Tamam' yaz."}], **extra)
+        out = {"ok": True, "model": model, "elapsed_ms": int((_t.perf_counter() - t0) * 1000),
+               "reply": (r.choices[0].message.content or "").strip()[:120]}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": _llm_error(e)}
+    try:  # araç çağırma (agent'ın veri / tasarım araçları için)
+        tool = {"type": "function", "function": {"name": "kaydet", "description": "Bir sayıyı kaydeder",
+                                                  "parameters": {"type": "object", "properties": {"sayi": {"type": "integer"}},
+                                                                 "required": ["sayi"]}}}
+        r = cli.chat.completions.create(model=model, max_tokens=200, temperature=0, tools=[tool],
+                                        messages=[{"role": "user", "content": "kaydet aracını sayi=7 ile çağır."}], **extra)
+        out["tools"] = "native" if r.choices[0].message.tool_calls else "prompt"
+    except Exception:  # noqa: BLE001
+        out["tools"] = "prompt"
+    return out
+
+
+def _llm_error(e: Exception) -> str:
+    import openai
+    if isinstance(e, openai.AuthenticationError):
+        return "API anahtarı geçersiz ya da eksik (401)."
+    if isinstance(e, openai.NotFoundError):
+        return "Adres ya da model bulunamadı (404): API adresi genelde .../v1 ile biter; model adını kontrol edin."
+    if isinstance(e, openai.APIConnectionError):
+        return "Sunucuya bağlanılamadı: adres doğru mu, kurumsal proxy / sertifika engeli var mı?"
+    if isinstance(e, openai.APITimeoutError):
+        return "Sunucu zaman aşımına uğradı."
+    if isinstance(e, openai.APIStatusError):
+        return f"Sunucu hatası ({e.status_code}): {str(e)[:200]}"
+    return f"{type(e).__name__}: {str(e)[:200]}"
+
+
+@app.get("/api/settings/llm")
+def get_llm(request: Request) -> dict[str, Any]:
+    _require_settings_access(request)
+    return conns.llm_effective(get_settings())
+
+
+@app.put("/api/settings/llm")
+def save_llm(body: LlmIn, request: Request) -> dict[str, Any]:
+    ident = _require_settings_access(request)
+    if not body.base_url.strip() or not body.model.strip():
+        raise HTTPException(400, "API adresi ve model adı gerekli.")
+    if body.tool_mode not in ("auto", "native", "prompt"):
+        raise HTTPException(400, "Araç çağırma modu auto / native / prompt olmalı.")
+    main_key, vis_key = _llm_keys(body)
+    v = body.vision
+    conns.save_connections({"llm": {
+        "base_url": body.base_url.strip(), "model": body.model.strip(), "tool_mode": body.tool_mode,
+        "extra_body": body.extra_body, "api_key_enc": conns.protect(main_key),
+        "vision": {"enabled": v.enabled and bool(v.model.strip()), "same_as_main": v.same_as_main, "model": v.model.strip(),
+                   "base_url": "" if v.same_as_main else v.base_url.strip(),
+                   "api_key_enc": "" if v.same_as_main else conns.protect(vis_key)},
+    }})
+    _rebuild_gateway()
+    log.info("LLM bağlantısı güncellendi (%s): %s @ %s | görsel: %s", ident.username, body.model, body.base_url,
+             v.model if v.enabled else "-")
+    return {"ok": True, **state.gateway.health()}
+
+
+@app.delete("/api/settings/llm")
+def reset_llm(request: Request) -> dict[str, Any]:
+    """Arayüzden kaydedilen LLM ayarını sil: .env'deki LLM_* / VISION_* ayarlarına dön."""
+    _require_settings_access(request)
+    conns.save_connections({"llm": None})
+    _rebuild_gateway()
+    return {"ok": True}
+
+
+def _rebuild_gateway() -> None:
+    state.gateway = LLMGateway(conns.llm_settings(get_settings()))
+    if getattr(state, "agent", None) is not None:
+        state.agent.llm = state.gateway
+
+
+@app.get("/api/settings/connections/export")
+def export_connections(request: Request) -> Response:
+    """Geçerli bağlantı ayarlarını JSON olarak indirir (başka bir bilgisayara taşımak için).
+    Şifreler dosyaya YAZILMAZ; içe aktarınca şifre yeniden girilir."""
+    _require_settings_access(request)
+    eff = conns.effective(get_settings())
+    drop = {"has_password", "password", "password_enc"}
+    clean = lambda d: {k: v for k, v in (d or {}).items() if k not in drop}  # noqa: E731
+    dic = clean(eff["dictionary"])
+    note = None
+    if dic.get("kind") == "excel" and dic.get("excel_path"):
+        note = ("Excel sözlük dosyası bu bilgisayardaki yolu gösterir; diğer bilgisayarda dosyayı yeniden yükleyin "
+                "ya da ortak bir ağ yolu kullanın.")
+    payload = {
+        "app": "BI Lens", "type": "connection-settings", "version": 1,
+        "exported_at": now_iso(), "exported_by": _me(request).username, "source": eff["source"],
+        "data": clean(eff["data"]), "dictionary": dic,
+        "llm": {k: v for k, v in conns.llm_effective(get_settings()).items() if k not in ("has_api_key", "source")} | {
+            "vision": {k: v for k, v in conns.llm_effective(get_settings())["vision"].items() if k != "has_api_key"}},
+        "notes": [n for n in ["Şifreler ve API anahtarları bu dosyada yoktur; içe aktardıktan sonra gerekenleri girin.",
+                             note] if n],
+    }
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    return Response(body, media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="bi_lens_baglanti_ayarlari_{now_iso()[:10]}.json"'})
+
+
 @app.get("/api/settings/connections")
 def get_connections(request: Request) -> dict[str, Any]:
     _require_settings_access(request)
@@ -1084,7 +1278,7 @@ def save_connections(body: ConnectionsIn, request: Request) -> dict[str, Any]:
     if got and got.errors:
         raise HTTPException(422, "Kaydedilmedi — sözlük tabloları hatalı: " + " ".join(got.errors))
     store = lambda f: {k: v for k, v in f.items() if k != "password"} | {"password_enc": conns.protect(f.get("password") or "")}  # noqa: E731
-    conns.save_connections({"data": store(data), "dictionary": store(dic)})
+    conns.save_connections({"data": store(data), "dictionary": store(dic)})  # llm bölümü korunur
     _rebuild_services()
     log.info("Bağlantı ayarları güncellendi (%s): veri=%s/%s sözlük=%s/%s", ident.username,
              data["server"], data["database"], dic["server"], dic["database"])
@@ -1094,9 +1288,9 @@ def save_connections(body: ConnectionsIn, request: Request) -> dict[str, Any]:
 
 @app.delete("/api/settings/connections")
 def reset_connections(request: Request) -> dict[str, Any]:
-    """Arayüz ayarlarını sil: .env / dictionary.toml'a geri dön."""
+    """Arayüzden kaydedilen veritabanı ayarlarını sil: .env / dictionary.toml'a geri dön (LLM ayarı korunur)."""
     _require_settings_access(request)
-    conns.CONNECTIONS_FILE.unlink(missing_ok=True)
+    conns.save_connections({"data": None, "dictionary": None})
     _rebuild_services()
     return {"ok": state.startup_error is None, "error": state.startup_error}
 

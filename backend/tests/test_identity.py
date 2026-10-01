@@ -5,7 +5,7 @@ from app.identity import _resolve_role, current_identity
 
 POLICY = r"""
 [identity]
-default_role = "analyst"
+default_role = "standart"
 users = { 'KURUM\ali' = "admin" }
 groups = { "BI_Admins" = "admin" }
 """
@@ -21,7 +21,7 @@ def test_role_mapping(tmp_path):
     s = _settings(tmp_path)
     assert _resolve_role(s, "KURUM\\ali", []) == "admin"
     assert _resolve_role(s, "KURUM\\veli", ["Muhasebe", "BI_Admins"]) == "admin"
-    assert _resolve_role(s, "KURUM\\veli", ["Muhasebe"]) == "analyst"
+    assert _resolve_role(s, "KURUM\\veli", ["Muhasebe"]) == "standart"
 
 
 def test_remote_user_header_and_windows_fallback(tmp_path):
@@ -34,4 +34,14 @@ def test_remote_user_header_and_windows_fallback(tmp_path):
 def test_broken_policy_falls_back(tmp_path):
     pol = tmp_path / "policy.toml"
     pol.write_text('[identity]\nusers = { "A\\x" = "admin" }\n', encoding="utf-8")   # geçersiz TOML kaçışı
-    assert _resolve_role(Settings(_env_file=None, policy_config=pol), "A\\x", []) == "analyst"
+    assert _resolve_role(Settings(_env_file=None, policy_config=pol), "A\\x", []) == "standart"
+
+
+def test_unknown_role_falls_back_to_default(settings, services):
+    """Eski .env / kayıtlardaki tanımsız rol adı varsayılan 'standart' role düşer."""
+    from app.identity import _resolve_role
+
+    old = settings.model_copy(update={"user_role": "eski_rol"})
+    assert _resolve_role(old, r"KURUM\ali", []) == "standart"
+    assert services.policy("eski_rol").name == "standart"
+    assert services.policy("admin").name == "admin"

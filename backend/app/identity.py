@@ -34,7 +34,7 @@ class Identity:
     department: str | None = None
     title: str | None = None
     groups: list[str] = field(default_factory=list)
-    role: str = "analyst"
+    role: str = "standart"
     source: str = "windows"       # header | windows | ldap
     domain_joined: bool = False
 
@@ -140,8 +140,20 @@ def _resolve_role(settings: Settings, username: str, groups: list[str]) -> str:
     gmap = {k.lower(): v for k, v in (cfg.get("groups") or {}).items()}
     for g in groups:
         if g.lower() in gmap:
-            return gmap[g.lower()]
-    return cfg.get("default_role") or settings.user_role
+            return _known_role(settings, gmap[g.lower()], cfg)
+    return _known_role(settings, cfg.get("default_role") or settings.user_role, cfg)
+
+
+def _known_role(settings: Settings, role: str, cfg: dict[str, Any]) -> str:
+    """policy.toml'da tanımlı olmayan rol (ör. eski .env'deki USER_ROLE) varsayılan role düşer."""
+    try:
+        roles = set(load_toml(settings.policy_config).get("roles", {}))
+    except (OSError, ValueError):
+        return role
+    if not roles or role in roles:
+        return role
+    default = cfg.get("default_role")
+    return default if default in roles else ("standart" if "standart" in roles else sorted(roles)[0])
 
 
 _ldap_cache: dict[str, dict[str, Any] | None] = {}

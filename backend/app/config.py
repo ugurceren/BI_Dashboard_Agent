@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # --- Veri sözlüğü: nereden, hangi sorgularla okunacağı config/dictionary.toml'da
     dictionary_config: Path = BACKEND_DIR / "config" / "dictionary.toml"
     policy_config: Path = BACKEND_DIR / "config" / "policy.toml"
-    user_role: str = "analyst"  # varsayılan rol (policy.toml [identity] eşlemesi yoksa)
+    user_role: str = "standart"  # varsayılan rol (policy.toml [identity] eşlemesi yoksa)
     # --- Kimlik: Windows oturumu + isteğe bağlı LDAP (Active Directory)
     ldap_url: str | None = None            # ör. ldap://dc01.kurum.local
     ldap_base_dn: str = ""                 # ör. DC=kurum,DC=local

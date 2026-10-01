@@ -7,7 +7,7 @@ from app.data.join_guard import JoinGuard
 from app.data.validator import RolePolicy
 from app.dictionary.repository import DDColumn, DDTable, _group_relationships
 
-ANALYST = RolePolicy("analyst", ["dbo"])
+STANDART = RolePolicy("standart", ["dbo"])
 
 
 @pytest.mark.parametrize("sql", [
@@ -33,7 +33,7 @@ ANALYST = RolePolicy("analyst", ["dbo"])
     "SELECT d.CalendarYear, SUM(f.SalesAmount) FROM dbo.FactInternetSales f JOIN dbo.DimDate d ON d.DateKey = f.ShipDateKey GROUP BY d.CalendarYear",
 ])
 def test_safe_joins(services, sql):
-    r = services.validator.validate(sql, ANALYST)
+    r = services.validator.validate(sql, STANDART)
     assert r.ok, r.errors
     assert not r.warnings, r.warnings
 
@@ -54,7 +54,7 @@ def test_safe_joins(services, sql):
        GROUP BY e.LastName""",
 ])
 def test_fanout_rejected(services, sql):
-    r = services.validator.validate(sql, ANALYST)
+    r = services.validator.validate(sql, STANDART)
     assert not r.ok
     assert any("Satır çoğalması" in e for e in r.errors), r.errors
 
@@ -62,14 +62,14 @@ def test_fanout_rejected(services, sql):
 def test_partial_composite_key_rejected(services):
     r = services.validator.validate(
         """SELECT COUNT(DISTINCT r.SalesReasonKey) FROM dbo.FactInternetSales f
-           JOIN dbo.FactInternetSalesReason r ON r.SalesOrderNumber = f.SalesOrderNumber""", ANALYST)
+           JOIN dbo.FactInternetSalesReason r ON r.SalesOrderNumber = f.SalesOrderNumber""", STANDART)
     assert not r.ok and any("Bileşik anahtar eksik" in e and "salesorderlinenumber" in e for e in r.errors), r.errors
 
 
 def test_undefined_join_is_warning(services):
     r = services.validator.validate(
         """SELECT c.Gender, SUM(f.SalesAmount) FROM dbo.FactInternetSales f
-           JOIN dbo.DimCustomer c ON c.GeographyKey = f.SalesTerritoryKey GROUP BY c.Gender""", ANALYST)
+           JOIN dbo.DimCustomer c ON c.GeographyKey = f.SalesTerritoryKey GROUP BY c.Gender""", STANDART)
     assert r.ok and any("sözlükte tanımlı değil" in w for w in r.warnings)
 
 
