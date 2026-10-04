@@ -5,8 +5,6 @@ backend/logs/
 __pycache__/
 .pytest_cache/
 frontend/node_modules/
-frontend/dist/
-frontend/dist-viewer/
 backend/cache/
 backend/view_scripts/
 backend/config/views.json

@@ -35,7 +35,7 @@ PY_VERSIONS = ["3.10", "3.11", "3.12", "3.13"]
 # son wheelhouse içeren paketin requirements.txt özeti: güncelleme paketine wheelhouse gerekip gerekmediği
 LAST_WHEELS = OUT / ".wheels_requirements.sha1"
 # pakete girmeyenler: kullanıcı ayarları / verisi (git'te de yok) ve geliştirme dosyaları
-_SKIP_PREFIXES = ("backend/tests/", "offline/", "wheelhouse/")
+_SKIP_PREFIXES = ("backend/tests/", "offline/", "wheelhouse/", "frontend/dist/", "frontend/dist-viewer/")  # arayüz ayrıca eklenir
 _SKIP_NAMES = {".gitignore", ".gitattributes"}
 
 
