@@ -46,6 +46,7 @@ class DDTable:
     display_name: str = ""
     table_type: str = ""     # fact | dimension | bridge (sözlükte yoksa ilişkilerden çıkarılır)
     documented: bool = True        # False: veritabanında var, sözlükte tanımsız (katalogdan eklendi)
+    object_type: str = ""          # table | view — veritabanı kataloğundan (sys.objects.type U / V); "" bilinmiyor
     in_db: bool | None = None      # veritabanı kataloğunda bulundu mu (None: bilinmiyor / katalog okunamadı)
     can_select: bool | None = None # bağlanan hesabın SELECT yetkisi (HAS_PERMS_BY_NAME)
 
@@ -194,6 +195,8 @@ class DataDictionary:
         self.view_lineage: dict[str, str] = {}   # "rpt.v_x.kolon" → view'ın kaynak model kolonu
         self.relationship_source = "dictionary"   # dictionary | foreign_keys | name_match | none
         self.catalog_error: str | None = None    # veritabanı kataloğu (yetkiler) okunamadıysa
+        self.name_changes: dict[str, str] = {}   # sözlükteki yazım → katalogdaki ad (ör. vw_Satis → dbo.vw_Satis)
+        self.missing_in_db: list[str] = []       # sözlükte olup veritabanında bulunamayan nesneler
 
     # ------------------------------------------------------------------ yükleme
     def _connector(self, cfg: dict) -> Connector:
@@ -292,6 +295,7 @@ class DataDictionary:
         from app.data.connections import open_dictionary_reader, saved_dictionary
 
         saved = saved_dictionary()  # Bağlantı Ayarları: SQL Server / MySQL / Excel, rol başına bir ya da birden çok kaynak
+        catalog = self._read_catalog()   # önce katalog: başlığı tanınmayan sütunlar içerikten bulunur, adlar ona eşlenir
         collected = None
         if saved and saved[0].get("kind") == "none":  # sözlük yok: tablolar / ilişkiler katalogdan gelir
             from app.dictionary.sources import Collected
@@ -301,20 +305,33 @@ class DataDictionary:
             from app.dictionary.sources import collect
 
             reader, _ = open_dictionary_reader(saved[0])
-            collected = collect(reader, saved[1])
+            collected = collect(reader, saved[1], saved[0].get("mappings"), self.known(catalog))
             for w in collected.warnings:
                 log.info("Sözlük: %s", w)
             if collected.errors:
                 raise RuntimeError("Sözlük tabloları: " + " ".join(collected.errors))
 
+        from app.dictionary.names import NameResolver, canon
+
+        resolver = NameResolver((sch, obj) for sch, obj, *_ in catalog[0]) if catalog else None
+        fix = resolver.resolve if resolver else canon   # katalog yoksa yalnız parantez / veritabanı öneki temizlenir
+        name_keys = {"tables": ("table_name",), "columns": ("table_name",), "relationships": ("from_table", "to_table"),
+                     "metrics": ("base_table",)}
+
         def rows(role: str) -> list[dict[str, Any]]:
             if collected is not None:
-                return collected.rows.get(role, [])
-            sql = q.get(role)
-            if not sql or not sql.strip():
-                return []
-            r = con.execute(sql, 100_000)
-            return [dict(zip([c.lower() for c in r.columns], row)) for row in r.rows]
+                out = collected.rows.get(role, [])
+            else:
+                sql = q.get(role)
+                if not sql or not sql.strip():
+                    return []
+                r = con.execute(sql, 100_000)
+                out = [dict(zip([c.lower() for c in r.columns], row)) for row in r.rows]
+            for row in out:   # sözlükteki adlar veritabanındaki gerçek nesneye eşlenir
+                for k in name_keys.get(role, ()):
+                    if row.get(k) not in (None, ""):
+                        row[k] = fix(row[k])
+            return out
 
         tables: dict[str, DDTable] = {}
         for r in rows("tables"):
@@ -369,7 +386,11 @@ class DataDictionary:
                 self.add_view(entry)
             except Exception as e:  # noqa: BLE001 — bozuk kayıt sözlüğü düşürmesin
                 log.warning("View sözlüğe eklenemedi (%s): %s", entry.get("name"), e)
-        self._merge_catalog()
+        self.name_changes = dict(resolver.changed) if resolver else {}
+        if self.name_changes:
+            log.info("Sözlükteki %d ad veritabanındaki nesneye eşlendi: %s", len(self.name_changes),
+                     ", ".join(f"{a} → {b}" for a, b in list(self.name_changes.items())[:10]))
+        self._merge_catalog(catalog)
         return self
 
     # ------------------------------------------------------------------ veritabanı kataloğu (yetkiler)
@@ -385,17 +406,29 @@ class DataDictionary:
     def _guess_pii(cls, column: str) -> bool:
         return bool(cls._PII_NAME.search(re.sub(r"(?<=[a-z])(?=[A-Z])", "_", column)))
 
-    def _merge_catalog(self) -> None:
-        """Veritabanındaki tablo / view'ları bağlanan hesabın yetkisiyle okur:
-          * sözlükteki nesnelere in_db / can_select işlenir (yetki veritabanından gelir, sabit şema listesinden değil);
-          * sözlükte olmayan ama SELECT yetkisi olan nesneler eklenir (documented=False; açıklama MS_Description'dan);
-          * sözlükteki tablolara veritabanında olup sözlükte olmayan kolonlar eklenir (sorgu ekranı / öneriler için);
-          * eklenen nesneler arasındaki foreign key'ler ilişki olarak alınır (N:1).
-        Katalog okunamazsa (izin / bağlantı) sözlük olduğu gibi kalır."""
+    @staticmethod
+    def known(catalog: tuple[list, list] | None, column_names: list[str] | None = None):
+        """Katalogdan içerik tanıma için ad kümeleri (sources.Known); katalog yoksa None."""
+        if catalog is None:
+            return None
+        from app.dictionary.sources import Known
+
+        cols = column_names if column_names is not None else [c for _s, _o, c, *_ in catalog[1]]
+        return Known.from_catalog([(s, o) for s, o, *_ in catalog[0]], cols)
+
+    def column_names(self) -> list[str]:
+        """Veritabanındaki farklı kolon adları (katalogdaki tüm kolonları okumadan; Ayarlar testi için)."""
+        r = self._data_connector.execute(  # type: ignore[union-attr]
+            "SELECT DISTINCT c.name FROM sys.columns c JOIN sys.objects o ON o.object_id = c.object_id "
+            "WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0", 500_000)
+        return [str(x[0]) for x in r.rows]
+
+    def _read_catalog(self, columns: bool = True) -> tuple[list, list] | None:
+        """(nesneler, kolonlar) — veri bağlantısının yetkisiyle. Okunamazsa None (catalog_error dolar)."""
         con = self._data_connector
         self.catalog_error = None
         if con is None or getattr(con, "dialect", "") != "tsql":
-            return
+            return None
         try:
             objs = con.execute(
                 "SELECT s.name, o.name, o.type, "
@@ -406,7 +439,7 @@ class DataDictionary:
                 "LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = o.object_id AND ep.minor_id = 0 "
                 "AND ep.name = 'MS_Description' "
                 "WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 AND s.name NOT IN ('sys', 'INFORMATION_SCHEMA')", 200_000).rows
-            cols = con.execute(
+            cols = [] if not columns else con.execute(
                 "SELECT s.name, o.name, c.name, TYPE_NAME(c.user_type_id), CAST(ep.value AS nvarchar(1000)) "
                 "FROM sys.columns c JOIN sys.objects o ON o.object_id = c.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id "
                 "LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = c.object_id AND ep.minor_id = c.column_id "
@@ -416,7 +449,21 @@ class DataDictionary:
         except Exception as e:  # noqa: BLE001
             self.catalog_error = str(e)[:300]
             log.warning("Veritabanı kataloğu okunamadı (yetkiler sözlükten bilinemiyor): %s", e)
+            return None
+        return objs, cols
+
+    def _merge_catalog(self, catalog: tuple[list, list] | None = None) -> None:
+        """Veritabanındaki tablo / view'ları bağlanan hesabın yetkisiyle okur:
+          * sözlükteki nesnelere in_db / can_select işlenir (yetki veritabanından gelir, sabit şema listesinden değil);
+          * sözlükte olmayan ama SELECT yetkisi olan nesneler eklenir (documented=False; açıklama MS_Description'dan);
+          * sözlükteki tablolara veritabanında olup sözlükte olmayan kolonlar eklenir (sorgu ekranı / öneriler için);
+          * eklenen nesneler arasındaki foreign key'ler ilişki olarak alınır (N:1).
+        Katalog okunamazsa (izin / bağlantı) sözlük olduğu gibi kalır."""
+        if catalog is None:
+            catalog = self._read_catalog()
+        if catalog is None:
             return
+        objs, cols = catalog
         by_obj: dict[str, list[tuple[str, str, str]]] = {}
         for sch, obj, col, typ, desc in cols:
             by_obj.setdefault(f"{sch}.{obj}".lower(), []).append((str(col), str(typ or ""), str(desc or "")))
@@ -428,8 +475,9 @@ class DataDictionary:
                 seen.add(full)
                 can = bool(perm)
                 t = self.tables.get(full)
-                if t is not None:  # sözlükte var: yetkiyi işle, eksik kolonları ekle
-                    t.in_db, t.can_select = True, can
+                otype = "view" if str(typ).strip().upper() == "V" else "table"
+                if t is not None:  # sözlükte var: yetkiyi işle, nesne tipini (tablo / view) al, eksik kolonları ekle
+                    t.in_db, t.can_select, t.object_type = True, can, otype
                     have = {c.name for c in t.columns}
                     for cname, ctyp, cdesc in by_obj.get(full, []):
                         if cname.lower() not in have:
@@ -443,7 +491,7 @@ class DataDictionary:
                 name = f"{sch}.{obj}"
                 t = DDTable(full, name, str(desc or ""), self.UNDOCUMENTED_AREA, "", int(rows) if rows is not None else None,
                             display_name=name, table_type="view" if str(typ).strip().upper() == "V" else "",
-                            documented=False, in_db=True, can_select=True)
+                            documented=False, in_db=True, can_select=True, object_type=otype)
                 t.columns = [DDColumn(full, c.lower(), c, cd, ct, "attribute", None, [], self._guess_pii(c), "", display_name=c)
                              for c, ct, cd in by_obj.get(full, [])]
                 self.tables[full] = t
@@ -451,9 +499,12 @@ class DataDictionary:
             for name, t in self.tables.items():
                 if name not in seen and t.in_db is None:
                     t.in_db = False
+            self.missing_in_db = sorted(t.display_name or n for n, t in self.tables.items() if t.in_db is False)
             if added:
                 self._add_catalog_foreign_keys()
         log.info("Veritabanı kataloğu: %d nesne, %d tanesi sözlükte tanımsız olarak eklendi.", len(seen), added)
+        if self.missing_in_db:
+            log.warning("Sözlükteki %d nesne veritabanında bulunamadı: %s", len(self.missing_in_db), ", ".join(self.missing_in_db[:15]))
 
     def _add_catalog_foreign_keys(self) -> None:
         """Sözlükte tanımsız eklenen nesnelerin foreign key'lerini (henüz ilişki yoksa) N:1 ilişki olarak ekler."""
@@ -495,7 +546,7 @@ class DataDictionary:
                 sample_values="", display_name=c["name"]))
         table = DDTable(name, entry.get("business_name") or entry["name"], entry.get("description") or "",
                         "Onaylı rapor view'ları", "Rapor dataset'i (özet)", None, cols,
-                        display_name=entry["name"], table_type="view")
+                        display_name=entry["name"], table_type="view", object_type="view")
         self.tables[name] = table
         self.relationships = [r for r in self.relationships if r.from_table != name]
         kinds = self._table_kinds()
@@ -685,6 +736,13 @@ class DataDictionary:
             "grain": t.grain, "row_count": t.row_count, "columns": cols,
             "joins": [r.describe() for r in self.relationships_for(t.name)],
         }
+
+    def is_view(self, name: str, kinds: dict[str, str] | None = None) -> bool:
+        """Nesne tipi: veritabanı kataloğundan (sözlükte tablo / view ayrımı olmasa da); katalog yoksa sözlükteki table_type."""
+        t = self.tables.get(name)
+        if t is not None and t.object_type:
+            return t.object_type == "view"
+        return (kinds if kinds is not None else self._table_kinds()).get(name) == "view"
 
     def _table_kinds(self) -> dict[str, str]:
         """fact / dimension / bridge. Sözlükte table_type varsa o; yoksa ilişki grafiğinden:

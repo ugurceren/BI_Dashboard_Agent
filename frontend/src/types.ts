@@ -342,7 +342,7 @@ export interface AccessObject {
 
 export interface AccessInfo {
   user: Me; role: string; policy: Policy; objects: AccessObject[];
-  catalog?: { ok: boolean; error: string | null; undocumented: number };
+  catalog?: { ok: boolean; error: string | null; undocumented: number; missing?: string[]; missing_count?: number; renamed_count?: number };
 }
 
 // ---------------------------------------------------------------- sorgu çalıştır
@@ -377,6 +377,7 @@ export interface ConnFields {
   kind?: DictKind;               // yalnız sözlük
   port?: number | null;          // MySQL
   excel_path?: string;           // Excel
+  mappings?: Record<string, Record<string, string>>;  // yalnız sözlük: kaynak → alan → başlık ("" = kullanma)
 }
 export type DictKind = "sqlserver" | "excel" | "mysql" | "none";
 export type DictRole = "tables" | "columns" | "relationships" | "metrics";
@@ -402,6 +403,8 @@ export interface ConnTestResult {
   login?: string; driver?: string; dictionary_tables?: number;
   dictionary_counts?: Partial<Record<DictRole, number>>; warnings?: string[];
   derived_tables?: number; relationship_source?: "foreign_keys" | "name_match" | "none";
+  catalog_match?: CatalogMatch;
+  sources_info?: Record<string, SourceInfo>;
 }
 
 // ---------------------------------------------------------------- dil modeli (LLM) bağlantısı
@@ -414,3 +417,20 @@ export interface LlmSettings {
   vision: LlmVision;
 }
 export interface LlmTestResult { ok: boolean; error?: string; model?: string; elapsed_ms?: number; reply?: string; tools?: "native" | "prompt" }
+
+/** Sözlükteki tablo / view adlarının veri kaynağındaki nesnelerle eşleşmesi (Ayarlar → sözlük testi). */
+export interface CatalogMatch {
+  ok: boolean; database: string; error?: string | null;
+  total?: number; found?: number; db_objects?: number;
+  missing?: string[]; missing_count?: number;
+  no_select?: string[]; no_select_count?: number;
+  renamed?: [string, string][]; renamed_count?: number;
+}
+
+/** Sözlük kaynağının (tablo / sayfa) sütunlarının sözlük alanlarına eşlenmesi. */
+export interface SourceInfo {
+  role: DictRole;
+  headers: string[];
+  mapping: Record<string, string | null>;
+  how: Record<string, "header" | "content" | "manual">;
+}

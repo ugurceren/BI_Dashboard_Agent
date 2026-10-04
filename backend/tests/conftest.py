@@ -114,3 +114,20 @@ def sql_services(tmp_path_factory):
     except (QueryError, RuntimeError, Exception) as e:  # noqa: BLE001
         pytest.skip(f"SQL Server erişilemiyor: {str(e)[:120]}")
     return _services(s, dd, con)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_catalog(monkeypatch):
+    """Ayarlar uçları sözlük testinde veri kaynağının kataloğunu okur; testlerde gerçek sunucu yok (zaman aşımı beklenmesin)."""
+    import app.main as m
+    monkeypatch.setattr(m, "_data_catalog", lambda data: {})
+
+
+@pytest.fixture()
+def conn_file(tmp_path, monkeypatch):
+    """Arayüzden kaydedilen bağlantı ayarları geçici dosyaya (gerçek backend/config/connections.json'a dokunulmaz)."""
+    import app.data.connections as conns
+    f = tmp_path / "connections.json"
+    monkeypatch.setattr(conns, "CONNECTIONS_FILE", f)
+    monkeypatch.setattr(conns, "installed_drivers", lambda: ["ODBC Driver 17 for SQL Server"])
+    return f

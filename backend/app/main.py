@@ -234,7 +234,7 @@ def my_access(request: Request) -> dict[str, Any]:
     for t in dd.tables.values():
         ok, reason = _object_access(pol, t)
         pii = [c.display_name or c.name for c in t.columns if c.is_pii]
-        is_view = kinds.get(t.name) == "view"
+        is_view = dd.is_view(t.name, kinds)   # tablo / view ayrımı veritabanı kataloğundan
         area = t.subject_area
         extra: dict[str, Any] = {}
         if is_view:
@@ -271,7 +271,9 @@ def my_access(request: Request) -> dict[str, Any]:
             "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
                        "allow_pii": pol.allow_pii, "max_rows": pol.max_rows},
             "catalog": {"ok": dd.catalog_error is None, "error": dd.catalog_error,
-                        "undocumented": sum(1 for t in dd.tables.values() if not t.documented)},
+                        "undocumented": sum(1 for t in dd.tables.values() if not t.documented),
+                        "missing": dd.missing_in_db[:30], "missing_count": len(dd.missing_in_db),
+                        "renamed_count": len(dd.name_changes)},
             "objects": objects}
 
 
@@ -294,7 +296,7 @@ def query_schema(request: Request) -> dict[str, Any]:
     for t in dd.tables.values():
         if not _object_access(pol, t)[0]:  # yalnız yetkili nesneler (politika + veritabanı SELECT yetkisi)
             continue
-        kind = kinds.get(t.name) or "table"
+        kind = "view" if dd.is_view(t.name, kinds) else (kinds.get(t.name) if kinds.get(t.name) != "view" else None) or "table"
         # view'ın domain'i: kaynak SQL'indeki tabloların konu alanı (sözlükteki "Onaylı rapor view'ları" değil)
         area = t.subject_area
         if kind == "view":
@@ -863,6 +865,7 @@ class ConnIn(BaseModel):
     kind: str = "sqlserver"          # yalnız sözlük: sqlserver | mysql | excel
     port: int | None = None          # MySQL (varsayılan 3306)
     excel_path: str = ""             # Excel dosyası (yüklenen ya da ağ yolu)
+    mappings: dict[str, dict[str, str]] | None = None   # yalnız sözlük: kaynak → alan → başlık ("" = kullanma)
 
 
 class ConnectionsIn(BaseModel):
@@ -907,7 +910,10 @@ def _resolved(body: ConnTestIn | ConnectionsIn) -> tuple[dict[str, Any], dict[st
         dic["excel_path"] = (dic_in.excel_path or "").strip().strip('"')
     src = dic_in.sources or default_sources(kind)
     dic["sources"] = {r: [n.strip() for n in (src.get(r) or []) if n and n.strip()] for r in ROLES}
-    for k in ("sources", "kind", "port", "excel_path"):
+    used = {n.casefold() for lst in dic["sources"].values() for n in lst}
+    dic["mappings"] = {k: {f: str(h or "") for f, h in (v or {}).items()}
+                       for k, v in (dic_in.mappings or {}).items() if k.casefold() in used}
+    for k in ("sources", "kind", "port", "excel_path", "mappings"):
         data.pop(k, None)
     return data, dic
 
@@ -1216,13 +1222,14 @@ def test_connection(body: ConnTestIn, request: Request) -> dict[str, Any]:
         reader, info = conns.open_dictionary_reader(dic)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": friendly_error(str(e))}
+    catalog = _data_catalog(data)
     try:
-        got = collect(reader, dic["sources"])
+        got = collect(reader, dic["sources"], dic.get("mappings"), catalog.get("known"))
     except Exception as e:  # noqa: BLE001
         return {"ok": False, **info, "error": "Bağlantı kuruldu ama sözlük okunamadı: " + friendly_error(str(e))}
     counts = got.counts
     info.update(dictionary_counts=counts, dictionary_tables=counts.get("tables", 0), warnings=got.warnings,
-                derived_tables=got.derived_tables)
+                derived_tables=got.derived_tables, sources_info=got.sources)
     if "relationships" not in got.explicit and got.rows.get("columns"):  # ilişki sözlüğü yok: otomatik kaç ilişki bulunur?
         try:
             n, src = DataDictionary(get_settings(), state.services.connector).preview_auto_relationships(
@@ -1231,9 +1238,48 @@ def test_connection(body: ConnTestIn, request: Request) -> dict[str, Any]:
             info["relationship_source"] = src
         except Exception as e:  # noqa: BLE001
             log.info("Otomatik ilişki önizlemesi yapılamadı: %s", e)
+    match = _dictionary_match(data, got, catalog)
+    if match:
+        info["catalog_match"] = match
     if got.errors:
         return {"ok": False, **info, "error": " ".join(got.errors)}
     return {"ok": True, **info}
+
+
+def _data_catalog(data: dict[str, Any]) -> dict[str, Any]:
+    """Veri kaynağının kataloğu (nesneler + farklı kolon adları) — sözlük testi / kaydı için. Hata olursa {"error"}."""
+    if not data.get("database"):
+        return {}
+    from app.data.connector import SqlServerConnector
+    try:
+        dd = DataDictionary(get_settings(), SqlServerConnector(data.get("odbc") or conns.build_odbc(data), 15))
+        cat = dd._read_catalog(columns=False)
+        if cat is None:
+            return {"error": dd.catalog_error}
+        return {"objects": cat[0], "known": dd.known(cat, dd.column_names())}
+    except Exception as e:  # noqa: BLE001
+        return {"error": friendly_error(str(e))}
+
+
+def _dictionary_match(data: dict[str, Any], got: Any, catalog: dict[str, Any]) -> dict[str, Any] | None:
+    """Sözlükteki tablo / view adları veri kaynağında hangi nesnelere eşleniyor: bulunanlar, adı düzeltilenler,
+    bulunamayanlar ve SELECT yetkisi olmayanlar (Ayarlar sayfasında gösterilir)."""
+    names = sorted({str(r["table_name"]) for r in got.rows.get("tables") or [] if r.get("table_name")})
+    if not names or not data.get("database"):
+        return None
+    from app.dictionary.names import NameResolver
+    if "objects" not in catalog:
+        return {"ok": False, "database": data["database"], "error": catalog.get("error")}
+    objs = catalog["objects"]
+    res = NameResolver((s, o) for s, o, *_ in objs)
+    resolved = {res.resolve(n) for n in names}
+    perms = {f"{s}.{o}".lower(): bool(p) for s, o, _t, p, *_ in objs}
+    missing = sorted(res.missing.values())
+    no_select = sorted(n for n in resolved if perms.get(n.lower()) is False)
+    return {"ok": True, "database": data["database"], "total": len(resolved), "found": len(resolved) - len(missing),
+            "missing": missing[:30], "missing_count": len(missing), "no_select": no_select[:30], "no_select_count": len(no_select),
+            "renamed": [[a, b] for a, b in list(res.changed.items())[:10]], "renamed_count": len(res.changed),
+            "db_objects": len(objs)}
 
 
 @app.post("/api/settings/dictionary/tables")
@@ -1292,13 +1338,16 @@ def save_connections(body: ConnectionsIn, request: Request) -> dict[str, Any]:
     # sözlük tabloları hatalıysa kaydetme: çalışan eski ayar korunsun (sunucuya o an ulaşılamıyorsa kayda izin ver)
     from app.dictionary import sources as dsrc
     try:
-        got = None if dic["kind"] == "none" else dsrc.collect(conns.open_dictionary_reader(dic)[0], dic["sources"])
+        got = None if dic["kind"] == "none" else dsrc.collect(conns.open_dictionary_reader(dic)[0], dic["sources"], dic.get("mappings"),
+                                                               _data_catalog(data).get("known"))
     except Exception:  # noqa: BLE001
         got = None
     if got and got.errors:
         raise HTTPException(422, "Kaydedilmedi — sözlük tabloları hatalı: " + " ".join(got.errors))
+    _remember_mappings(dic, got)
     store = lambda f: {k: v for k, v in f.items() if k != "password"} | {"password_enc": conns.protect(f.get("password") or "")}  # noqa: E731
-    dic_section = ({"kind": "sqlserver", "same_as_data": True, "database": dic["database"], "sources": dic["sources"]}
+    dic_section = ({"kind": "sqlserver", "same_as_data": True, "database": dic["database"], "sources": dic["sources"],
+                    "mappings": dic["mappings"]}
                    if dic["kind"] == "sqlserver" and dic.get("same_as_data") else store(dic))
     conns.save_connections({"data": store(data), "dictionary": dic_section})  # llm bölümü korunur
     _rebuild_services()
@@ -1316,6 +1365,16 @@ class DataSectionIn(BaseModel):
 class DictSectionIn(BaseModel):
     dictionary: ConnIn
     data: ConnIn | None = None       # yalnız doğrulama için (kaydedilmez)
+
+
+def _remember_mappings(dic: dict[str, Any], got: Any) -> None:
+    """İçerikten bulunan sütun eşlemeleri de kaydedilir (elle seçilenlerle birlikte) — her açılışta yeniden aranmaz."""
+    if not got:
+        return
+    merged = {k: dict(v) for k, v in (dic.get("mappings") or {}).items()}
+    for name, m in got.learned_mappings().items():
+        merged.setdefault(name, {}).update({f: h for f, h in m.items() if f not in merged.get(name, {})})
+    dic["mappings"] = merged
 
 
 def _store(f: dict[str, Any]) -> dict[str, Any]:
@@ -1346,6 +1405,11 @@ def save_dictionary_connection(body: DictSectionIn, request: Request) -> dict[st
         section = {"kind": "sqlserver", "same_as_data": True, "database": dic["database"], "sources": dic["sources"]}
     else:
         section = _store(dic)
+    # içerikten tanıma için veri kaynağının kataloğu: formdaki veri kaynağı, yoksa kayıtlı / .env
+    if body.data is not None:
+        data_fields, _ = _resolved(ConnTestIn(target="data", data=body.data))
+    else:
+        data_fields = {"odbc": conns.data_odbc(get_settings()), "database": "(geçerli veri kaynağı)"}
     # sözlük tabloları hatalıysa kaydetme (sunucuya o an ulaşılamıyorsa kayda izin ver); doğrulama çalışma anındaki bağlantıyla
     from app.dictionary import sources as dsrc
     runtime = conns.dictionary_conn_fields({"data": saved.get("data"), "dictionary": section})
@@ -1353,11 +1417,14 @@ def save_dictionary_connection(body: DictSectionIn, request: Request) -> dict[st
     if dic["kind"] != "sqlserver" or not dic.get("same_as_data"):
         runtime = dic
     try:
-        got = None if dic["kind"] == "none" else dsrc.collect(conns.open_dictionary_reader(runtime)[0], dic["sources"])
+        got = None if dic["kind"] == "none" else dsrc.collect(conns.open_dictionary_reader(runtime)[0], dic["sources"],
+                                                               dic.get("mappings"), _data_catalog(data_fields).get("known"))
     except Exception:  # noqa: BLE001
         got = None
     if got and got.errors:
         raise HTTPException(422, "Kaydedilmedi — sözlük tabloları hatalı: " + " ".join(got.errors))
+    _remember_mappings(dic, got)
+    section["mappings"] = dic["mappings"]
     conns.save_connections({"dictionary": section})
     _rebuild_services()
     log.info("Veri sözlüğü güncellendi (%s): %s %s", ident.username, dic["kind"], dic.get("database", ""))

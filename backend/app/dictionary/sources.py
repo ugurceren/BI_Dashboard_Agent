@@ -86,12 +86,16 @@ _FOLD = str.maketrans({"ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "�
                        "ö": "o", "Ö": "o", "ç": "c", "Ç": "c", "â": "a", "î": "i", "û": "u"})
 # yaygın Türkçe / İngilizce kolon adı karşılıkları → standart ad (karşılaştırma katlanmış, küçük harfle)
 ALIASES: dict[str, str] = {
-    **dict.fromkeys(["tablo", "tablo_adi", "tablo_ismi", "tablename", "table", "object_name", "nesne_adi", "tam_tablo_adi"], "table_name"),
+    # şema ayrı kolondaysa (ör. INFORMATION_SCHEMA dökümü: TABLE_SCHEMA + TABLE_NAME) table_name'e birleştirilir
+    **dict.fromkeys(["schema", "sema", "sema_adi", "table_schema", "tablo_semasi", "owner", "schema_adi", "view_schema"], "schema_name"),
+    **dict.fromkeys(["tablo", "tablo_adi", "tablo_ismi", "tablename", "table", "object_name", "nesne_adi", "tam_tablo_adi",
+                     "view_name", "viewname", "view", "view_adi", "nesne", "nesne_ismi", "obje_adi", "tablo_view_adi", "table_or_view"], "table_name"),
     **dict.fromkeys(["kolon", "kolon_adi", "kolon_ismi", "alan", "alan_adi", "sutun", "sutun_adi", "columnname", "column", "field_name", "field"], "column_name"),
     **dict.fromkeys(["is_adi", "is_ismi", "gorunen_ad", "gorunen_adi", "kolon_is_adi", "alan_is_adi", "display_name", "label", "etiket"], "business_name"),
-    **dict.fromkeys(["aciklama", "kolon_aciklamasi", "alan_aciklamasi", "tanim", "desc", "comment", "yorum"], "description"),
+    **dict.fromkeys(["aciklama", "kolon_aciklamasi", "alan_aciklamasi", "tanim", "desc", "comment", "yorum",
+                     "column_description", "column_desc", "field_description", "kolon_aciklama", "alan_aciklama"], "description"),
     **dict.fromkeys(["tablo_is_adi", "tablo_gorunen_ad", "table_label", "table_display_name"], "table_business_name"),
-    **dict.fromkeys(["tablo_aciklamasi", "tablo_tanimi", "table_desc", "table_comment"], "table_description"),
+    **dict.fromkeys(["tablo_aciklamasi", "tablo_tanimi", "table_desc", "table_comment", "view_description", "view_aciklamasi"], "table_description"),
     **dict.fromkeys(["konu_alani", "konu", "domain", "alan_grubu", "is_alani"], "subject_area"),
     **dict.fromkeys(["granularite", "tanecik", "satir_duzeyi"], "grain"),
     **dict.fromkeys(["satir_sayisi", "kayit_sayisi", "rows"], "row_count"),
@@ -116,8 +120,14 @@ ALIASES: dict[str, str] = {
 }
 
 
+_CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
 def _norm_key(k: Any) -> str:
-    key = re.sub(r"[\s\-./]+", "_", str(k or "").strip().translate(_FOLD).lower()).strip("_")
+    """'SchemaName' / 'Schema Name' / 'schema-name' → 'schema_name'; Türkçe ve yaygın karşılıklar standart ada çevrilir."""
+    raw = _CAMEL.sub("_", str(k or "").strip())
+    key = re.sub(r"[\s\-./]+", "_", raw.translate(_FOLD).lower())
+    key = re.sub(r"_+", "_", key).strip("_")
     return ALIASES.get(key, key)
 
 
@@ -142,8 +152,8 @@ def _norm_value(key: str, v: Any) -> Any:
 class Reader(Protocol):
     kind: str
 
-    def columns(self, names: list[str]) -> dict[str, set[str]]: ...        # küçük harf ad → kolonlar
-    def read(self, name: str) -> list[dict[str, Any]]: ...                 # kolon adları küçük harf
+    def columns(self, names: list[str]) -> dict[str, list[str]]: ...       # küçük harf ad → kolon başlıkları (ham)
+    def read(self, name: str) -> list[dict[str, Any]]: ...                 # satırlar: ham başlık → değer
     def list_tables(self) -> dict[str, list[str]]: ...                     # görünen ad → kolonlar
 
 
@@ -152,8 +162,7 @@ _MY_NAME = re.compile(r"^[\w$]+(\.[\w$]+)?$")
 
 
 def _rows(columns: list[str], raw: list[list[Any]]) -> list[dict[str, Any]]:
-    keys = [_norm_key(c) for c in columns]
-    return [dict(zip(keys, r)) for r in raw]
+    return [dict(zip(columns, r)) for r in raw]
 
 
 class SqlServerReader:
@@ -166,15 +175,16 @@ class SqlServerReader:
     def valid(name: str) -> bool:
         return bool(_SQL_NAME.match(name or ""))
 
-    def columns(self, names: list[str]) -> dict[str, set[str]]:
+    def columns(self, names: list[str]) -> dict[str, list[str]]:
         wanted = [n for n in names if self.valid(n)]
         if not wanted:
             return {}
         cond = " OR ".join(f"(TABLE_SCHEMA = '{n.split('.', 1)[0]}' AND TABLE_NAME = '{n.split('.', 1)[1]}')" for n in wanted)
-        r = self.con.execute(f"SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE {cond}", 50_000)
-        out: dict[str, set[str]] = {}
+        r = self.con.execute(f"SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE {cond} "
+                             "ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION", 50_000)
+        out: dict[str, list[str]] = {}
         for schema, table, col in r.rows:
-            out.setdefault(f"{schema}.{table}".lower(), set()).add(_norm_key(col))
+            out.setdefault(f"{schema}.{table}".lower(), []).append(str(col))
         return out
 
     def read(self, name: str) -> list[dict[str, Any]]:
@@ -229,15 +239,16 @@ class MySQLReader:
         _, rows = self._query("SHOW DATABASES")
         return [r[0] for r in rows if r[0] not in ("information_schema", "mysql", "performance_schema", "sys")]
 
-    def columns(self, names: list[str]) -> dict[str, set[str]]:
-        out: dict[str, set[str]] = {}
+    def columns(self, names: list[str]) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {}
         for n in names:
             if not self.valid(n):
                 continue
             db, t = self._split(n)
-            _, rows = self._query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s", (db, t))
+            _, rows = self._query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
+                                  "ORDER BY ORDINAL_POSITION", (db, t))
             if rows:
-                out[n.lower()] = {_norm_key(r[0]) for r in rows}
+                out[n.lower()] = [str(r[0]) for r in rows]
         return out
 
     def read(self, name: str) -> list[dict[str, Any]]:
@@ -290,24 +301,61 @@ class ExcelReader:
     def probe(self) -> dict[str, Any]:
         return {"server_name": self.path.name, "database": f"{len(self._sheets)} sayfa", "version": "Excel", "driver": "openpyxl"}
 
-    def columns(self, names: list[str]) -> dict[str, set[str]]:
-        out: dict[str, set[str]] = {}
+    def columns(self, names: list[str]) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {}
         for n in names:
             s = self._find(n)
             if s is not None:
-                out[n.lower()] = {_norm_key(c) for c in self._sheets[s][0] if c}
+                out[n.lower()] = [c for c in self._sheets[s][0] if c]
         return out
 
     def read(self, name: str) -> list[dict[str, Any]]:
         header, data = self._sheets[self._find(name)]  # type: ignore[index]
-        keys = [_norm_key(c) for c in header]
-        return [{k: v for k, v in zip(keys, r) if k} for r in data]
+        return [{h: v for h, v in zip(header, r) if h} for r in data]
 
     def list_tables(self) -> dict[str, list[str]]:
         return {s: [c for c in h if c] for s, (h, _) in self._sheets.items()}
 
 
 # ------------------------------------------------------------------ toplama
+# tablo / kolon satırlarında şema ayrı kolonda olabilir (ör. SchemaName + view_name); zorunlu değil, uyarı üretmez
+_EXTRA = {"tables": ["schema_name"], "columns": ["schema_name"]}
+# içerikten tanıma: değerleri veritabanı kataloğuyla karşılaştırılan alanlar
+_CONTENT_KIND = {"table_name": "object", "from_table": "object", "to_table": "object", "base_table": "object",
+                 "column_name": "column", "from_column": "column", "to_column": "column", "schema_name": "schema"}
+_SAMPLE = 500
+
+
+@dataclass
+class Known:
+    """Veritabanı kataloğundaki adlar (küçük harf) — başlığı tanınmayan sütunları içerikten bulmak için."""
+    objects: set[str] = field(default_factory=set)    # şema.nesne
+    names: set[str] = field(default_factory=set)      # nesne
+    columns: set[str] = field(default_factory=set)
+    schemas: set[str] = field(default_factory=set)
+
+    @classmethod
+    def from_catalog(cls, objects: list[tuple[str, str]], columns: list[str]) -> "Known":
+        k = cls()
+        for sch, obj in objects:
+            k.objects.add(f"{sch}.{obj}".lower())
+            k.names.add(str(obj).lower())
+            k.schemas.add(str(sch).lower())
+        k.columns = {str(c).lower() for c in columns}
+        return k
+
+    def matches(self, kind: str, value: Any) -> bool:
+        if value in (None, ""):
+            return False
+        if kind == "object":
+            from app.dictionary.names import canon
+
+            v = canon(value).lower()
+            return v in self.objects or v.rsplit(".", 1)[-1] in self.names
+        v = str(value).strip().strip("[]").lower()
+        return v in (self.columns if kind == "column" else self.schemas)
+
+
 @dataclass
 class Collected:
     rows: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -315,13 +363,67 @@ class Collected:
     warnings: list[str] = field(default_factory=list)
     explicit: set[str] = field(default_factory=set)   # kaynak seçilmiş roller
     derived_tables: int = 0
+    # kaynak (tablo / sayfa) → {"role", "headers", "mapping": alan → başlık | None, "how": alan → header | content | manual}
+    sources: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def counts(self) -> dict[str, int]:
         return {r: len(v) for r, v in self.rows.items()}
 
+    def learned_mappings(self) -> dict[str, dict[str, str]]:
+        """Kaydedilecek eşleme: elle seçilenler ve içerikten bulunanlar (başlıktan tanınanlar her seferinde yeniden bulunur)."""
+        out: dict[str, dict[str, str]] = {}
+        for name, info in self.sources.items():
+            m = {f: (info["mapping"].get(f) or "") for f, how in info["how"].items() if how in ("manual", "content")}
+            if m:
+                out[name] = m
+        return out
 
-def collect(reader: Reader, sources: dict[str, list[str]]) -> Collected:
+
+def _header_map(headers: list[str], fields: list[str], manual: dict[str, str] | None) -> tuple[dict[str, str | None], dict[str, str]]:
+    """alan → başlık. Önce elle seçilen ("" = kullanma), sonra başlık adı (Türkçe / İngilizce / CamelCase karşılıklar)."""
+    by_norm: dict[str, str] = {}
+    for h in headers:
+        by_norm.setdefault(_norm_key(h), h)
+    folded = {str(h).strip().casefold(): h for h in headers}
+    mapping: dict[str, str | None] = {}
+    how: dict[str, str] = {}
+    for f in fields:
+        if manual and f in manual:
+            want = manual[f]
+            if want == "":
+                mapping[f], how[f] = None, "manual"
+                continue
+            h = want if want in headers else folded.get(str(want).strip().casefold())
+            if h is not None:
+                mapping[f], how[f] = h, "manual"
+                continue
+        mapping[f] = by_norm.get(f)
+        if mapping[f] is not None:
+            how[f] = "header"
+    return mapping, how
+
+
+def _detect(rows: list[dict[str, Any]], headers: list[str], taken: set[str], kind: str, known: Known) -> str | None:
+    """Değerleri katalogdaki adlarla en çok örtüşen (en az %50; şema için %80) ve henüz kullanılmayan sütun."""
+    sample = rows[:_SAMPLE]
+    best, score = None, 0.0
+    for h in headers:
+        if h in taken:
+            continue
+        vals = [r.get(h) for r in sample if r.get(h) not in (None, "")]
+        if not vals:
+            continue
+        hit = sum(1 for v in vals if known.matches(kind, v)) / len(vals)
+        if hit > score:
+            best, score = h, hit
+    return best if score >= (0.8 if kind == "schema" else 0.5) else None
+
+
+def collect(reader: Reader, sources: dict[str, list[str]], mappings: dict[str, dict[str, str]] | None = None,
+            known: Known | None = None) -> Collected:
+    """Seçilen tablo / sayfaları okur. Sütunlar alanlara şu sırayla eşlenir: elle seçilen (mappings) → başlık adı →
+    (zorunlu alanlar ve şema için) içerik: değerleri veritabanı kataloğundaki tablo / kolon / şema adlarıyla örtüşen sütun."""
     out = Collected()
     names = sorted({n for lst in sources.values() for n in lst or []})
     bad = [n for n in names if not reader.valid(n)]  # type: ignore[attr-defined]
@@ -329,30 +431,48 @@ def collect(reader: Reader, sources: dict[str, list[str]]) -> Collected:
         out.errors.append(f"Geçersiz ad: {', '.join(bad)}" + (" (şema.tablo biçiminde olmalı)" if reader.kind == "sqlserver" else ""))
     cols = reader.columns([n for n in names if n not in bad])
     what, its, in_it = ("sayfa", "sayfası", "sayfasında") if reader.kind == "excel" else ("tablo", "tablosu", "tablosunda")
+    manual_all = {str(k).casefold(): v for k, v in (mappings or {}).items()}
     for role, spec in ROLES.items():
         rows: list[dict[str, Any]] = []
         used = False
+        fields = spec["required"] + spec["optional"] + _EXTRA.get(role, [])
         for name in sources.get(role) or []:
             if name in bad:
                 continue
-            have = cols.get(name.lower())
-            if have is None:
+            headers = cols.get(name.lower())
+            if headers is None:
                 out.errors.append(f"{spec['label']}: '{name}' {its} bulunamadı" + ("" if reader.kind == "excel" else " ya da okuma yetkisi yok") + ".")
                 continue
-            missing = [c for c in spec["required"] if c not in have]
+            headers = [str(h) for h in headers if h not in (None, "")]
+            raw = reader.read(name)
+            mapping, how = _header_map(headers, fields, manual_all.get(name.casefold()))
+            if known is not None:   # başlığı tanınmayan zorunlu alanlar / şema: içerikten
+                for f in spec["required"] + _EXTRA.get(role, []):
+                    if mapping.get(f) is None and how.get(f) != "manual" and f in _CONTENT_KIND:
+                        h = _detect(raw, headers, {v for v in mapping.values() if v}, _CONTENT_KIND[f], known)
+                        if h is not None:
+                            mapping[f], how[f] = h, "content"
+                            out.warnings.append(f"{spec['label']}: '{name}' {in_it} {f} başlıktan tanınmadı; "
+                                                f"içeriğine göre '{h}' sütunu kullanıldı.")
+            out.sources[name] = {"role": role, "headers": headers, "mapping": mapping, "how": how}
+            missing = [f for f in spec["required"] if not mapping.get(f)]
             if missing:
-                out.errors.append(f"{spec['label']}: '{name}' {in_it} zorunlu kolon(lar) yok: {', '.join(missing)}.")
+                out.errors.append(f"{spec['label']}: '{name}' {in_it} zorunlu kolon(lar) yok: {', '.join(missing)}. "
+                                  "Başlık eşleme'den hangi sütun olduğunu seçin.")
                 continue
-            absent = [c for c in spec["optional"] if c not in have]
+            absent = [c for c in spec["optional"] if not mapping.get(c)]
             if absent:
                 out.warnings.append(f"{spec['label']}: '{name}' {in_it} olmayan kolonlar boş sayıldı: {', '.join(absent)}.")
             used = True
             skipped = 0
-            for r in reader.read(name):
-                row = {k: _norm_value(k, r.get(k)) for k in spec["required"] + spec["optional"]}
+            for r in raw:
+                row = {k: _norm_value(k, r.get(mapping[k]) if mapping.get(k) else None) for k in spec["required"] + spec["optional"]}
                 if any(row[k] in (None, "") for k in spec["required"]):
                     skipped += 1
                     continue
+                sch = _norm_value("schema_name", r.get(mapping["schema_name"])) if mapping.get("schema_name") else None
+                if sch and "." not in str(row["table_name"]).strip("[]"):
+                    row["table_name"] = f"{sch}.{row['table_name']}"
                 rows.append(row)
             if skipped:
                 out.warnings.append(f"{spec['label']}: '{name}' içinde zorunlu alanı boş {skipped} satır atlandı.")

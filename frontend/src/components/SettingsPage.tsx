@@ -3,7 +3,7 @@
 // Kartlar küçültülüp açılabilir, tam / yarım genişliğe alınabilir.
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../api/client";
-import type { ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole, LlmSettings } from "../types";
+import type { CatalogMatch, SourceInfo, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole, LlmSettings } from "../types";
 import { LlmSettingsCard } from "./LlmSettingsCard";
 import { SettingsCardHead, useCardLayout } from "./SettingsCardHead";
 import "./settings.css";
@@ -16,7 +16,7 @@ const DICT_ROLES: { id: DictRole; label: string; hint: string; must: boolean; em
   { id: "tables", label: "Tablolar", must: false, empty: "Seçilmedi — tablolar Kolonlar'dan çıkarılır",
     hint: "table_name (+ business_name, description, subject_area, grain, row_count, table_type). Seçilmezse tablo listesi Kolonlar'daki table_name'den çıkarılır." },
   { id: "columns", label: "Kolonlar", must: true, empty: "En az bir tablo seçin",
-    hint: "table_name, column_name (+ business_name, description, data_type, column_role, default_aggregation, synonyms, is_pii, sample_values). Tek tablolu sözlükte tablo bilgileri de burada olabilir: table_business_name, table_description, subject_area, grain, row_count, table_type. Türkçe başlıklar da tanınır (Tablo Adı, Kolon Adı, Açıklama, Kişisel Veri …)." },
+    hint: "table_name, column_name (+ business_name, description, data_type, column_role, default_aggregation, synonyms, is_pii, sample_values). Tek tablolu sözlükte tablo bilgileri de burada olabilir: table_business_name, table_description, subject_area, grain, row_count, table_type. Türkçe ve farklı yazımlar da tanınır (Tablo Adı, view_name, SchemaName + view_name, ColumnName, ColumnDescription, Kişisel Veri …)." },
   { id: "relationships", label: "İlişkiler", must: false, empty: "Seçilmedi — SQL Server foreign key'lerinden / anahtar kolon adlarından otomatik bulunur",
     hint: "from_table, from_column, to_table, to_column (+ relationship_id, cardinality, role, is_active). Seçilmezse ilişkiler foreign key'lerden, yoksa ProductKey gibi anahtar kolon adlarından çıkarılır." },
   { id: "metrics", label: "Metrikler", must: false, empty: "Kullanılmıyor",
@@ -59,6 +59,8 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const { layout, set: setLayout, all: setAllCollapsed } = useCardLayout();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cands, setCands] = useState<DictCandidates | null>(null);
+  // son testte okunan sözlük kaynaklarının başlıkları ve eşlemesi (form değişince kaybolmasın diye testten ayrı)
+  const [srcInfo, setSrcInfo] = useState<Record<string, SourceInfo>>({});
   const [addDraft, setAddDraft] = useState<Record<DictRole, string>>({ tables: "", columns: "", relationships: "", metrics: "" });
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -89,7 +91,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   // "aynı sunucu" seçiliyse sözlüğün bağlantı alanları veri kaynağından gelir
   const kind: DictKind = dict.kind ?? "sqlserver";
   const dictEff: ConnFields = kind === "sqlserver" && dict.same_as_data
-    ? { ...data, database: dict.database, same_as_data: true, sources: dict.sources, kind } : { ...dict, kind };
+    ? { ...data, database: dict.database, same_as_data: true, sources: dict.sources, mappings: dict.mappings, kind } : { ...dict, kind };
   const setKind = (k: DictKind) => {
     if (k === kind) return;
     upd("dictionary", {
@@ -97,7 +99,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       ...(k === "mysql" ? { server: dict.kind === "mysql" ? dict.server : "", port: dict.port ?? 3306, auth: "sql" as const, database: "", encrypt: false } : {}),
       ...(k === "sqlserver" ? { database: cfg.default_dictionary_db, server: data.server, auth: data.auth } : {}),
     });
-    setCands(null);
+    setCands(null); setSrcInfo({});
     setDbs((s) => ({ ...s, dictionary: null }));
   };
   const uploadExcel = async (file: File) => {
@@ -144,7 +146,11 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   };
   const test = async (t: Target) => {
     setBusy(`test-${t}`);
-    try { const r = await api.testConnection(t, data, dictEff); setTests((s) => ({ ...s, [t]: r })); }
+    try {
+      const r = await api.testConnection(t, data, dictEff);
+      setTests((s) => ({ ...s, [t]: r }));
+      if (t === "dictionary") setSrcInfo(r.sources_info ?? {});
+    }
     catch (e) { setTests((s) => ({ ...s, [t]: { ok: false, error: errText(e) } })); }
     setBusy(null);
   };
@@ -174,7 +180,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       if (d.llm && typeof d.llm === "object") setLlmImport({ ...d.llm });
       setTests({ data: null, dictionary: null });
       setDbs({ data: null, dictionary: null });
-      setCands(null);
+      setCands(null); setSrcInfo({});
       const needPwd = nd.auth === "sql" || (dk !== "excel" && ndict.auth === "sql") || dk === "mysql";
       setMsg("page", { ok: true, text: `"${file.name}" yüklendi (${d.exported_by ? `${d.exported_by} · ` : ""}${(d.exported_at ?? "").slice(0, 10)}) — henüz KAYDEDİLMEDİ. `
         + (needPwd ? "SQL / MySQL şifresini girin, " : "") + "bağlantıları test edip her kartta Kaydet ve uygula'ya basın."
@@ -307,6 +313,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                 <span className="muted"> · {r.version}{r.login ? ` · ${r.login}` : ""}{r.driver ? ` · ${r.driver}` : ""}</span>
                 {r.dictionary_counts ? <div>Sözlükte <b>{r.dictionary_counts.tables ?? 0}</b> tablo{r.derived_tables ? ` (${r.derived_tables} kolonlardan)` : ""}, <b>{r.dictionary_counts.columns ?? 0}</b> kolon, <b>{r.dictionary_counts.relationships ?? 0}</b> ilişki{r.relationship_source ? ` (otomatik: ${REL_SRC[r.relationship_source]})` : ""}, <b>{r.dictionary_counts.metrics ?? 0}</b> metrik tanımı bulundu.</div>
                   : r.dictionary_tables !== undefined ? <div>Sözlükte <b>{r.dictionary_tables}</b> tablo tanımı bulundu.</div> : null}
+                {r.catalog_match ? <MatchReport m={r.catalog_match} /> : null}
               </>
             ) : <><b>{r.server_name ? "✕ Bağlandı ama sözlük tabloları hatalı" : "✕ Bağlanılamadı"}</b><div>{r.error}</div></>}
           </div>
@@ -430,7 +437,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           </>)}
           <div className="st-row st-dict-actions">
             {kind !== "sqlserver" || dict.database !== cfg.default_dictionary_db || !dict.same_as_data || JSON.stringify(sources) !== JSON.stringify(DEFAULTS_BY_KIND.sqlserver) ? (
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setCands(null); upd("dictionary", { kind: "sqlserver", same_as_data: true, database: cfg.default_dictionary_db, sources: DEFAULTS_BY_KIND.sqlserver, server: data.server, auth: data.auth }); }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setCands(null); setSrcInfo({}); upd("dictionary", { kind: "sqlserver", same_as_data: true, database: cfg.default_dictionary_db, sources: DEFAULTS_BY_KIND.sqlserver, server: data.server, auth: data.auth }); }}>
                 Varsayılana dön (SQL Server · {cfg.default_dictionary_db}, meta.dd_* tabloları)</button>
             ) : null}
           </div>
@@ -488,6 +495,17 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                 </div>
               );
             })}
+            {Object.entries(srcInfo).filter(([n, i]) => (sources[i.role] ?? []).some((x) => x.toLowerCase() === n.toLowerCase())).map(([n, i]) => (
+              <MappingEditor key={n} name={n} info={i} manual={dict.mappings?.[n]} disabled={!!busy}
+                onChange={(m) => {
+                  const all = { ...(dict.mappings ?? {}) };
+                  if (m) all[n] = m; else delete all[n];
+                  upd("dictionary", { mappings: all });
+                }} />
+            ))}
+            {!Object.keys(srcInfo).length && (sources.columns ?? []).length ? (
+              <p className="muted small">Sütun başlıkları farklıysa (ör. <code>abc</code>) <b>Bağlantıyı test et</b>'e basın: her {kind === "excel" ? "sayfa" : "tablo"} için başlık eşlemesi gösterilir, yanlış olanı seçerek düzeltebilirsiniz.</p>
+            ) : null}
             <datalist id="st-dict-tables">{(cands?.tables ?? []).map((t) => <option key={t.name} value={t.name} />)}</datalist>
             {tests.dictionary?.warnings?.length ? (
               <details className="st-adv"><summary>{tests.dictionary.warnings.length} uyarı</summary>
@@ -503,5 +521,97 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       </div>
 
     </div>
+  );
+}
+
+/** Sözlükteki adlar veri kaynağında bulundu mu: bulunamayan / yetkisiz / adı düzeltilen nesneler. */
+function MatchReport({ m }: { m: CatalogMatch }) {
+  if (!m.ok) return <div className="st-match is-warn">Veri kaynağındaki nesnelerle karşılaştırılamadı ({m.database}): {m.error}</div>;
+  const bad = (m.missing_count ?? 0) > 0 || (m.no_select_count ?? 0) > 0;
+  return (
+    <div className={`st-match${bad ? " is-warn" : ""}`}>
+      <div><b>{m.database}</b> veritabanında sözlükteki {m.total} nesneden <b>{m.found}</b> tanesi bulundu{m.no_select_count ? `, ${m.no_select_count} tanesine SELECT yetkiniz yok` : ""}.</div>
+      {m.missing_count ? (
+        <details open={(m.missing_count ?? 0) <= 12}>
+          <summary>Veritabanında bulunamayan {m.missing_count} nesne</summary>
+          <div className="st-match-list">{m.missing!.map((n) => <code key={n}>{n}</code>)}{(m.missing_count ?? 0) > m.missing!.length ? " …" : null}</div>
+          <p className="muted small">Adlar veri kaynağındaki gibi <code>şema.nesne</code> olmalı ya da nesne başka bir veritabanında olabilir (veri kaynağı: {m.database}).</p>
+        </details>
+      ) : null}
+      {m.no_select_count ? (
+        <details><summary>SELECT yetkisi olmayan {m.no_select_count} nesne</summary>
+          <div className="st-match-list">{m.no_select!.map((n) => <code key={n}>{n}</code>)}</div>
+        </details>
+      ) : null}
+      {m.renamed_count ? (
+        <details><summary>Adı veritabanına göre eşlenen {m.renamed_count} nesne</summary>
+          <div className="st-match-list">{m.renamed!.map(([a, b]) => <span key={a}><code>{a}</code> → <code>{b}</code></span>)}</div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+// sözlük alanları (backend sources.ROLES ile aynı sıra) — başlık eşleme ekranı
+const FIELD_LABEL: Record<string, string> = {
+  table_name: "Tablo / view adı", schema_name: "Şema", column_name: "Kolon adı", business_name: "İş adı", description: "Açıklama",
+  data_type: "Veri tipi", column_role: "Kolon rolü", default_aggregation: "Varsayılan toplama", synonyms: "Eş anlamlılar",
+  is_pii: "Kişisel veri", sample_values: "Örnek değerler", table_business_name: "Tablo iş adı", table_description: "Tablo açıklaması",
+  subject_area: "Konu alanı (domain)", grain: "Tanecik", row_count: "Satır sayısı", table_type: "Tablo tipi",
+  from_table: "Kaynak tablo", from_column: "Kaynak kolon", to_table: "Hedef tablo", to_column: "Hedef kolon",
+  relationship_id: "İlişki kimliği", cardinality: "Kardinalite", role: "Rol", is_active: "Aktif",
+  metric_name: "Metrik adı", expression_sql: "SQL ifadesi", base_table: "Temel tablo", value_format: "Biçim",
+};
+const ROLE_FIELDS: Record<DictRole, { required: string[]; optional: string[] }> = {
+  tables: { required: ["table_name"], optional: ["schema_name", "business_name", "description", "subject_area", "grain", "row_count", "table_type"] },
+  columns: { required: ["table_name", "column_name"], optional: ["schema_name", "business_name", "description", "data_type", "column_role",
+    "default_aggregation", "synonyms", "is_pii", "sample_values", "table_business_name", "table_description", "subject_area", "grain", "row_count", "table_type"] },
+  relationships: { required: ["from_table", "from_column", "to_table", "to_column"], optional: ["relationship_id", "cardinality", "role", "is_active"] },
+  metrics: { required: ["metric_name", "expression_sql"], optional: ["business_name", "description", "base_table", "value_format", "synonyms"] },
+};
+const ROLE_TITLE: Record<DictRole, string> = { tables: "Tablolar", columns: "Kolonlar", relationships: "İlişkiler", metrics: "Metrikler" };
+const HOW_LABEL = { header: "başlıktan", content: "içerikten", manual: "elle" } as const;
+const NONE = "__none__";
+
+/** Bir sözlük kaynağının sütunlarını alanlara eşleme: otomatik (başlık / içerik) sonucu gösterir, elle değiştirilebilir. */
+function MappingEditor({ name, info, manual, disabled, onChange }: {
+  name: string; info: SourceInfo; manual?: Record<string, string>; disabled: boolean;
+  onChange: (m: Record<string, string> | null) => void;
+}) {
+  const spec = ROLE_FIELDS[info.role];
+  const fields = [...spec.required, ...spec.optional];
+  const value = (f: string) => (manual && f in manual ? (manual[f] || NONE) : (info.mapping[f] ?? NONE));
+  const how = (f: string) => (manual && f in manual ? "manual" : info.mapping[f] ? info.how[f] : undefined);
+  const missing = spec.required.filter((f) => value(f) === NONE);
+  const mapped = fields.filter((f) => value(f) !== NONE).length;
+  const set = (f: string, v: string) => onChange({ ...(manual ?? {}), [f]: v === NONE ? "" : v });
+  return (
+    <details className={`st-map${missing.length ? " is-bad" : ""}`} open={missing.length > 0}>
+      <summary>
+        <b>Başlık eşleme</b> — {name} <span className="muted">({ROLE_TITLE[info.role]})</span>
+        <span className={`st-map-tag${missing.length ? " is-bad" : ""}`}>
+          {missing.length ? `zorunlu alan eksik: ${missing.map((f) => FIELD_LABEL[f] ?? f).join(", ")}` : `${mapped} alan eşlendi`}
+        </span>
+      </summary>
+      <div className="st-map-grid">
+        {fields.map((f) => {
+          const h = how(f);
+          return (
+            <label key={f} className="st-map-row">
+              <span className="st-map-field">{FIELD_LABEL[f] ?? f}{spec.required.includes(f) ? <b className="st-map-req" title="zorunlu"> *</b> : null}</span>
+              <select className="st-input st-input-sm" value={value(f)} disabled={disabled} onChange={(e) => set(f, e.target.value)}>
+                <option value={NONE}>— yok —</option>
+                {info.headers.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <span className={`st-map-how${h ? ` is-${h}` : ""}`}>{h ? HOW_LABEL[h] : ""}</span>
+            </label>
+          );
+        })}
+      </div>
+      {manual && Object.keys(manual).length ? (
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange(null)} disabled={disabled}>Elle seçimleri temizle (otomatiğe dön)</button>
+      ) : null}
+      <p className="muted small">Değişiklikten sonra <b>Bağlantıyı test et</b> ile kontrol edip <b>Sözlüğü kaydet</b>'e basın; eşleme ayarlarla birlikte saklanır.</p>
+    </details>
   );
 }

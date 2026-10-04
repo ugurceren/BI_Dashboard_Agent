@@ -251,6 +251,7 @@ def saved_dictionary() -> tuple[dict[str, Any], dict[str, list[str]]] | None:
     d = cfg["dictionary"]
     fields = dictionary_conn_fields(cfg)
     fields["kind"] = d.get("kind") or "sqlserver"
+    fields["mappings"] = d.get("mappings") or {}   # kaynak → alan → başlık (elle seçilen / içerikten bulunan)
     return fields, d.get("sources") or default_sources(fields["kind"])
 
 

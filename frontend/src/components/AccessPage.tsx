@@ -141,6 +141,13 @@ export function AccessPage({ api, onOpenReport }: { api: Api; onOpenReport: (id:
             tanımlı değil ("sözlükte yok"); açıklamaları veritabanından gelir, kişisel veri olabilecek kolonlar (e-posta, telefon, adres …) adlarına göre korunur.
           </p>
         ) : null}
+        {info.catalog?.missing_count ? (
+          <div className="banner-error">
+            Veri sözlüğündeki <b>{info.catalog.missing_count}</b> nesne bağlandığınız veritabanında bulunamadı: {info.catalog.missing?.slice(0, 8).join(", ")}
+            {info.catalog.missing_count > 8 ? " …" : ""}. Adları veritabanındakiyle aynı mı (şema.nesne), veri kaynağı doğru veritabanı mı?
+            Bağlantı Ayarları → Veri sözlüğü → "Bağlantıyı test et" eşleşmeyenlerin tam listesini gösterir.
+          </div>
+        ) : null}
 
         <div className="acc-tools">
           <label className="acc-search">

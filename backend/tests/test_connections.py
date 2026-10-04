@@ -51,7 +51,7 @@ def test_settings_endpoints_save_and_mask_password(settings, services, conn_file
     monkeypatch.setattr(m, "build_services", lambda: services)
     from app.dictionary import sources as srcmod
     monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
-    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src, *a: srcmod.Collected())
     c = TestClient(m.app)
     body = {"data": {"server": r"SRV\BI", "database": "AW", "auth": "sql", "username": "ro", "password": "s3cret"},
             "dictionary": {"same_as_data": True, "database": ""}}
@@ -110,7 +110,7 @@ def test_save_rejected_when_dictionary_tables_invalid(settings, services, conn_f
 
     m.state.services = services
     monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
-    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected(errors=["Kolonlar: zorunlu kolon yok"]))
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src, *a: srcmod.Collected(errors=["Kolonlar: zorunlu kolon yok"]))
     body = {"data": {"server": "srv", "database": "AW"},
             "dictionary": {"same_as_data": True, "sources": {"tables": ["meta.x"], "columns": ["meta.x"]}}}
     r = TestClient(m.app).put("/api/settings/connections", json=body)
@@ -128,7 +128,7 @@ def test_excel_and_mysql_dictionary_kinds_resolved(settings, services, conn_file
     m.state.agent = type("A", (), {"services": services})()
     monkeypatch.setattr(m, "build_services", lambda: services)
     monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
-    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src, *a: srcmod.Collected())
     c = TestClient(m.app)
     data = {"server": "srv", "database": "AW"}
     x = {"kind": "excel", "excel_path": str(tmp_path / "s.xlsx"), "same_as_data": True}
@@ -207,7 +207,7 @@ def test_export_connections_without_passwords(settings, services, conn_file, mon
     m.state.agent = type("A", (), {"services": services})()
     monkeypatch.setattr(m, "build_services", lambda: services)
     monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
-    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src, *a: srcmod.Collected())
     c = TestClient(m.app)
     body = {"data": {"server": r"SRV\BI", "database": "AW", "auth": "sql", "username": "ro", "password": "s3cret"},
             "dictionary": {"kind": "sqlserver", "same_as_data": True, "database": "BI_Meta",
@@ -271,7 +271,7 @@ def test_llm_settings_saved_encrypted_and_sections_independent(settings, service
     monkeypatch.setattr(m, "build_services", lambda: services)
     monkeypatch.setattr(LLMGateway, "health", lambda self: {"reachable": True, "model": self.s.llm_model})
     monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
-    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src, *a: srcmod.Collected())
     c = TestClient(m.app)
     llm = {"base_url": "https://llm.kurum/v1", "api_key": "sk-gizli", "model": "qwen-32b", "tool_mode": "native",
            "vision": {"enabled": True, "same_as_main": False, "base_url": "https://vl.kurum/v1", "api_key": "vk-gizli", "model": "qwen-vl"}}
@@ -336,7 +336,7 @@ def test_no_dictionary_kind_uses_catalog_only(settings, services, conn_file, mon
     assert c.put("/api/settings/connections", json=body).status_code == 200
     assert conns.load_connections()["dictionary"]["kind"] == "none" and conns.dictionary_odbc(settings) is None
     called = {"catalog": False}
-    monkeypatch.setattr(DataDictionary, "_merge_catalog", lambda self: called.__setitem__("catalog", True))
+    monkeypatch.setattr(DataDictionary, "_merge_catalog", lambda self, catalog=None: called.__setitem__("catalog", True))
     dd = DataDictionary(settings, services.connector).load()   # sözlük okunmadan yüklenir
     # sözlük tablosu okunmadı; yalnız uygulamanın onaylı view kayıtları (views.json) eklenir
     assert all(t.table_type == "view" for t in dd.tables.values()) and called["catalog"]
@@ -353,7 +353,7 @@ def test_sections_saved_and_reset_independently(settings, services, conn_file, m
     m.state.agent = type("A", (), {"services": services})()
     monkeypatch.setattr(m, "build_services", lambda: services)
     monkeypatch.setattr(conns, "open_dictionary_reader", lambda fields: (None, {}))
-    monkeypatch.setattr(srcmod, "collect", lambda reader, src: srcmod.Collected())
+    monkeypatch.setattr(srcmod, "collect", lambda reader, src, *a: srcmod.Collected())
     env = "DRIVER={ODBC Driver 17 for SQL Server};SERVER=PASIFIK;DATABASE=EDWDM;Trusted_Connection=yes;"
     monkeypatch.setattr(m, "get_settings", lambda: settings.model_copy(update={"sqlserver_odbc": env}))
     monkeypatch.setattr(conns, "get_settings", lambda: settings.model_copy(update={"sqlserver_odbc": env}))
