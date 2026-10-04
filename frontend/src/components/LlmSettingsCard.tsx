@@ -111,7 +111,7 @@ export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: 
 
   const keyField = (id: string, value: string | null | undefined, has: boolean | undefined, onChange: (v: string) => void) => (
     <div className="st-field">
-      <label htmlFor={id}>API anahtarı</label>
+      <label htmlFor={id}>API Anahtarı</label>
       <input id={id} className="st-input" type="password" autoComplete="new-password" value={value ?? ""}
         placeholder={has ? "•••••• (kayıtlı; değiştirmek için yazın)" : "Gerekmiyorsa boş bırakın"} onChange={(e) => onChange(e.target.value)} />
     </div>
@@ -164,7 +164,7 @@ export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: 
   const v = llm.vision;
   return (
     <section className={cls}>
-      <SettingsCardHead icon={<Ico d={P.brain} size={18} />} iconClass="is-llm" title="Dil modeli (LLM)" source={source}
+      <SettingsCardHead icon={<Ico d={P.brain} size={18} />} iconClass="is-llm" title="Dil Modeli (LLM)" source={source}
         desc={<>OpenAI uyumlu API (vLLM, Ollama, kurum LLM geçidi …). {source === "ui"
           ? "Ayarlar arayüzden kaydedildi." : <>Şu an <code>backend/.env</code> (LLM_* / VISION_*) ayarları kullanılıyor; kaydedince buradakiler geçerli olur.</>}</>}
         summary={<><b>{llm.model || "model seçilmedi"}</b> @ {llm.base_url.replace(/^https?:\/\//, "") || "—"} · görsel: {v.enabled ? <b>{v.model || "—"}</b> : "kapalı"}</>}
@@ -173,15 +173,15 @@ export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: 
 
       <div className="st-llm-grid">
         <div className="st-llm-col">
-          <div className="st-sub-head"><Ico d={P.brain} /> Ana model <span className="muted small">— sohbet, SQL ve dashboard tasarımı</span></div>
+          <div className="st-sub-head"><Ico d={P.brain} /> Ana Model <span className="muted small">— sohbet, SQL ve dashboard tasarımı</span></div>
           <div className="st-field">
-            <label htmlFor="llm-url">API adresi</label>
+            <label htmlFor="llm-url">API Adresi</label>
             <input id="llm-url" className="st-input" value={llm.base_url} placeholder="https://llm.kurum/v1" onChange={(e) => upd({ base_url: e.target.value })} spellCheck={false} />
           </div>
           {keyField("llm-key", llm.api_key, llm.has_api_key, (x) => upd({ api_key: x }))}
           {modelField("main", "llm-model", llm.model, (x) => upd({ model: x }), "ör. qwen3-32b")}
           <div className="st-field">
-            <label>Araç çağırma</label>
+            <label>Araç Çağırma</label>
             <div className="st-seg" role="group">
               {TOOL_MODES.map((m) => (
                 <button key={m.id} type="button" className={llm.tool_mode === m.id ? "is-on" : undefined} title={m.hint} onClick={() => upd({ tool_mode: m.id })}>{m.label}</button>
@@ -191,7 +191,7 @@ export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: 
           <details className="st-adv">
             <summary>Gelişmiş</summary>
             <div className="st-field">
-              <label htmlFor="llm-extra">Ek istek parametreleri (JSON)</label>
+              <label htmlFor="llm-extra">Ek İstek Parametreleri (JSON)</label>
               <textarea id="llm-extra" className="st-input st-textarea" rows={3} value={extraText} spellCheck={false}
                 placeholder='ör. {"chat_template_kwargs": {"enable_thinking": false}}' onChange={(e) => { setExtraText(e.target.value); setMsg(null); }} />
             </div>
@@ -200,7 +200,7 @@ export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: 
         </div>
 
         <div className="st-llm-col">
-          <div className="st-sub-head"><Ico d={P.eye} /> Görsel model <span className="muted small">— örnek dashboard görselini okur</span></div>
+          <div className="st-sub-head"><Ico d={P.eye} /> Görsel Model <span className="muted small">— örnek dashboard görselini okur</span></div>
           <label className="st-check st-same">
             <input type="checkbox" checked={v.enabled} onChange={(e) => updV({ enabled: e.target.checked })} /> Görsel analiz kullan
           </label>
@@ -213,7 +213,7 @@ export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: 
               {v.same_as_main ? null : (
                 <>
                   <div className="st-field">
-                    <label htmlFor="vl-url">API adresi</label>
+                    <label htmlFor="vl-url">API Adresi</label>
                     <input id="vl-url" className="st-input" value={v.base_url} placeholder="https://vl.kurum/v1" onChange={(e) => updV({ base_url: e.target.value })} spellCheck={false} />
                   </div>
                   {keyField("vl-key", v.api_key, v.has_api_key, (x) => updV({ api_key: x }))}

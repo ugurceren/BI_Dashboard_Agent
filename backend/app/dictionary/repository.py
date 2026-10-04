@@ -479,6 +479,10 @@ class DataDictionary:
                 if t is not None:  # sözlükte var: yetkiyi işle, nesne tipini (tablo / view) al, eksik kolonları ekle
                     t.in_db, t.can_select, t.object_type = True, can, otype
                     have = {c.name for c in t.columns}
+                    db_types = {cn.lower(): ct for cn, ct, _cd in by_obj.get(full, [])}
+                    for c in t.columns:   # sözlükte veri tipi yoksa veritabanından (ölçü / boyut / tarih tahmini için)
+                        if not c.data_type and db_types.get(c.name):
+                            c.data_type = db_types[c.name]
                     for cname, ctyp, cdesc in by_obj.get(full, []):
                         if cname.lower() not in have:
                             t.columns.append(DDColumn(full, cname.lower(), cname, cdesc, ctyp, "attribute", None, [],

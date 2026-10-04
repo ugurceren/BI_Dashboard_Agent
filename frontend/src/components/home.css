@@ -174,3 +174,15 @@
 .sp-item-hint { font-size: 11.5px; color: var(--muted); }
 .sp-check { color: var(--st); flex: none; }
 @keyframes sp-pop { from { opacity: 0; transform: translateY(-4px); } }
+
+/* üst çubuk: LLM / görsel / veri bağlantı durumu (tema düğmelerinin solunda) */
+.tb-health { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; flex: none; max-width: 300px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; }
+.tb-health:hover { border-color: var(--accent); }
+.tb-health.is-bad { border-color: rgba(239, 68, 68, .45); background: rgba(239, 68, 68, .07); }
+.tb-health-model { font-family: var(--mono); font-weight: 560; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-health-icons { display: inline-flex; gap: 6px; padding-left: 7px; border-left: 1px solid var(--border); }
+.tb-health-icons span { display: inline-flex; color: var(--muted); }
+.tb-health-icons .is-ok { color: var(--ok); }
+.tb-health-icons .is-bad { color: var(--bad); }
+@media (max-width: 760px) { .tb-health-model, .tb-health-icons { display: none; } .tb-health { padding: 0 9px; } }

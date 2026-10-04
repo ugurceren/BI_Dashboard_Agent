@@ -1,6 +1,7 @@
 // Üst çubuk: uygulama adı, oturum seçici, sağlık göstergesi.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { SessionSummary } from "../types";
+import type { Health, SessionSummary } from "../types";
+import { HealthBadge } from "./HealthBadge";
 import { PHASES } from "./Chat";
 import { StatusPicker } from "./StatusPicker";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -23,7 +24,10 @@ const PAGE_CRUMBS: Record<string, [string, string]> = {
   settings: ["Sistem", "Bağlantı Ayarları"],
 };
 
-export function TopBar({ onMode, canView, page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme }: {
+export function TopBar({ onMode, canView, page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme, health, healthError, onHealthClick }: {
+  health: Health | null;
+  healthError: string | null;
+  onHealthClick: () => void;
   status?: string | null;
   onStatus: (s: string) => void;
   theme: ThemePref;
@@ -152,6 +156,7 @@ export function TopBar({ onMode, canView, page, mock, sessions, currentId, curre
       ) : null}
       <div className="topbar-spacer" />
       {inReport && currentId ? <StatusPicker value={status} onChange={(s) => onStatus(s)} disabled={busy} align="right" /> : null}
+      <HealthBadge health={health} healthError={healthError} inline onClick={onHealthClick} />
       <div className="theme-seg" role="group" aria-label="Görünüm">
         {([["light", "Gündüz modu", <path key="l" d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6ZM8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />],
            ["dark", "Gece modu", <path key="d" d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6Z" />]] as [ThemePref, string, ReactNode][]).map(([k, l, icon]) => (

@@ -71,7 +71,7 @@
 .st-field a { color: var(--accent); font-weight: 600; }
 .st-layouts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .st-src-missing { color: var(--bad); font-weight: 600; }
-.st-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
+.st-toolbar { display: flex; justify-content: flex-start; gap: 8px; margin: 0 0 14px; flex-wrap: wrap; }
 .st-toolbar .btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; text-decoration: none; }
 
 /* dil modeli kartı */
@@ -127,3 +127,10 @@
 .st-map-how { font-size: 11px; color: var(--text-3, var(--text-2)); }
 .st-map-how.is-content { color: #b45309; font-weight: 600; }
 .st-map-how.is-manual { color: var(--accent); font-weight: 600; }
+
+/* sayfa sonu bilgi notu: ayarların nerede tutulduğu, ODBC sürücüsü */
+.st-info { display: flex; gap: 10px; align-items: flex-start; margin-top: 16px; padding: 12px 14px; border-radius: 12px;
+  background: var(--accent-soft); border: 1px solid var(--border); }
+.st-info-icon { color: var(--accent); flex: none; display: inline-flex; margin-top: 1px; }
+.st-info .small { line-height: 1.55; }
+.st-info code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }

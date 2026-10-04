@@ -1,4 +1,4 @@
-// Veri erişimim: rol ve politika + yetkili nesneler (tablo / view / stored procedure / dataset),
+// Veri erişimim: rol ve politika + yetkili nesneler (tablo / view / dataset),
 // domain → tip ya da tip → domain olarak gruplanır (Sorgu Çalıştır'daki panel ile aynı yapı).
 import { useEffect, useMemo, useState } from "react";
 import type { AccessInfo, AccessObject } from "../types";
@@ -14,9 +14,8 @@ const Badge = ({ type }: { type: ObjType }) => <span className={`acc-badge k-${t
 const Undoc = ({ o }: { o: AccessObject }) => (o.documented === false
   ? <span className="acc-undoc" title="Veritabanında var, veri sözlüğünde tanımlı değil — açıklama veritabanından (MS_Description)">sözlükte yok</span> : null);
 
-const Access = ({ o }: { o: AccessObject }) => (o.type === "procedure"
-  ? <span className="acc-note" title={o.reason ?? ""}>Yalnız liste</span>
-  : o.accessible ? <span className="acc-ok">✓ Var</span> : <span className="acc-no" title={o.reason ?? ""}>✗ {o.reason}</span>);
+const Access = ({ o }: { o: AccessObject }) => (o.accessible
+  ? <span className="acc-ok">✓ Var</span> : <span className="acc-no" title={o.reason ?? ""}>✗ {o.reason}</span>);
 
 function Pii({ o }: { o: AccessObject }) {
   const cols = o.pii_columns ?? [];
@@ -55,20 +54,6 @@ function TypeTable({ type, items, onOpenReport }: { type: ObjType; items: Access
           <td>{o.column_count}</td>
           <td>{report(o)}</td>
           <td className="acc-note">{fmtDate(o.created_at)}</td>
-          <td><Access o={o} /></td>
-        </tr>))}
-      </tbody>
-    </table>
-  );
-  if (type === "procedure") return (
-    <table className="acc-table">
-      <thead><tr><th>Stored procedure</th><th>Açıklama</th><th>Parametreler</th><th>Kullandığı tablolar</th><th>Erişim</th></tr></thead>
-      <tbody>{items.map((o) => (
-        <tr key={o.id}>
-          <td><code>{o.name}</code></td>
-          <td className="acc-note">{o.description || "—"}</td>
-          <td className="acc-note">{o.parameters?.length ? o.parameters.join(", ") : "—"}</td>
-          <td className="acc-note">{o.tables?.length ? o.tables.join(", ") : "—"}</td>
           <td><Access o={o} /></td>
         </tr>))}
       </tbody>
@@ -126,7 +111,7 @@ export function AccessPage({ api, onOpenReport }: { api: Api; onOpenReport: (id:
         <div className="acc-summary">
           <div className="acc-stat"><div className="k">İzinli şemalar</div><div className="v">{info.policy.allowed_schemas.includes("*") ? "Tümü (veritabanı yetkisi)" : info.policy.allowed_schemas.join(", ")}</div></div>
           <div className="acc-stat"><div className="k">Erişilebilir tablo</div><div className="v">{accessible} / {tables.length}</div></div>
-          <div className="acc-stat"><div className="k">View · SP · Dataset</div><div className="v">{of("view").length} · {of("procedure").length} · {of("dataset").length}</div></div>
+          <div className="acc-stat"><div className="k">View · Dataset</div><div className="v">{of("view").length} · {of("dataset").length}</div></div>
           <div className="acc-stat"><div className="k">Kişisel veri (PII)</div><div className="v">{info.policy.allow_pii ? "Görülebilir" : `Engelli (${piiTables} tabloda)`}</div></div>
           <div className="acc-stat"><div className="k">Sorgu satır limiti</div><div className="v">{info.policy.max_rows.toLocaleString("tr-TR")}</div></div>
         </div>

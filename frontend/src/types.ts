@@ -434,3 +434,17 @@ export interface SourceInfo {
   mapping: Record<string, string | null>;
   how: Record<string, "header" | "content" | "manual">;
 }
+
+/** Yeni rapor önerisi: kullanıcının yetkili olduğu veriden (kural) — LLM ile iş diline çevrilmiş olabilir. */
+export interface ReportSuggestion {
+  id: string;
+  domain: string;
+  table: string;
+  text: string;
+  rule_text?: string;          // LLM ile düzenlendiyse kural metni
+  measures: string[];
+  dims: string[];
+  time: boolean;
+  similar_report: { id: string; title: string } | null;
+}
+export interface SuggestionsResponse { items: ReportSuggestion[]; polished: boolean; offset: number }

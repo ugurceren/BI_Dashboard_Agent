@@ -136,6 +136,14 @@ function validateSpec(spec: ReportSpec): string[] {
 
 export const mockApi: Api = {
   mock: true,
+  async suggestions(offset: number) {
+    const items = [
+      { id: "m1", domain: "Satış", table: "dbo.FactInternetSales", text: "İnternet satışları: satış tutarı aylık trendi, ürün ve bölge kırılımında",
+        measures: ["Satış Tutarı"], dims: ["Ürün", "Bölge"], time: true, similar_report: null },
+    ];
+    return { items, polished: true, offset };
+  },
+  async polishSuggestions(offset: number) { return this.suggestions(offset); },
   async health() {
     await sleep(80);
     return {

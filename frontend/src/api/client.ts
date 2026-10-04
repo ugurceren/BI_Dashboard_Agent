@@ -1,6 +1,5 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
-import type {
-  AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult } from "../types";
+import type { AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult, SuggestionsResponse } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -20,6 +19,8 @@ export interface MessageBody {
 export interface Api {
   mock: boolean;
   health(): Promise<Health>;
+  suggestions(offset: number): Promise<SuggestionsResponse>;
+  polishSuggestions(offset: number): Promise<SuggestionsResponse>;
   me(): Promise<Me>;
   myAccess(): Promise<AccessInfo>;
   querySchema(): Promise<QuerySchema>;
@@ -151,6 +152,8 @@ export async function readSSE(body: ReadableStream<Uint8Array>, onEvent: (ev: St
 export const httpApi: Api = {
   mock: false,
   health: () => req<Health>("/api/health"),
+  suggestions: (offset) => req<SuggestionsResponse>(`/api/suggestions?offset=${offset}`),
+  polishSuggestions: (offset) => req<SuggestionsResponse>(`/api/suggestions/polish?offset=${offset}`, { method: "POST" }),
   me: () => req<Me>("/api/me"),
   myAccess: () => req<AccessInfo>("/api/me/access"),
   querySchema: () => req<QuerySchema>("/api/query/schema"),

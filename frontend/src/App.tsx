@@ -443,8 +443,6 @@ export default function App() {
       onNavigate={(p) => { window.location.hash = p === "home" ? "#/" : `#/${p}`; }}
       onNew={() => void newSession()}
       me={me}
-      health={health}
-      healthError={healthError}
       currentReport={state && sessionId ? { id: sessionId, title: state.title } : null}
       busy={streaming}
     />
@@ -467,6 +465,9 @@ export default function App() {
         onSelect={(id) => { if (id !== sessionId) window.location.hash = `#/${route.view === "viewer" ? "v" : "r"}/${id}`; }}
         onDelete={(id) => void deleteSession(id)}
         busy={streaming}
+        health={health}
+        healthError={healthError}
+        onHealthClick={() => { window.location.hash = "#/settings"; }}
       />
       {route.view === "access" ? (
         <main className="main"><AccessPage api={api} onOpenReport={goReport} /></main>
@@ -517,7 +518,7 @@ export default function App() {
             items={items}
             status={status}
             busy={busy}
-            empty={<EmptyChat onPick={(s) => void send(s, [])} onDemo={() => void loadDemo()} disabled={!state || busy} />}
+            empty={<EmptyChat api={api} onPick={(s) => void send(s, [])} onDemo={() => void loadDemo()} onOpenReport={goReport} disabled={!state || busy} />}
           />
           <Composer disabled={!state || busy} busy={busy} onSend={(t, im) => void send(t, im)} visionReady={health ? health.vision.configured : null} dropTarget={chatRef} />
         </aside>

@@ -222,7 +222,7 @@ def _object_access(pol: RolePolicy, t) -> tuple[bool, str | None]:
 
 @app.get("/api/me/access")
 def my_access(request: Request) -> dict[str, Any]:
-    """Kullanıcının yetkili olduğu nesneler — tek liste: tablo / view / stored procedure / dataset;
+    """Kullanıcının yetkili olduğu nesneler — tek liste: tablo / view / dataset (stored procedure'ler yalnız Sorgu Çalıştır'da);
     her biri domain (konu alanı) ve erişim durumuyla (Veri Erişimim sayfası: domain ya da nesne tipine göre gruplanır)."""
     from app.harness.session import _source_tables
     ident = _me(request)
@@ -250,10 +250,6 @@ def my_access(request: Request) -> dict[str, Any]:
             "pii_blocked": bool(pii) and not pol.allow_pii, "accessible": ok, "reason": reason,
             "documented": t.documented, **extra,
         })
-    for sp in _procedures(pol, kinds):  # yalnız EXECUTE yetkisi olanlar listelenir
-        objects.append({"type": "procedure", "id": sp["id"], "name": sp["name"], "business_name": "", "description": sp["description"],
-                        "subject_area": sp["subject_area"], "parameters": sp["parameters"], "tables": sp["tables"],
-                        "accessible": True, "reason": "Salt-okunur ekranlarda çalıştırılamaz (yalnız listeleme)"})
     for item in state.store.list():
         try:
             s = state.store.get(item["id"])
@@ -276,6 +272,50 @@ def my_access(request: Request) -> dict[str, Any]:
                         "renamed_count": len(dd.name_changes)},
             "objects": objects}
 
+
+
+# --------------------------------------------------------------------------- yeni rapor önerileri
+def _suggestion_items(request: Request, offset: int) -> list[dict[str, Any]]:
+    """Kullanıcının yetkili olduğu veriden kural tabanlı öneriler (+ envanterde benzer rapor)."""
+    from app import suggestions as sugg
+    from app.harness.session import _source_tables
+    pol = state.services.policy(_me(request).role)
+    reports = []
+    for item in state.store.list():
+        try:
+            s = state.store.get(item["id"])
+        except KeyError:
+            continue
+        tables = _source_tables([d.model_dump() for d in s.datasets])
+        if tables:
+            reports.append({"id": s.id, "title": s.title, "tables": tables})
+    return sugg.rule_suggestions(state.services.dictionary, lambda t: _object_access(pol, t)[0], reports, offset)
+
+
+def _apply_texts(items: list[dict[str, Any]], texts: list[str] | None) -> bool:
+    if not texts or len(texts) != len(items):
+        return False
+    for i, t in zip(items, texts):
+        i["rule_text"], i["text"] = i["text"], t
+    return True
+
+
+@app.get("/api/suggestions")
+def report_suggestions(request: Request, offset: int = 0) -> dict[str, Any]:
+    """Yeni rapor önerileri — 1. katman (kural) anında; LLM ile düzenlenmiş hali önbellekte varsa o."""
+    from app import suggestions as sugg
+    items = _suggestion_items(request, offset)
+    polished = _apply_texts(items, sugg.cached(get_settings().cache_dir, sugg.cache_key(state.gateway.s.llm_model, items)))
+    return {"items": items, "polished": polished or not items, "offset": offset}
+
+
+@app.post("/api/suggestions/polish")
+def polish_suggestions(request: Request, offset: int = 0) -> dict[str, Any]:
+    """2. katman: öneri iskeletlerini LLM ile iş diline çevirir (önbelleğe alınır). LLM yoksa kural metinleri döner."""
+    from app import suggestions as sugg
+    items = _suggestion_items(request, offset)
+    polished = _apply_texts(items, sugg.polish(state.gateway, items, get_settings().cache_dir))
+    return {"items": items, "polished": polished, "offset": offset}
 
 
 # --------------------------------------------------------------------------- sorgu çalıştır (salt-okunur konsol)

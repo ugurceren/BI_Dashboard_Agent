@@ -57,6 +57,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const [msgs, setMsgs] = useState<Record<"page" | Target, Msg>>({ page: null, data: null, dictionary: null });
   const setMsg = (where: "page" | Target, m: Msg) => setMsgs((s) => ({ ...s, [where]: m }));
   const { layout, set: setLayout, all: setAllCollapsed } = useCardLayout();
+  const anyOpen = !layout.data.collapsed || !layout.dictionary.collapsed || !layout.llm.collapsed;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cands, setCands] = useState<DictCandidates | null>(null);
   // son testte okunan sözlük kaynaklarının başlıkları ve eşlemesi (form değişince kaybolmasın diye testten ayrı)
@@ -231,7 +232,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const connFields = (t: Target, f: ConnFields) => (
     <>
       <div className="st-field">
-        <label htmlFor={`${t}-server`}>Sunucu / instance</label>
+        <label htmlFor={`${t}-server`}>Sunucu / Instance</label>
         <div className="st-row">
           <input id={`${t}-server`} className="st-input" list="st-instances" value={f.server} placeholder="SUNUCU\INSTANCE veya SUNUCU,1433"
             onChange={(e) => upd(t, { server: e.target.value })} spellCheck={false} />
@@ -252,7 +253,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       </div>
 
       <div className="st-field">
-        <label>Kimlik doğrulama</label>
+        <label>Kimlik Doğrulama</label>
         <div className="st-seg" role="group">
           <button type="button" className={f.auth === "windows" ? "is-on" : undefined} onClick={() => upd(t, { auth: "windows" })}>Windows (oturum)</button>
           <button type="button" className={f.auth === "sql" ? "is-on" : undefined} onClick={() => upd(t, { auth: "sql" })}>SQL Server kullanıcısı</button>
@@ -261,7 +262,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       {f.auth === "sql" ? (
         <div className="st-grid2">
           <div className="st-field">
-            <label htmlFor={`${t}-user`}>Kullanıcı adı</label>
+            <label htmlFor={`${t}-user`}>Kullanıcı Adı</label>
             <input id={`${t}-user`} className="st-input" value={f.username} autoComplete="off" onChange={(e) => upd(t, { username: e.target.value })} />
           </div>
           <div className="st-field">
@@ -330,12 +331,16 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
         <div className="st-alert is-bad"><b>Şu anki bağlantıda sorun var</b><p>{cfg.startup_error}</p></div>
       ) : null}
       <div className="st-toolbar">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAllCollapsed(true)} title="Tüm kartları küçült">
-          <Ico d="M4 10l4-4 4 4" /> Tümünü daralt
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAllCollapsed(false)} title="Tüm kartları aç">
-          <Ico d="M4 6l4 4 4-4" /> Tümünü genişlet
-        </button>
+        {/* tek düğme: açık kart varsa hepsini daraltır, hepsi kapalıysa hepsini açar */}
+        {anyOpen ? (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAllCollapsed(true)} title="Tüm kartları küçült">
+            <Ico d="M4 10l4-4 4 4" /> Tümünü daralt
+          </button>
+        ) : (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAllCollapsed(false)} title="Tüm kartları aç">
+            <Ico d="M4 6l4 4 4-4" /> Tümünü genişlet
+          </button>
+        )}
         <span className="st-toolbar-sep" />
         <a className="btn btn-secondary btn-sm" href={api.connectionsExportUrl()} download
           title="Geçerli bağlantı ayarlarını JSON dosyası olarak indir (şifreler dahil edilmez) — başka bir bilgisayara taşımak için">
@@ -349,14 +354,10 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void importSettings(f); }} />
       </div>
       {msgs.page ? <div className={`st-result st-page-msg ${msgs.page.ok ? "is-ok" : "is-bad"}`} role="status">{msgs.page.text}</div> : null}
-      <div className="st-meta muted small">
-        Her kart ayrı kaydedilir. Arayüzden kaydedilenler <code>{cfg.file}</code> dosyasında tutulur; kaydedilmemiş bölümde <code>backend/.env</code> / <code>dictionary.toml</code> geçerlidir.
-        {" "}ODBC sürücüsü: <b>{cfg.driver ?? "bulunamadı"}</b> (otomatik seçilir{cfg.drivers.length > 1 ? `; kurulu: ${cfg.drivers.join(", ")}` : ""}).
-      </div>
 
       <div className="st-cards">
         <section className={`st-card${layout.data.wide ? " st-card-wide" : ""}${layout.data.collapsed ? " is-collapsed" : ""}`}>
-          <SettingsCardHead icon={<Ico d={P.db} size={18} />} title="Veri kaynağı" source={cfg.data_source}
+          <SettingsCardHead icon={<Ico d={P.db} size={18} />} title="Veri Kaynağı" source={cfg.data_source}
             desc="Raporların verisinin okunduğu SQL Server veritabanı (salt-okunur hesap önerilir)." summary={dataSummary}
             layout={layout.data} onChange={(x) => setLayout("data", x)} />
           {layout.data.collapsed ? null : <>
@@ -368,12 +369,12 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
         </section>
 
         <section className={`st-card${layout.dictionary.wide ? " st-card-wide" : ""}${layout.dictionary.collapsed ? " is-collapsed" : ""}`}>
-          <SettingsCardHead icon={<Ico d={P.book} size={18} />} iconClass="is-dict" title="Veri sözlüğü" source={cfg.dictionary_source}
+          <SettingsCardHead icon={<Ico d={P.book} size={18} />} iconClass="is-dict" title="Veri Sözlüğü" source={cfg.dictionary_source}
             desc={<>Tablo / kolon açıklamaları ve ilişkilerin tutulduğu kaynak. Varsayılan: veri sunucusunda <b>{cfg.default_dictionary_db}</b>.</>}
             summary={dictSummary} layout={layout.dictionary} onChange={(x) => setLayout("dictionary", x)} />
           {layout.dictionary.collapsed ? null : <>
           <div className="st-field">
-            <label>Kaynak türü</label>
+            <label>Kaynak Türü</label>
             <div className="st-seg" role="group" aria-label="Sözlük kaynak türü">
               {(Object.keys(KIND_LABEL) as DictKind[]).map((k) => (
                 <button key={k} type="button" className={kind === k ? "is-on" : undefined} onClick={() => setKind(k)}>{KIND_LABEL[k]}</button>
@@ -387,7 +388,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
             </p>
           ) : kind === "excel" ? (
             <div className="st-field">
-              <label htmlFor="dict-excel">Excel dosyası</label>
+              <label htmlFor="dict-excel">Excel Dosyası</label>
               <div className="st-row">
                 <input id="dict-excel" className="st-input" value={dict.excel_path ?? ""} placeholder="Dosya yükleyin ya da yol yazın (ör. \\sunucu\paylasim\sozluk.xlsx)"
                   onChange={(e) => upd("dictionary", { excel_path: e.target.value })} spellCheck={false} />
@@ -415,7 +416,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
               </div>
               <div className="st-grid2">
                 <div className="st-field">
-                  <label htmlFor="dict-muser">Kullanıcı adı</label>
+                  <label htmlFor="dict-muser">Kullanıcı Adı</label>
                   <input id="dict-muser" className="st-input" value={dict.username} autoComplete="off" onChange={(e) => upd("dictionary", { username: e.target.value })} />
                 </div>
                 <div className="st-field">
@@ -443,7 +444,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           </div>
           {kind === "none" ? null : <div className="st-field st-sources">
             <div className="st-sources-head">
-              <label>{kind === "excel" ? "Sözlük sayfaları" : "Sözlük tabloları"}</label>
+              <label>{kind === "excel" ? "Sözlük Sayfaları" : "Sözlük Tabloları"}</label>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadCands()} disabled={!!busy}
                 title={kind === "excel" ? "Excel dosyasındaki sayfaları getir; kolonlarına göre uygun olanlar önerilir" : "Sözlük veritabanındaki tabloları getir; kolonlarına göre uygun olanlar önerilir"}>
                 {busy === "dict-tables" ? <span className="spinner" /> : <Ico d={P.list} />} {kind === "excel" ? "Sayfaları getir" : "Tabloları getir"}
@@ -520,6 +521,14 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
         <LlmSettingsCard api={api} imported={llmImport} onSaved={onSaved} layout={layout.llm} onLayout={(x) => setLayout("llm", x)} />
       </div>
 
+      <div className="st-info" role="note">
+        <span className="st-info-icon" aria-hidden="true"><Ico d="M8 14.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13ZM8 7.2v4M8 4.8h.01" size={16} /></span>
+        <div className="muted small">
+          Her kart ayrı kaydedilir. Arayüzden kaydedilenler <code>{cfg.file}</code> dosyasında tutulur; kaydedilmemiş bölümde <code>backend/.env</code> / <code>dictionary.toml</code> geçerlidir.
+          {" "}ODBC sürücüsü: <b>{cfg.driver ?? "bulunamadı"}</b> (otomatik seçilir{cfg.drivers.length > 1 ? `; kurulu: ${cfg.drivers.join(", ")}` : ""}).
+        </div>
+      </div>
+
     </div>
   );
 }
@@ -554,13 +563,13 @@ function MatchReport({ m }: { m: CatalogMatch }) {
 
 // sözlük alanları (backend sources.ROLES ile aynı sıra) — başlık eşleme ekranı
 const FIELD_LABEL: Record<string, string> = {
-  table_name: "Tablo / view adı", schema_name: "Şema", column_name: "Kolon adı", business_name: "İş adı", description: "Açıklama",
-  data_type: "Veri tipi", column_role: "Kolon rolü", default_aggregation: "Varsayılan toplama", synonyms: "Eş anlamlılar",
-  is_pii: "Kişisel veri", sample_values: "Örnek değerler", table_business_name: "Tablo iş adı", table_description: "Tablo açıklaması",
-  subject_area: "Konu alanı (domain)", grain: "Tanecik", row_count: "Satır sayısı", table_type: "Tablo tipi",
-  from_table: "Kaynak tablo", from_column: "Kaynak kolon", to_table: "Hedef tablo", to_column: "Hedef kolon",
-  relationship_id: "İlişki kimliği", cardinality: "Kardinalite", role: "Rol", is_active: "Aktif",
-  metric_name: "Metrik adı", expression_sql: "SQL ifadesi", base_table: "Temel tablo", value_format: "Biçim",
+  table_name: "Tablo / View Adı", schema_name: "Şema", column_name: "Kolon Adı", business_name: "İş Adı", description: "Açıklama",
+  data_type: "Veri Tipi", column_role: "Kolon Rolü", default_aggregation: "Varsayılan Toplama", synonyms: "Eş Anlamlılar",
+  is_pii: "Kişisel Veri", sample_values: "Örnek Değerler", table_business_name: "Tablo İş Adı", table_description: "Tablo Açıklaması",
+  subject_area: "Konu Alanı (Domain)", grain: "Tanecik", row_count: "Satır Sayısı", table_type: "Tablo Tipi",
+  from_table: "Kaynak Tablo", from_column: "Kaynak Kolon", to_table: "Hedef Tablo", to_column: "Hedef Kolon",
+  relationship_id: "İlişki Kimliği", cardinality: "Kardinalite", role: "Rol", is_active: "Aktif",
+  metric_name: "Metrik Adı", expression_sql: "SQL İfadesi", base_table: "Temel Tablo", value_format: "Biçim",
 };
 const ROLE_FIELDS: Record<DictRole, { required: string[]; optional: string[] }> = {
   tables: { required: ["table_name"], optional: ["schema_name", "business_name", "description", "subject_area", "grain", "row_count", "table_type"] },
@@ -588,7 +597,7 @@ function MappingEditor({ name, info, manual, disabled, onChange }: {
   return (
     <details className={`st-map${missing.length ? " is-bad" : ""}`} open={missing.length > 0}>
       <summary>
-        <b>Başlık eşleme</b> — {name} <span className="muted">({ROLE_TITLE[info.role]})</span>
+        <b>Başlık Eşleme</b> — {name} <span className="muted">({ROLE_TITLE[info.role]})</span>
         <span className={`st-map-tag${missing.length ? " is-bad" : ""}`}>
           {missing.length ? `zorunlu alan eksik: ${missing.map((f) => FIELD_LABEL[f] ?? f).join(", ")}` : `${mapped} alan eşlendi`}
         </span>

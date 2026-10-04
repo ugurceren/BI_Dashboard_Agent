@@ -1,6 +1,7 @@
 // Sol panel: faz adımları, konuşma dökümü, durum satırı, mesaj yazma alanı.
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import type { Phase, TranscriptItem } from "../types";
+import type { Phase, ReportSuggestion, TranscriptItem } from "../types";
+import type { Api } from "../api/client";
 import { Markdown } from "./Markdown";
 import { downscaleImage } from "../lib/images";
 
@@ -177,13 +178,50 @@ export function Transcript({ items, status, busy, empty }: {
 
 // ---------- boş durum ----------
 
+// veri önerileri alınamazsa (backend / sözlük yok) gösterilen genel örnekler
 export const SUGGESTIONS = [
-  "İnternet satış performansı için yönetim dashboard'u istiyorum",
-  "Bayi satışlarını bölge ve satış temsilcisi bazında analiz et",
-  "Ürün kategorilerine göre brüt kâr marjı ve aylık trendi görmek istiyorum",
+  "Satış performansı için aylık trend ve bölge kırılımında yönetim dashboard'u istiyorum",
+  "En çok kullanılan ürün / hizmetleri dönemsel olarak karşılaştırmak istiyorum",
+  "Ana göstergeleri önceki yılla karşılaştıran bir özet panosu istiyorum",
 ];
 
-export function EmptyChat({ onPick, onDemo, disabled }: { onPick: (s: string) => void; onDemo: () => void; disabled?: boolean }) {
+/** Kullanıcının yetkili olduğu veriden öneriler: önce kural metni (anında), sonra LLM ile düzenlenmiş hali. */
+function useSuggestions(api: Api | undefined, offset: number) {
+  const [items, setItems] = useState<ReportSuggestion[] | null>(null);
+  const [polishing, setPolishing] = useState(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!api) return;
+    let live = true;
+    setFailed(false);
+    (async () => {
+      try {
+        const r = await api.suggestions(offset);
+        if (!live) return;
+        setItems(r.items);
+        if (!r.polished && r.items.length) {
+          setPolishing(true);
+          try {
+            const p = await api.polishSuggestions(offset);
+            if (live && p.polished) setItems(p.items);
+          } catch { /* LLM yoksa kural önerileri kalır */ }
+          if (live) setPolishing(false);
+        }
+      } catch {
+        if (live) { setItems([]); setFailed(true); }
+      }
+    })();
+    return () => { live = false; };
+  }, [api, offset]);
+  return { items, polishing, failed };
+}
+
+export function EmptyChat({ api, onPick, onDemo, onOpenReport, disabled }: {
+  api?: Api; onPick: (s: string) => void; onDemo: () => void; onOpenReport?: (id: string) => void; disabled?: boolean;
+}) {
+  const [offset, setOffset] = useState(0);
+  const { items, polishing, failed } = useSuggestions(api, offset);
+  const fromData = !!items && items.length > 0;
   return (
     <div className="empty-chat">
       <div className="empty-mark" aria-hidden="true">
@@ -191,13 +229,39 @@ export function EmptyChat({ onPick, onDemo, disabled }: { onPick: (s: string) =>
       </div>
       <h2>Nasıl bir rapor istiyorsunuz?</h2>
       <p>İhtiyacınızı anlatın; agent sorular sorup veriyi bulacak, SQL yazacak ve dashboard'u tasarlayacak.</p>
-      <div className="chips">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} type="button" className="chip" onClick={() => onPick(s)} disabled={disabled}>
-            {s}
+      <div className="sugg-head">
+        <span>{fromData ? "Erişebildiğiniz veriye göre öneriler" : items === null ? "Öneriler hazırlanıyor…" : "Örnek istekler"}</span>
+        {polishing ? <span className="sugg-polish" title="Öneriler dil modeliyle düzenleniyor">düzenleniyor…</span> : null}
+        {fromData ? (
+          <button type="button" className="sugg-refresh" onClick={() => setOffset((o) => o + 1)} disabled={disabled || polishing} title="Başka öneriler göster">
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" /></svg>
+            Yenile
           </button>
-        ))}
+        ) : null}
       </div>
+      <div className="chips">
+        {items === null ? [0, 1, 2].map((i) => <div key={i} className="chip chip-skeleton" aria-hidden="true" />)
+          : fromData ? items.map((s) => (
+            <div key={s.id} className="sugg">
+              <button type="button" className={`chip${polishing ? " is-polishing" : ""}`} onClick={() => onPick(s.text)} disabled={disabled}
+                title={[`Veri: ${s.table}`, s.measures.length ? `Ölçüler: ${s.measures.join(", ")}` : "", s.dims.length ? `Kırılımlar: ${s.dims.join(", ")}` : "",
+                  s.time ? "Zaman trendi var" : ""].filter(Boolean).join("\n")}>
+                <span className="sugg-domain">{s.domain}</span>
+                {s.text}
+              </button>
+              {s.similar_report ? (
+                <button type="button" className="sugg-similar" onClick={() => onOpenReport?.(s.similar_report!.id)} disabled={!onOpenReport}
+                  title="Bu veriyi kullanan bir rapor envanterde zaten var">
+                  Benzer rapor var: <b>{s.similar_report.title}</b> →
+                </button>
+              ) : null}
+            </div>
+          ))
+          : SUGGESTIONS.map((s) => (
+            <button key={s} type="button" className="chip" onClick={() => onPick(s)} disabled={disabled}>{s}</button>
+          ))}
+      </div>
+      {failed ? <p className="sugg-note">Veriye göre öneri alınamadı; genel örnekler gösteriliyor.</p> : null}
       <div className="empty-or"><span>veya</span></div>
       <button type="button" className="btn btn-secondary" onClick={onDemo} disabled={disabled}>
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 2.5h5v5H2zM9 2.5h5v3H9zM9 7.5h5v6H9zM2 9.5h5v4H2z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
