@@ -80,10 +80,25 @@ export function DashboardRenderer({ spec, data, loading, model }: DashboardRende
   const tables = useMemo(() => buildTables(spec, safeData, model ? {} : localState), [spec, safeData, localState, model]);
   const activeFilters = filters.filter((f) => (filterState[f.id]?.length ?? 0) > 0);
 
+  // --- sayfalar (Power BI gibi): birden çok sayfa varsa sekmeler; filtreler tüm sayfalarda geçerli
+  const pages = useMemo(() => (Array.isArray(spec?.pages) ? spec.pages : []), [spec?.pages]);
+  const [pageId, setPageId] = useState<string | undefined>(pages[0]?.id);
+  const prevPages = useRef<string[]>(pages.map((p) => p.id));
+  useEffect(() => {
+    const ids = pages.map((p) => p.id);
+    const added = ids.find((id) => !prevPages.current.includes(id));
+    prevPages.current = ids;
+    if (added && ids.length > 1) setPageId(added);                       // yeni eklenen sayfaya geç
+    else setPageId((cur) => (cur && ids.includes(cur) ? cur : ids[0]));
+  }, [pages]);
+  const activePage = pages.length ? (pageId && pages.some((p) => p.id === pageId) ? pageId : pages[0].id) : undefined;
+
   const visuals = useMemo(() => {
     const vs = Array.isArray(spec?.visuals) ? spec.visuals : [];
-    return [...vs].sort((a, b) => (a.position?.y ?? 0) - (b.position?.y ?? 0) || (a.position?.x ?? 0) - (b.position?.x ?? 0));
-  }, [spec?.visuals]);
+    const ids = new Set(pages.map((p) => p.id));
+    const onPage = activePage ? vs.filter((v) => (v.page && ids.has(v.page) ? v.page : pages[0].id) === activePage) : vs;
+    return [...onPage].sort((a, b) => (a.position?.y ?? 0) - (b.position?.y ?? 0) || (a.position?.x ?? 0) - (b.position?.x ?? 0));
+  }, [spec?.visuals, pages, activePage]);
 
   const rowHeight = Math.max(40, Number(spec?.layout?.rowHeight) || 90);
   const datasets = Array.isArray(spec?.datasets) ? spec.datasets : [];
@@ -159,6 +174,16 @@ export function DashboardRenderer({ spec, data, loading, model }: DashboardRende
               </button>
             ) : null}
           </div>
+        ) : null}
+        {pages.length > 1 ? (
+          <nav className="db-pages" role="tablist" aria-label="Rapor sayfaları">
+            {pages.map((p) => (
+              <button key={p.id} type="button" role="tab" aria-selected={p.id === activePage}
+                className={`db-page-tab${p.id === activePage ? " is-on" : ""}`} onClick={() => setPageId(p.id)}>
+                {p.title}
+              </button>
+            ))}
+          </nav>
         ) : null}
       </header>
 

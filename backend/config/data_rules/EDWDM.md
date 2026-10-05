@@ -22,9 +22,11 @@ EDWDM katmanındaki view'ların iki özelliği var; ikisini de her zaman dikkate
    | PersonnelMasked | Personeli ayırt edici veriler maskeli, müşteri verileri açık görünür. | Yetki verilmiş iş birimleri |
    Dört view'ın kolonları ve anlamı aynıdır; yalnız görünürlük farklıdır.
 
-2. **Günlük anlık görüntü (DataDate).** View'lar takvim tablosuyla joinlenmiştir: her kayıt, geçerli olduğu HER GÜN
-   için ayrı bir satır olarak tekrarlanır. Hangi günün verisi olduğu `DataDate` kolonundadır.
+2. **Günlük anlık görüntü (DataDate).** View'ların çoğu takvim tablosuyla joinlenmiştir: her kayıt, geçerli olduğu
+   HER GÜN için ayrı bir satır olarak tekrarlanır. Hangi günün verisi olduğu `DataDate` kolonundadır.
    Gün seçmeden toplanan tutar ya da sayı, gün sayısıyla çarpılmış (ör. 1 yılda ~365 kat) ve YANLIŞ olur.
+   `DataDate` kolonu OLMAYAN view'lar günlük resim tutmaz (her kayıt bir kez yer alır); bunlarda tarih alanı
+   seçimi için "Tarih alanı seçimi" kuralına uy (veri ambarı ortak kuralları).
 
 ## İhtiyaç analizi
 

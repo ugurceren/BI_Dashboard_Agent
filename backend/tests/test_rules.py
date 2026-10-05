@@ -94,7 +94,8 @@ def test_sql_standards_go_to_data_phase_only(edwdm):
     for needle in ("WHERE koşulu zorunludur", "PartyId", "FECId = '1'", "WITH (NOLOCK)", "SELECT * kullanma",
                    "COUNT(1)", "UNION ALL", "önce bütün INNER JOIN", "JOIN kolonlarında fonksiyon", "COR.vCalendar"):
         assert needle in data, needle
-    assert "SQL kullanım standartları" not in phase_rules(edwdm, Session(phase="requirements"))
+    req = phase_rules(edwdm, Session(phase="requirements"))   # ihtiyaç aşamasına SQL kuralları gitmez (müşteri anahtarları gider)
+    assert "WHERE koşulu zorunludur" not in req and "CustomerPartyId" in req
 
 
 @pytest.mark.parametrize("db,dialect,expected", [("EDWDM", "tsql", True), ("AdventureWorksDW2025", "tsql", False),
@@ -160,3 +161,44 @@ def test_query_endpoint_executes_with_nolock(edwdm_db, monkeypatch):
     r = c.post("/api/query", json={"sql": "SELECT TOP 5 EnglishProductName FROM dbo.DimProduct WHERE ProductKey > 0"})
     assert r.status_code == 200, r.text
     assert "WITH (NOLOCK)" in edwdm_db.connector.executed[-1].upper()
+
+
+
+def test_customer_key_rules_in_every_phase(edwdm):
+    """EDW / EDWDM: CustomerPartyId vekil anahtar (join), CustomerId / AccountNumber gerçek müşteri numarası —
+    ihtiyaç analizinde de veri hazırlığında da LLM'e verilir."""
+    for phase in ("requirements", "data", "design"):
+        txt = phase_rules(edwdm, Session(phase=phase))
+        assert "`CustomerPartyId` vekil (surrogate) anahtardır" in txt, phase
+        assert "Gerçek müşteri numarası `CustomerId` ya da `AccountNumber`" in txt, phase
+
+
+def test_non_snapshot_views_offer_date_choice(edwdm_db, monkeypatch):
+    """DataDate olmayan veri ambarı view'ı günlük resim tutmaz: LLM'e aday tarih kolonları ve 'kullanıcıya sor' kuralı
+    verilir; DataDate'li view'da ve veri ambarı dışındaki veritabanında verilmez."""
+    dd = edwdm_db.dictionary
+    dep = DDTable("clt.vdeposit", "Mevduat", "", "Mevduat", "", 10, display_name="CLT.vDeposit")
+    dep.columns = [DDColumn(dep.name, n.lower(), bn, "", typ, "attribute", None, [], False, "", display_name=n)
+                   for n, bn, typ in [("CustomerPartyId", "Müşteri", "int"), ("ValueDate", "Valör Tarihi", "date"),
+                                      ("OpenDate", "Açılış Tarihi", "datetime2"), ("Amount", "Tutar", "decimal"),
+                                      ("CloseTime", "Kapanış", "")]]
+    snap = DDTable("clt.vsnap", "Görüntü", "", "Mevduat", "", 10, display_name="CLT.vSnap")
+    snap.columns = [DDColumn(snap.name, "datadate", "DataDate", "", "date", "date", None, [], False, "", display_name="DataDate")]
+    dd.tables[dep.name], dd.tables[snap.name] = dep, snap
+    try:
+        d = dd.table_details("clt.vdeposit", False)
+        names = [c["name"] for c in d["date_choice"]["date_columns"]]
+        assert names == ["ValueDate", "OpenDate", "CloseTime"]                 # anahtar / tutar kolonu aday değil
+        assert "SOR" in d["date_choice"]["rule"] and "ValueDate" in d["date_choice"]["rule"]
+        assert "date_choice" not in dd.table_details("clt.vsnap", False)       # DataDate var
+        monkeypatch.setattr(dd, "database", "AdventureWorksDW2025")
+        assert "date_choice" not in dd.table_details("clt.vdeposit", False)    # veri ambarı değil
+    finally:
+        dd.tables.pop(dep.name, None)
+        dd.tables.pop(snap.name, None)
+
+
+def test_date_choice_rule_in_requirements_and_data(edwdm):
+    for phase in ("requirements", "data"):
+        txt = phase_rules(edwdm, Session(phase=phase))
+        assert "tarih alanı seçimi (DataDate olmayan nesneler)" in txt and "devam etmek isteyip istemediğini sor" in txt

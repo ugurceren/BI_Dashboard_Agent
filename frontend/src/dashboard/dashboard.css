@@ -384,3 +384,15 @@
 .db-date-hint { font-size: 11px; color: var(--db-muted); white-space: nowrap; }
 .db-header--banner .db-date-hint { color: var(--db-banner-text); opacity: .8; }
 .db-header--banner .db-date-reset { color: var(--db-banner-text); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------- sayfalar (sekmeler) ---------- */
+.db-pages { flex: 1 0 100%; order: 99; display: flex; gap: 4px; flex-wrap: wrap; margin: 2px 0 -6px;
+  border-bottom: 1px solid var(--db-border); }
+.db-header--banner .db-pages { border-bottom-color: rgba(255, 255, 255, .28); }
+.db-header--banner .db-page-tab { color: var(--db-banner-text); opacity: .75; }
+.db-header--banner .db-page-tab:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
+.db-header--banner .db-page-tab.is-on { color: var(--db-banner-text); opacity: 1; border-bottom-color: var(--db-banner-text); }
+.db-page-tab { border: 0; background: none; padding: 8px 14px 9px; font: inherit; font-size: 13px; font-weight: 550;
+  color: var(--db-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; border-radius: 6px 6px 0 0; }
+.db-page-tab:hover { color: var(--db-text); background: var(--db-hover, rgba(127,127,127,.08)); }
+.db-page-tab.is-on { color: var(--db-accent); border-bottom-color: var(--db-accent); }

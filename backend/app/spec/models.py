@@ -107,6 +107,20 @@ class Visual(_Base):
     encoding: Encoding = Field(default_factory=Encoding)
     options: VisualOptions = Field(default_factory=VisualOptions)
     position: Position
+    page: str | None = None           # sayfa id'si (Power BI sayfası gibi); yoksa ilk sayfa
+
+
+class Page(_Base):
+    """Rapor sayfası: görseller visual.page ile bağlanır; filtreler tüm sayfalarda geçerlidir."""
+    id: str
+    title: str
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, v: str) -> str:
+        if not _ID.match(v):
+            raise ValueError("sayfa id snake_case olmalı (harf ile başlar, harf/rakam/_)")
+        return v
 
 
 class Filter(_Base):
@@ -174,6 +188,14 @@ class ReportSpec(_Base):
     filters: list[Filter] = Field(default_factory=list)
     datasets: list[Dataset] = Field(default_factory=list)
     visuals: list[Visual] = Field(default_factory=list)
+    pages: list[Page] = Field(default_factory=list)   # boş: tek sayfa; varsa sırasıyla sekmeler
+
+    def page_of(self, v: "Visual") -> str | None:
+        """Görselin sayfası (page yoksa ya da tanımsızsa ilk sayfa); sayfa yoksa None."""
+        if not self.pages:
+            return None
+        ids = {p.id for p in self.pages}
+        return v.page if v.page in ids else self.pages[0].id
 
 
 # --------------------------------------------------------------------------- anlamsal kontrol
@@ -194,6 +216,14 @@ def semantic_errors(spec: ReportSpec) -> list[str]:
     ids = [v.id for v in spec.visuals]
     if len(set(ids)) != len(ids):
         errors.append("Visual id'leri benzersiz olmalı.")
+    page_ids = [p.id for p in spec.pages]
+    if len(set(page_ids)) != len(page_ids):
+        errors.append("Sayfa id'leri benzersiz olmalı.")
+    for v in spec.visuals:
+        if v.page and spec.pages and v.page not in page_ids:
+            errors.append(f"visual '{v.id}': sayfa '{v.page}' yok. Mevcut sayfalar: {page_ids}")
+        elif v.page and not spec.pages:
+            errors.append(f"visual '{v.id}': sayfa '{v.page}' tanımlı değil (önce add_page ile sayfa ekleyin).")
 
     def fields_of(d: Dataset) -> set[str]:
         return {f.name for f in d.fields}
@@ -234,17 +264,18 @@ def semantic_errors(spec: ReportSpec) -> list[str]:
             elif v.options.sparklineField and fields_of(sd) and v.options.sparklineField not in fields_of(sd):
                 errors.append(f"{where}: sparklineField '{v.options.sparklineField}' dataset'te yok.")
 
-    # yerleşim çakışması
-    cells: dict[tuple[int, int], str] = {}
+    # yerleşim çakışması (her sayfanın kendi ızgarası)
+    cells: dict[tuple[str | None, int, int], str] = {}
     for v in spec.visuals:
         p = v.position
+        pg = spec.page_of(v)
         for yy in range(p.y, p.y + p.h):
             for xx in range(p.x, p.x + p.w):
-                other = cells.get((xx, yy))
+                other = cells.get((pg, xx, yy))
                 if other and other != v.id:
                     errors.append(f"Yerleşim çakışması: '{v.id}' ile '{other}' üst üste biniyor (x={xx}, y={yy}).")
                     break
-                cells[(xx, yy)] = v.id
+                cells[(pg, xx, yy)] = v.id
             else:
                 continue
             break

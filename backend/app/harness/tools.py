@@ -296,9 +296,12 @@ _DEFAULT_SIZE = {"kpi": (3, 2), "gauge": (3, 3), "text": (12, 1), "table": (12, 
                  "funnel": (4, 4), "treemap": (6, 4)}
 
 
-def _layout_visuals(visuals: list[dict[str, Any]]) -> list[str]:
-    """Eksik pozisyonları yerleştirir, taşan/çakışanları aşağı iter. Deterministik düzeltme = modele daha az yük."""
+def _layout_visuals(visuals: list[dict[str, Any]], pages: list[dict[str, Any]] | None = None) -> list[str]:
+    """Eksik pozisyonları yerleştirir, taşan/çakışanları aşağı iter. Deterministik düzeltme = modele daha az yük.
+    Her sayfanın kendi ızgarası vardır (page yoksa ilk sayfa)."""
     notes: list[str] = []
+    page_ids = [p.get("id") for p in pages or [] if isinstance(p, dict)]
+    grids: dict[Any, set[tuple[int, int]]] = {}
     occupied: set[tuple[int, int]] = set()
 
     def free(x: int, y: int, w: int, h: int) -> bool:
@@ -316,6 +319,8 @@ def _layout_visuals(visuals: list[dict[str, Any]]) -> list[str]:
             y += 1
 
     for v in visuals:
+        pg = v.get("page") if v.get("page") in page_ids else (page_ids[0] if page_ids else None)
+        occupied = grids.setdefault(pg, set())
         p = v.get("position") if isinstance(v.get("position"), dict) else None
         dw, dh = _DEFAULT_SIZE.get(v.get("type", ""), (6, 4))
         if p is None:
@@ -376,7 +381,8 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
         for k, v in {"background": "#0b1220", "surface": "#111a2e", "text": "#e5e7eb", "mutedText": "#94a3b8",
                      "border": "#1f2a44"}.items():
             raw["theme"].setdefault(k, v)
-    notes = _layout_visuals([v for v in raw.get("visuals") or [] if isinstance(v, dict)]) + _resolve_filters(ctx, raw)         + _fix_axes(raw)
+    notes = _layout_visuals([v for v in raw.get("visuals") or [] if isinstance(v, dict)], raw.get("pages")) \
+        + _resolve_filters(ctx, raw)         + _fix_axes(raw)
     # para birimi belirtilmemiş tutar görsellerine kurum varsayılanını ver
     currency_fields = {f["name"] for d in raw["datasets"] for f in d.get("fields") or [] if f.get("format") == "currency"}
     for v in raw.get("visuals") or []:
@@ -696,11 +702,67 @@ def h_remove_visual(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     return _spec_ok(ctx, spec, notes, f"{before - len(spec.visuals)} görsel silindi")
 
 
+def h_add_page(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+    """Yeni sayfa (Power BI sayfası gibi). İlk kez sayfa eklenince mevcut görseller 'Genel Bakış' sayfasında kalır."""
+    if (r := _require_spec(ctx)):
+        return r
+    pid, title = str(a.get("id") or "").strip(), str(a.get("title") or "").strip()
+    base = ctx.session.spec.model_dump(exclude_none=True)
+    pages = list(base.get("pages") or [])
+    if not pages:   # tek sayfalı rapor: mevcut görseller ilk sayfa olur
+        first = "genel" if pid != "genel" else "ozet"
+        pages = [{"id": first, "title": str(a.get("first_title") or "Genel Bakış")}]
+        for v in base["visuals"]:
+            v["page"] = first
+    if any(p["id"] == pid for p in pages):
+        return ToolResult(False, {"error": f"'{pid}' sayfası zaten var. Mevcut: {[p['id'] for p in pages]}"}, "Tekrarlanan sayfa")
+    pages.append({"id": pid, "title": title or pid})
+    base["pages"] = pages
+    for v in a.get("visuals") or []:   # isteğe bağlı: sayfanın görselleri birlikte
+        if isinstance(v, dict):
+            base["visuals"].append({**v, "page": pid})
+    spec, errs, notes = _validate_spec(ctx, base)
+    if errs:
+        return ToolResult(False, {"ok": False, "errors": errs}, "Sayfa eklenemedi")
+    return _spec_ok(ctx, spec, notes, f"'{title or pid}' sayfası eklendi")
+
+
+def h_remove_page(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+    """Sayfayı siler; görselleri move_to verilirse o sayfaya taşınır, yoksa silinir. Tek sayfa kalırsa sekmeler kalkar."""
+    if (r := _require_spec(ctx)):
+        return r
+    pid, move_to = str(a.get("id") or ""), a.get("move_to")
+    base = ctx.session.spec.model_dump(exclude_none=True)
+    pages = list(base.get("pages") or [])
+    if not any(p["id"] == pid for p in pages):
+        return ToolResult(False, {"error": f"'{pid}' sayfası yok. Mevcut: {[p['id'] for p in pages]}"}, "Sayfa yok")
+    rest = [p for p in pages if p["id"] != pid]
+    if move_to and not any(p["id"] == move_to for p in rest):
+        return ToolResult(False, {"error": f"Taşınacak sayfa '{move_to}' yok. Mevcut: {[p['id'] for p in rest]}"}, "Sayfa yok")
+    first = pages[0]["id"]
+    kept = []
+    for v in base["visuals"]:
+        on = v.get("page") or first
+        if on == pid:
+            if move_to:
+                kept.append({**v, "page": move_to, "position": {**(v.get("position") or {}), "y": 999}})  # sona yerleşir
+            continue
+        kept.append(v)
+    base["visuals"], base["pages"] = kept, (rest if len(rest) > 1 else [])
+    if len(rest) <= 1:
+        for v in base["visuals"]:
+            v.pop("page", None)
+    spec, errs, notes = _validate_spec(ctx, base)
+    if errs:
+        return ToolResult(False, {"ok": False, "errors": errs}, "Sayfa silinemedi")
+    return _spec_ok(ctx, spec, notes, f"'{pid}' sayfası silindi")
+
+
 def h_update_report(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     if (r := _require_spec(ctx)):
         return r
     base = ctx.session.spec.model_dump(exclude_none=True)
-    for k in ("title", "subtitle", "filters", "layout"):
+    for k in ("title", "subtitle", "filters", "layout", "pages"):
         if k in a:
             base[k] = _deep_merge(base.get(k) or {}, a[k]) if k == "layout" else a[k]
     if isinstance(a.get("theme"), dict):
@@ -731,8 +793,11 @@ _VISUAL = {
                                                      "compareField (kpi: önceki dönem değeri kolonu), deltaLabel, "
                                                      "sparklineDatasetId, sparklineField, target, text, color"},
         "position": _POSITION,
+        "page": {"type": "string", "description": "Sayfa id'si (birden çok sayfa varsa). Boşsa ilk sayfa."},
     },
 }
+_PAGES = {"type": "array", "description": "Sayfalar (Power BI sayfaları gibi, sırasıyla sekme). Tek sayfalı raporda boş bırak.",
+          "items": {"type": "object", "required": ["id", "title"], "properties": {"id": _STR, "title": _STR}}}
 _THEME = {"type": "object", "description": "mode(light|dark), palette(hex listesi, >=3), background, surface, text, mutedText, accent, border (hex), "
                                            "fontFamily, radius(px), cardStyle(flat|outlined|elevated), density(compact|comfortable), headerStyle(plain|banner)"}
 _FILTERS = {"type": "array", "description": "Dilimleyiciler. table+column bir BOYUT tablosunun kolonu olmalı (ör. dbo.DimSalesTerritory / "
@@ -780,7 +845,7 @@ TOOLS: list[Tool] = [
              "type": "object", "required": ["title", "visuals"],
              "properties": {"title": _STR, "subtitle": _STR, "theme": _THEME, "filters": _FILTERS,
                             "layout": {"type": "object", "properties": {"rowHeight": {"type": "integer"}}},
-                            "visuals": {"type": "array", "items": _VISUAL}}}}},
+                            "pages": _PAGES, "visuals": {"type": "array", "items": _VISUAL}}}}},
          ("design",), h_create_report_spec, status="Dashboard tasarlanıyor…"),
     Tool("update_visual", "Tek bir görseli kısmi olarak günceller (tip, başlık, encoding, options, position). Sadece değişen alanları gönder; bir alanı silmek için null ver.",
          {"type": "object", "required": ["id", "changes"], "properties": {"id": _STR, "changes": {"type": "object"}}},
@@ -789,10 +854,21 @@ TOOLS: list[Tool] = [
          ("design",), h_add_visual, status="Görsel ekleniyor…"),
     Tool("remove_visual", "Görsel(ler)i siler.", {"type": "object", "required": ["ids"], "properties": {"ids": _STRS}},
          ("design",), h_remove_visual, status="Görsel siliniyor…"),
-    Tool("update_report", "Başlık, alt başlık, filtreler, satır yüksekliği veya tema (kısmi) günceller.",
+    Tool("update_report", "Başlık, alt başlık, filtreler, satır yüksekliği, tema (kısmi) ya da sayfa listesini "
+                          "(yeniden adlandırma / sıralama: pages tam liste) günceller.",
          {"type": "object", "properties": {"title": _STR, "subtitle": _STR, "filters": _FILTERS, "theme": _THEME,
-                                           "layout": {"type": "object", "properties": {"rowHeight": {"type": "integer"}}}}},
+                                           "layout": {"type": "object", "properties": {"rowHeight": {"type": "integer"}}},
+                                           "pages": _PAGES}},
          ("design",), h_update_report, status="Rapor ayarları güncelleniyor…"),
+    Tool("add_page", "Dashboard'a yeni sayfa (sekme) ekler; isteğe bağlı olarak görselleriyle birlikte. Rapor tek sayfalıysa "
+                     "mevcut görseller ilk sayfada ('Genel Bakış', first_title ile değiştirilebilir) kalır. Görselleri sonradan "
+                     "add_visual (page) ile ekleyebilir, update_visual (changes.page) ile sayfalar arasında taşıyabilirsin.",
+         {"type": "object", "required": ["id", "title"],
+          "properties": {"id": _STR, "title": _STR, "first_title": _STR, "visuals": {"type": "array", "items": _VISUAL}}},
+         ("design",), h_add_page, status="Sayfa ekleniyor…"),
+    Tool("remove_page", "Sayfayı siler. move_to verilirse görselleri o sayfaya taşınır, verilmezse görselleri de silinir.",
+         {"type": "object", "required": ["id"], "properties": {"id": _STR, "move_to": _STR}},
+         ("design",), h_remove_page, status="Sayfa siliniyor…"),
 ]
 
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}

@@ -137,6 +137,7 @@ def test_llm_is_told_about_databases(multi, services):
     svc = replace(services, dictionary=dd)
     data = phase_rules(svc, Session(phase="data"))
     assert "Veri kaynağı veritabanları" in data and "SQL kullanım standartları (geçerli veritabanları: EDWDM, EDW)" in data
+    assert "CustomerPartyId" in data and "AccountNumber" in data
     assert "Kurum veri kuralları — EDWDM (yalnız EDWDM nesneleri için" in data
 
 

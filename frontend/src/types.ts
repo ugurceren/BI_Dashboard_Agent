@@ -65,7 +65,11 @@ export interface Visual {
   encoding: VisualEncoding;
   options?: VisualOptions;
   position: { x: number; y: number; w: number; h: number };
+  page?: string;                 // sayfa id'si (birden çok sayfa varsa); yoksa ilk sayfa
 }
+
+/** Rapor sayfası (Power BI sayfası gibi): filtreler tüm sayfalarda geçerli */
+export interface ReportPage { id: string; title: string }
 
 export interface Filter {
   id: string;
@@ -103,6 +107,7 @@ export interface ReportSpec {
   filters: Filter[];
   datasets: Dataset[];
   visuals: Visual[];
+  pages?: ReportPage[];
 }
 
 export type CellValue = number | string | boolean | null;

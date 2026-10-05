@@ -107,7 +107,8 @@ def phase_rules(services: Any, session: Any, rules_dir: Path = RULES_DIR) -> str
         except OSError:
             parts = []
         if parts:
-            out += [f"## Veri ambarı SQL kullanım standartları (geçerli veritabanları: {', '.join(in_std)})", *parts]
+            out += [f"## Veri ambarı ortak kuralları ve SQL kullanım standartları (geçerli veritabanları: {', '.join(in_std)})",
+                    *parts]
     if not out:
         return ""
     if session.phase in ("requirements", "data") and any(dd.in_scope("view_variant_databases", d) for d in dbs or [None]):

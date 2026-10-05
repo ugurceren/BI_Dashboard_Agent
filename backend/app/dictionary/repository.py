@@ -939,7 +939,42 @@ class DataDictionary:
         if t.snapshot_date:
             out["snapshot"] = {"date_column": t.snapshot_date,
                                "rule": self.SNAPSHOT_NOTE.format(col=t.snapshot_date, table=t.display_name or t.name)}
+        elif self.needs_date_choice(t):
+            cands = self.date_candidates(t)
+            out["date_choice"] = {
+                "date_columns": cands,
+                "rule": self.DATE_CHOICE_NOTE.format(table=t.display_name or t.name,
+                                                     cands=", ".join(c["name"] for c in cands) or "yok"),
+            }
         return out
+
+    # ------------------------------------------------------------------ DataDate olmayan nesneler: tarih alanı seçimi
+    DATE_CHOICE_NOTE = (
+        "'{table}' günlük anlık görüntü DEĞİL (DataDate yok): her kayıt bir kez yer alır, günlük resim tutmaz. "
+        "Dönem filtresi / trend için uygun bir tarih alanı seç (adaylar: {cands}); kullanıcıya hangi alanı neden seçtiğini "
+        "söyle ve bu alanla devam etmek isteyip istemediğini SOR. Onay gelmeden bu nesneyle dataset kaydetme (save_datasets).")
+    _DATE_TYPES = {"date", "datetime", "datetime2", "smalldatetime", "datetimeoffset"}
+    _DATE_NAME = re.compile(r"(date|tarih|time|zaman|donem|dönem|period)", re.I)
+    _NOT_DATE = re.compile(r"(key|_?id$|kod|code|flag|bayrak|time_?zone|duration|sure|süre)", re.I)
+
+    def needs_date_choice(self, t: "DDTable") -> bool:
+        """Veri ambarı (EDW / EDWDM …) nesnesi ama günlük anlık görüntü değil (tarih kolonu adı listede yok)."""
+        snap = {c.lower() for c in self.snapshot_columns()}
+        if any(c.name in snap for c in t.columns):   # DataDate var (kapsam dışı veritabanında da): karar verilmez
+            return False
+        return self.nolock_db(self.db_of(t.name))
+
+    def date_candidates(self, t: "DDTable") -> list[dict[str, Any]]:
+        """Aday tarih kolonları: tarih tipli ya da (tipi bilinmiyorsa) adında tarih geçen; anahtar / kod kolonları hariç."""
+        out = []
+        for c in t.columns:
+            typ = re.sub(r"\(.*", "", (c.data_type or "").lower())
+            by_type = typ in self._DATE_TYPES
+            by_name = not typ and bool(self._DATE_NAME.search(c.name)) and not self._NOT_DATE.search(c.name)
+            if by_type or by_name:
+                out.append({"name": c.display_name or c.name, "type": c.data_type or "?", "business_name": c.business_name,
+                            **({"description": c.description} if c.description else {})})
+        return out[:12]
 
     def is_view(self, name: str, kinds: dict[str, str] | None = None) -> bool:
         """Nesne tipi: veritabanı kataloğundan (sözlükte tablo / view ayrımı olmasa da); katalog yoksa sözlükteki table_type."""
