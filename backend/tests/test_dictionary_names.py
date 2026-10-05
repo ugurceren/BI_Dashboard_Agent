@@ -1,6 +1,7 @@
 """Sözlükteki tablo / view adlarının veritabanı kataloğuna eşlenmesi (Excel'de farklı yazılmış adlar)."""
 
 import openpyxl
+import pytest
 
 from app.data.connector import QueryResult
 from app.dictionary.names import NameResolver, canon, split_name
@@ -281,3 +282,34 @@ def test_view_permission_variants_inherit_base_definition(settings, monkeypatch)
     assert dd.tables["clt.vguaranteepersonnelexcluded"].business_name == "Geri Alım Garantisi (personel hariç)"
     assert dd.tables["clt.vguaranteepersonnelmasked"].business_name == "Geri Alım Garantisi (personel maskeli)"
     assert not dd.tables["clt.vothermasked"].documented and not dd.tables["clt.masked"].documented
+
+
+@pytest.mark.parametrize("db,expected", [("EDWDM", True), ("edwdm", True), ("AdventureWorksDW2025", False)])
+def test_edwdm_rules_apply_only_to_edwdm(settings, monkeypatch, db, expected):
+    """Yetki varyantları ve günlük anlık görüntü (DataDate) EDWDM'e özgüdür: başka veritabanında aynı adlı
+    view / kolon olsa da bu kurallar devreye girmez (dictionary.toml: view_variant_databases, snapshot_databases)."""
+    import app.data.connections as conns
+    import app.dictionary.sources as dsrc
+    from app.data.connector import QueryResult
+    from app.dictionary.sources import Collected
+
+    class Con(CatalogConnector):
+        def execute(self, sql, max_rows):
+            if sql.startswith("SELECT DB_NAME()"):
+                return QueryResult(["db"], ["string"], [[db]], False, 1)
+            return super().execute(sql, max_rows)
+
+    rows = {"tables": [{"table_name": "CLT.vGuarantee", "business_name": "Garanti", "description": "", "subject_area": "Kredi",
+                        "grain": "", "row_count": None, "table_type": None}],
+            "columns": [{"table_name": "CLT.vGuarantee", "column_name": "Amount", "business_name": "Tutar", "description": "",
+                         "data_type": None, "column_role": "measure", "default_aggregation": "sum", "synonyms": None,
+                         "is_pii": False, "sample_values": None}]}
+    monkeypatch.setattr(conns, "saved_dictionary", lambda: ({"kind": "excel"}, {"tables": ["t"], "columns": ["c"]}))
+    monkeypatch.setattr(conns, "open_dictionary_reader", lambda f: (None, {}))
+    monkeypatch.setattr(dsrc, "collect", lambda *a, **k: Collected(rows=rows))
+    monkeypatch.setattr(DataDictionary, "_view_registry", lambda self: [])
+    dd = DataDictionary(settings, Con({"CLT.vGuarantee": ("V", ["DataDate", "Amount"]),
+                                       "CLT.vGuaranteeMasked": ("V", ["DataDate", "Amount"])})).load()
+    assert dd.database == db
+    assert dd.tables["clt.vguaranteemasked"].documented is expected
+    assert bool(dd.tables["clt.vguarantee"].snapshot_date) is expected

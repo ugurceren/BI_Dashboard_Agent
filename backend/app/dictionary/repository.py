@@ -199,6 +199,7 @@ class DataDictionary:
         self.catalog_error: str | None = None    # veritabanı kataloğu (yetkiler) okunamadıysa
         self.name_changes: dict[str, str] = {}   # sözlükteki yazım → katalogdaki ad (ör. vw_Satis → dbo.vw_Satis)
         self.missing_in_db: list[str] = []       # sözlükte olup veritabanında bulunamayan nesneler
+        self.database: str | None = None         # veri bağlantısının veritabanı (DB_NAME); kurala özel davranışlar için
 
     # ------------------------------------------------------------------ yükleme
     def _connector(self, cfg: dict) -> Connector:
@@ -413,8 +414,21 @@ class DataDictionary:
         ("Masked", "maskeli", "Personel dahil tüm müşteriler maskeli görünür."),
     ]
 
+    def in_scope(self, key: str) -> bool:
+        """EDWDM'e özgü kurallar (view yetki varyantları, günlük anlık görüntü) yalnız listelenen veritabanlarında:
+        dictionary.toml'daki <key> (varsayılan ["EDWDM"]); boş liste = her veritabanı. Veritabanı adı bilinmiyorsa geçerli."""
+        try:
+            dbs = load_toml(self.settings.dictionary_config).get(key, ["EDWDM"])
+        except Exception:  # noqa: BLE001
+            dbs = ["EDWDM"]
+        if not isinstance(dbs, list) or not dbs or not self.database:
+            return True
+        return self.database.lower() in {str(d).lower() for d in dbs}
+
     def _variant_base(self, sch: str, obj: str) -> tuple["DDTable", tuple[str, str, str]] | None:
         """vXMasked / vXPersonnelExcluded / vXPersonnelMasked → sözlükte tanımlı ana view (vX) varsa onu döner."""
+        if not self.in_scope("view_variant_databases"):
+            return None
         low = obj.lower()
         for v in self.VIEW_VARIANTS:
             suf = v[0].lower()
@@ -474,6 +488,11 @@ class DataDictionary:
         self.catalog_error = None
         if con is None or getattr(con, "dialect", "") != "tsql":
             return None
+        try:
+            r = con.execute("SELECT DB_NAME()", 1).rows
+            self.database = str(r[0][0]) if r and r[0] and r[0][0] else None
+        except Exception:  # noqa: BLE001 — veritabanı adı bilinmezse kurallar her yerde geçerli kalır
+            self.database = None
         try:
             objs = con.execute(
                 "SELECT s.name, o.name, o.type, "
@@ -697,6 +716,8 @@ class DataDictionary:
     def mark_snapshots(self) -> int:
         """Tarih kolonu (DataDate …) olan tablo / view'lar günlük anlık görüntüdür: her kayıt her gün için tekrarlanır.
         Sorgu doğrulayıcı bunlarda tek gün seçilmeden toplama yapılmasını engeller (snapshot_guard.py)."""
+        if not self.in_scope("snapshot_databases"):   # EDWDM dışında DataDate adlı kolon anlık görüntü sayılmaz
+            return 0
         names = {c.lower() for c in self.snapshot_columns()}
         n = 0
         for t in self.tables.values():

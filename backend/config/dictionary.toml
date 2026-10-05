@@ -14,6 +14,11 @@ odbc = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=BI_Meta
 # için tekrarlanır (ör. EDWDM view'ları takvimle joinlenmiş, DataDate). Toplam / sayı alırken tek gün seçilmesi
 # zorunlu tutulur; iki anlık görüntü birleştirilirken bu kolonlar da eşlenmeli. Boş liste: kontrol kapalı.
 snapshot_date_columns = ["DataDate"]
+# EDWDM'e özgü kurallar yalnız bu veritabanlarında geçerli (veri kaynağının veritabanı adı; boş liste = her veritabanı):
+#   snapshot_databases      → günlük anlık görüntü (DataDate) koruması ve veri tarihi seçici
+#   view_variant_databases  → ana view sözlükteyse Masked / PersonnelExcluded / PersonnelMasked varyantları da tanımlı
+snapshot_databases = ["EDWDM"]
+view_variant_databases = ["EDWDM"]
 # Kardinalitesi boş ilişkiler için veriden (unique index / COUNT DISTINCT) otomatik tespit
 infer_cardinality = true
 

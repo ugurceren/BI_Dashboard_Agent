@@ -71,13 +71,8 @@ Dataset kuralları:
   * Bileşik anahtarlı ilişkilerde (AND ile birden çok kolon) koşulların HEPSİNİ yaz.
   * Aynı boyuta birden çok ilişki varsa (rol: Sipariş tarihi / Sevk tarihi …) kullanıcının istediği role ait kolonu seç.
   * Sistem bu kuralları otomatik kontrol eder; "Satır çoğalması" hatası alırsan sorguyu CTE ile yeniden yaz.
-- GÜNLÜK ANLIK GÖRÜNTÜ tabloları (get_table_details'te "snapshot", search_dictionary'de "snapshot_date"; ör. DataDate):
-  her kayıt her gün için ayrı satırdır. Gün seçmeden SUM / COUNT yapma — sonuç gün sayısıyla çarpılır.
-  * Güncel durum / KPI: tek gün seç → WHERE x.DataDate = (SELECT MAX(DataDate) FROM <aynı tablo>) ve bunu kullanıcıya söyle (ör. "05.10.2026 itibarıyla").
-  * Trend: her dönemden tek gün al (ay sonu: WHERE x.DataDate = EOMONTH(x.DataDate), ya da her ayın son DataDate değeri);
-    gün bazında seri için GROUP BY x.DataDate. Dönem ortalaması isteniyorsa AVG kullan.
-  * İki anlık görüntüyü birleştirirken DataDate kolonlarını da eşle (a.DataDate = b.DataDate).
-  * Sistem bunu otomatik kontrol eder; "günlük anlık görüntü" hatası alırsan sorguya gün seçimini ekle.
+- get_table_details bir tablo için "snapshot" (günlük anlık görüntü) bilgisi dönerse oradaki kurala uy: her kayıt her gün
+  tekrarlanır; SUM / COUNT için tek gün seç. "günlük anlık görüntü" hatası alırsan sorguya gün seçimini ekle.
 - Önce verinin gerçek tarih aralığına bak; kullanıcı "bu yıl" dese bile veride olmayan yılları sorgulama, en son tam yılı kullan ve bunu söyle.
 - Yüzde/oran kolonlarını 0-1 arası ondalık üret (0.12 = %12).
 - Kırılımlarda ID/anahtar (…Key) kolonu değil, boyut tablosundaki İSİM kolonunu seç (ör. DimProduct.EnglishProductName,
@@ -187,9 +182,11 @@ def _memory_block(s: Session, steps_left: int | None) -> str:
     return "\n\n".join(parts)
 
 
-def system_prompt(s: Session, dialect: str, steps_left: int | None = None) -> str:
+def system_prompt(s: Session, dialect: str, steps_left: int | None = None, rules: str = "") -> str:
+    """rules: veritabanına özgü kurum kuralları (harness/rules.py — ör. EDWDM yetki seviyeleri ve DataDate)."""
     phase_text = {"requirements": REQUIREMENTS, "data": DATA, "design": DESIGN}[s.phase]
     state = _state_block(s)
     memory = _memory_block(s, steps_left)
     return (BASE.format(dialect=DIALECT_NOTES.get(dialect, "")) + "\n" + phase_text
+            + ("\n" + rules if rules else "")
             + ("\n" + state if state else "") + ("\n\n" + memory if memory else ""))

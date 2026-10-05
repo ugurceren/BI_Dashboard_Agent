@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from app.harness.phases import system_prompt
+from app.harness.rules import phase_rules
 from app.harness.session import Session, SessionStore, ToolInfo, TranscriptItem, now_iso
 from app.harness.tools import TOOLS_BY_NAME, Services, ToolContext, ToolResult, to_llm_content, tools_for
 from app.harness.vision import analyze_design_images
@@ -31,6 +32,15 @@ OLD_TOOL_RESULT_CHARS = 700
 CACHEABLE_TOOLS = {"search_dictionary", "get_table_details", "find_metrics", "run_sql"}
 MAX_REPEATS = 3           # üst üste bu kadar tekrarlanan çağrıda tur durdurulur
 MAX_FAIL_STREAK = 6       # aynı araç üst üste bu kadar başarısız olursa tur durdurulur
+
+
+def _safe_rules(services, s) -> str:
+    """Veritabanına özgü kurallar; dosya / sözlük sorunu agent'ı durdurmasın."""
+    try:
+        return phase_rules(services, s)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Kurum veri kuralları yüklenemedi: %s", e)
+        return ""
 
 
 @dataclass
@@ -182,7 +192,8 @@ class Agent:
             yield Event("status", {"text": "Düşünüyor…" if step == 0 else "Devam ediyor…"})
             tools = tools_for(s.phase)
             remaining = self.services.settings.max_agent_steps - step
-            sys_prompt = system_prompt(s, self.services.connector.dialect, steps_left=remaining)
+            sys_prompt = system_prompt(s, self.services.connector.dialect, steps_left=remaining,
+                                       rules=_safe_rules(self.services, s))
             messages = [{"role": "system", "content": sys_prompt}] + _trim(s.llm_messages, self.services.settings.llm_context_chars)
             t0 = time.perf_counter()
             turn: AssistantTurn = self.llm.chat(messages, [t.schema() for t in tools])
