@@ -11,7 +11,7 @@ import re
 import threading
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from app.config import Settings, load_toml
 from app.data.connector import Connector, create_connector
@@ -634,6 +634,12 @@ class DataDictionary:
     def has_table(self, name: str) -> bool:
         return name.lower() in self.tables
 
+    @staticmethod
+    def usable(t: "DDTable") -> bool:
+        """Sorguda kullanılabilir: veritabanında var (katalog) ve SELECT yetkisi var. Sözlükte olup veritabanında
+        bulunmayan nesneler (ör. sözlüğe yazılmış stored procedure'ler) agent'a hiç gösterilmez."""
+        return t.in_db is not False and t.can_select is not False
+
     def pii_columns(self, table: str) -> set[str]:
         t = self.tables.get(table.lower())
         return {c.name for c in t.columns if c.is_pii} if t else set()
@@ -678,12 +684,16 @@ class DataDictionary:
         col = column.lower()
         return [t.name for t in self.tables.values() if any(c.name == col for c in t.columns)]
 
-    def search(self, query: str, limit: int = 6) -> list[dict[str, Any]]:
+    def search(self, query: str, limit: int = 6, allowed: Callable[["DDTable"], bool] | None = None) -> list[dict[str, Any]]:
+        """Tablo / view araması — yalnız kullanılabilir nesneler (allowed verilirse rol politikası da)."""
         qt = tokens(query)
         if not qt:
             return []
+        ok = allowed or self.usable
         results = []
         for t in self.tables.values():
+            if not ok(t):
+                continue
             t_score = _score(qt, [(t.business_name, 3), (t.name, 2), (t.description, 1.2), (t.subject_area, 1)])
             col_hits = []
             for c in t.columns:

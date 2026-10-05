@@ -92,7 +92,7 @@ export function AccessPage({ api, onOpenReport }: { api: Api; onOpenReport: (id:
     if (!info) return [];
     const ql = q.trim().toLocaleLowerCase("tr");
     const items = info.objects.filter((o) => (!onlyMine || o.accessible)
-      && (!ql || [o.name, o.business_name, o.description, o.subject_area, o.report_title, ...(o.parameters ?? [])]
+      && (!ql || [o.name, o.business_name, o.description, o.subject_area, o.report_title]
         .join(" ").toLocaleLowerCase("tr").includes(ql)));
     return groupTwoLevel(items, groupBy, (o) => o.type, (o) => o.subject_area);
   }, [info, q, onlyMine, groupBy]);

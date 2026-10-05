@@ -329,14 +329,14 @@ export interface Me {
   policy?: Policy;
 }
 
-/** Veri Erişimim: tek nesne listesi (tablo / view / stored procedure / dataset), domain ve erişim durumuyla */
+/** Veri Erişimim: tek nesne listesi (tablo / view / dataset), domain ve erişim durumuyla */
 export interface AccessObject {
-  type: "table" | "view" | "procedure" | "dataset";
+  type: "table" | "view" | "dataset";
   id: string; name: string; business_name?: string; description?: string; subject_area: string;
   accessible: boolean; reason: string | null;
   row_count?: number | null; column_count?: number; pii_columns?: string[]; pii_blocked?: boolean;   // tablo / view
   report_id?: string | null; report_title?: string; dataset_id?: string | null; created_at?: string | null;  // view / dataset
-  view?: string | null; fields?: number; tables?: string[]; parameters?: string[];
+  view?: string | null; fields?: number; tables?: string[];
   documented?: boolean;   // false: veritabanında var, sözlükte tanımsız
 }
 
@@ -352,10 +352,8 @@ export interface QueryObject {
   row_count?: number | null; columns: QueryColumn[]; documented?: boolean;
 }
 export interface QueryDataset { report_id: string; report_title: string; id: string; description?: string; sql: string; view?: string | null; subject_area?: string; domains?: string[] }
-export interface QueryProcedure { id: string; name: string; description?: string; parameters: string[]; tables: string[]; subject_area: string }
 export interface QuerySchema {
   role: string; max_rows: number; allow_pii: boolean; allowed_schemas: string[]; objects: QueryObject[]; datasets: QueryDataset[];
-  procedures?: QueryProcedure[];
 }
 export interface QueryRunResult {
   ok: boolean; errors?: string[]; warnings?: string[]; columns?: string[]; types?: string[];

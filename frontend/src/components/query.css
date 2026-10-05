@@ -103,6 +103,4 @@
 .qp-ds-rep { padding-left: 22px; }
 .qp-kind.k-table { background: #4c8dff; }
 .qp-kind.k-view { background: #8b5cf6; }
-.qp-kind.k-procedure { background: #f59e0b; font-size: 8px; letter-spacing: -.02em; }
-.qp-group-title .qp-kind.k-procedure, .qp-ds-id .qp-kind.k-procedure { font-size: 8px; }
 .qp-undoc { font-size: 10px; font-weight: 600; border: 1px dashed var(--border-strong); border-radius: 999px; padding: 0 6px; }

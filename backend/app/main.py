@@ -222,7 +222,7 @@ def _object_access(pol: RolePolicy, t) -> tuple[bool, str | None]:
 
 @app.get("/api/me/access")
 def my_access(request: Request) -> dict[str, Any]:
-    """Kullanıcının yetkili olduğu nesneler — tek liste: tablo / view / dataset (stored procedure'ler yalnız Sorgu Çalıştır'da);
+    """Kullanıcının yetkili olduğu nesneler — tek liste: tablo / view / dataset;
     her biri domain (konu alanı) ve erişim durumuyla (Veri Erişimim sayfası: domain ya da nesne tipine göre gruplanır)."""
     from app.harness.session import _source_tables
     ident = _me(request)
@@ -364,48 +364,7 @@ def query_schema(request: Request) -> dict[str, Any]:
                                  "description": d.description, "sql": d.sql, "view": d.view,
                                  "subject_area": doms[0] if doms else "Diğer", "domains": doms})
     return {"role": ident.role, "max_rows": min(QUERY_MAX_ROWS, pol.max_rows), "allow_pii": pol.allow_pii,
-            "allowed_schemas": pol.allowed_schemas, "objects": objects, "datasets": datasets,
-            "procedures": _procedures(pol, kinds)}
-
-
-def _procedures(pol: RolePolicy, kinds: dict[str, str]) -> list[dict[str, Any]]:
-    """EXECUTE yetkisi olan stored procedure'ler (yalnız listeleme; salt-okunur ekranda EXEC engellidir).
-    Domain: SP'nin kullandığı sözlük tablolarının konu alanı (sys.sql_expression_dependencies)."""
-    con = state.services.connector
-    if getattr(con, "dialect", "") != "tsql":
-        return []
-    try:
-        procs = con.execute(
-            "SELECT p.object_id, SCHEMA_NAME(p.schema_id), p.name, CAST(ep.value AS nvarchar(400)) "
-            "FROM sys.procedures p LEFT JOIN sys.extended_properties ep ON ep.major_id = p.object_id AND ep.minor_id = 0 "
-            "AND ep.class = 1 AND ep.name = 'MS_Description' WHERE p.is_ms_shipped = 0 "
-            "AND HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(p.schema_id)) + '.' + QUOTENAME(p.name), 'OBJECT', 'EXECUTE') = 1", 5_000).rows
-        if not procs:
-            return []
-        params = con.execute("SELECT pr.object_id, pr.name, TYPE_NAME(pr.user_type_id) FROM sys.parameters pr "
-                             "JOIN sys.procedures p ON p.object_id = pr.object_id WHERE p.is_ms_shipped = 0 "
-                             "ORDER BY pr.object_id, pr.parameter_id", 50_000).rows
-        deps = con.execute("SELECT d.referencing_id, COALESCE(d.referenced_schema_name, 'dbo'), d.referenced_entity_name "
-                           "FROM sys.sql_expression_dependencies d JOIN sys.procedures p ON p.object_id = d.referencing_id "
-                           "WHERE p.is_ms_shipped = 0 AND d.referenced_entity_name IS NOT NULL", 50_000).rows
-    except Exception as e:  # noqa: BLE001 — veri kaynağı yoksa SP listesi boş
-        log.info("Stored procedure'ler okunamadı: %s", e)
-        return []
-    by_params: dict[int, list[str]] = {}
-    for oid, name, typ in params:
-        by_params.setdefault(oid, []).append(f"{name} {typ}")
-    by_deps: dict[int, list[str]] = {}
-    for oid, sch, ent in deps:
-        by_deps.setdefault(oid, []).append(f"{sch}.{ent}".lower())
-    out = []
-    for oid, sch, name, desc in procs:
-        full = f"{sch}.{name}"
-        if pol.denial_reason(full):
-            continue
-        doms = _report_domains(sorted(set(by_deps.get(oid, []))), kinds)
-        out.append({"id": full.lower(), "name": full, "description": desc or "", "parameters": by_params.get(oid, []),
-                    "tables": sorted(set(by_deps.get(oid, []))), "subject_area": doms[0] if doms else "Diğer"})
-    return sorted(out, key=lambda x: x["name"].lower())
+            "allowed_schemas": pol.allowed_schemas, "objects": objects, "datasets": datasets}
 
 
 class QueryIn(BaseModel):

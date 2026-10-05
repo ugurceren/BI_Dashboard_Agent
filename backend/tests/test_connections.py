@@ -142,50 +142,41 @@ def test_excel_and_mysql_dictionary_kinds_resolved(settings, services, conn_file
     assert conns.saved_dictionary()[0]["server"] == "mysqlhost" and conns.dictionary_odbc(settings) is None
 
 
-def test_query_schema_lists_procedures_with_domain(settings, services, monkeypatch):
-    """Stored procedure'ler: yalnız yetkili şemalar, parametreler ve kullandığı tablolardan domain."""
+def test_no_stored_procedures_anywhere(settings, services, monkeypatch):
+    """Projede stored procedure kullanılmaz: Sorgu Çalıştır şemasında da, Veri Erişimim'de de SP yok;
+    veritabanına SP sorgusu (sys.procedures) hiç gönderilmez."""
     from fastapi.testclient import TestClient
 
     import app.main as m
-    from app.data.connector import QueryResult
+
+    sent = []
 
     class Con:
         dialect = "tsql"
 
         def execute(self, sql, max_rows):
-            if "FROM sys.procedures p LEFT JOIN" in sql:
-                return QueryResult([], [], [[1, "dbo", "uspSatisOzeti", "Aylık satış özeti"], [2, "secret", "uspGizli", None]])
-            if "sys.parameters" in sql:
-                return QueryResult([], [], [[1, "@Yil", "int"], [1, "@Bolge", "nvarchar"]])
-            if "sql_expression_dependencies" in sql:
-                return QueryResult([], [], [[1, "dbo", "FactInternetSales"], [1, "dbo", "DimProduct"]])
+            sent.append(sql)
+            from app.data.connector import QueryResult
             return QueryResult([], [], [])
 
     m.state.services = services
     monkeypatch.setattr(services, "connector", Con())
     monkeypatch.setattr(m.state, "store", type("S", (), {"list": lambda self: []})(), raising=False)
-    # veritabanı yetkisi (EXECUTE) sorguda süzülür; politika ayrıca şema kapatabilir
-    import dataclasses
-    pol = dataclasses.replace(services.policy("standart"), denied_schemas=["secret"])
-    monkeypatch.setattr(services, "policies", {**services.policies, "standart": pol})
-    d = TestClient(m.app).get("/api/query/schema").json()
-    assert [p["name"] for p in d["procedures"]] == ["dbo.uspSatisOzeti"]  # 'secret' şeması politikada kapalı
-    sp = d["procedures"][0]
-    assert sp["parameters"] == ["@Yil int", "@Bolge nvarchar"] and sp["description"] == "Aylık satış özeti"
-    assert sp["subject_area"] == services.dictionary.tables["dbo.factinternetsales"].subject_area
+    c = TestClient(m.app)
+    q = c.get("/api/query/schema").json()
+    a = c.get("/api/me/access").json()
+    assert "procedures" not in q and not any(o.get("type") == "procedure" for o in a["objects"])
+    assert not any("sys.procedures" in x for x in sent)
 
 
 def test_my_access_returns_typed_objects_with_domains(settings, services, monkeypatch):
-    """Veri Erişimim: tek liste — tablo / view / dataset, her biri domain ve erişim durumuyla.
-    Stored procedure'ler burada listelenmez (yalnız Sorgu Çalıştır'da)."""
+    """Veri Erişimim: tek liste — tablo / view / dataset, her biri domain ve erişim durumuyla."""
     from fastapi.testclient import TestClient
 
     import app.main as m
 
     m.state.services = services
     monkeypatch.setattr(m.state, "store", type("S", (), {"list": lambda self: []})(), raising=False)
-    monkeypatch.setattr(m, "_procedures", lambda pol, kinds: [
-        {"id": "dbo.usp", "name": "dbo.usp", "description": "d", "parameters": ["@Yil int"], "tables": [], "subject_area": "Satış"}])
     d = TestClient(m.app).get("/api/me/access").json()
     types = {o["type"] for o in d["objects"]}
     assert "table" in types and "procedure" not in types and "tables" not in d
@@ -233,7 +224,6 @@ def test_access_follows_database_permissions(settings, services, monkeypatch):
     dd = services.dictionary
     m.state.services = services
     monkeypatch.setattr(m.state, "store", type("S", (), {"list": lambda self: []})(), raising=False)
-    monkeypatch.setattr(m, "_procedures", lambda pol, kinds: [])
     pol = dataclasses.replace(services.policy("standart"), allowed_schemas=["*"])
     monkeypatch.setattr(services, "policies", {**services.policies, "standart": pol})
     extra = DDTable("satis.siparis", "satis.Siparis", "Sipariş başlıkları", "Sözlükte tanımsız", "", 10, display_name="satis.Siparis",

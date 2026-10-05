@@ -2,12 +2,12 @@
 // Sorgu Çalıştır'daki "Yetkili nesneler" paneli ve Veri Erişimim sayfası ortak kullanır.
 
 export type GroupBy = "domain" | "type";
-export type ObjType = "table" | "view" | "procedure" | "dataset";
+export type ObjType = "table" | "view" | "dataset";
 
-export const TYPE_ORDER: ObjType[] = ["table", "view", "procedure", "dataset"];
-export const TYPE_TITLE: Record<ObjType, string> = { table: "Tablolar", view: "View'lar", procedure: "Stored procedure'ler", dataset: "Rapor dataset'leri" };
-export const TYPE_SHORT: Record<ObjType, string> = { table: "Tablo", view: "View", procedure: "SP", dataset: "Dataset" };
-export const TYPE_BADGE: Record<ObjType, string> = { table: "T", view: "V", procedure: "SP", dataset: "D" };
+export const TYPE_ORDER: ObjType[] = ["table", "view", "dataset"];
+export const TYPE_TITLE: Record<ObjType, string> = { table: "Tablolar", view: "View'lar", dataset: "Rapor dataset'leri" };
+export const TYPE_SHORT: Record<ObjType, string> = { table: "Tablo", view: "View", dataset: "Dataset" };
+export const TYPE_BADGE: Record<ObjType, string> = { table: "T", view: "V", dataset: "D" };
 
 /** sözlükteki tür (fact / dimension / bridge / view) → gösterilen tip */
 export const typeOfKind = (kind?: string | null): ObjType => (kind === "view" ? "view" : "table");

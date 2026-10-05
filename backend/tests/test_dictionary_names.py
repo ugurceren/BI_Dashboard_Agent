@@ -203,3 +203,36 @@ def test_settings_test_returns_mapping_and_save_remembers_detection(settings, se
     # eşleme kayıtlı: katalog olmadan da yüklenir
     monkeypatch.setattr(m, "_data_catalog", lambda data: {})
     assert conns.saved_dictionary()[0]["mappings"]["Sayfa1"]["table_name"] == "abc"
+
+
+
+def test_agent_sees_only_usable_tables_and_views(services):
+    """Sözlükte olup veritabanında olmayan (ör. sözlüğe yazılmış SP) ya da SELECT yetkisi olmayan nesneler
+    agent'ın search_dictionary / get_table_details araçlarında görünmez."""
+    from app.dictionary.repository import DDColumn, DDTable
+    from app.harness.session import Session
+    from app.harness.tools import ToolContext, h_get_table_details, h_search_dictionary
+
+    dd = services.dictionary
+    sp = DDTable("clt.usprepurchaseguarantee", "Geri Alım Garantisi Prosedürü", "Geri alım garantisi SP", "Kredi", "", None,
+                 display_name="CLT.uspRepurchaseGuarantee", in_db=False)
+    sp.columns = [DDColumn(sp.name, "guaranteeamount", "Garanti Tutarı", "", "", "measure", "sum", [], False, "")]
+    locked = DDTable("clt.vrepurchaseguaranteemasked", "Geri Alım Garantisi (maskeli)", "Geri alım garantisi", "Kredi", "", 5,
+                     display_name="CLT.vRepurchaseGuaranteeMasked", in_db=True, can_select=False)
+    locked.columns = [DDColumn(locked.name, "guaranteeamount", "Garanti Tutarı", "", "", "measure", "sum", [], False, "")]
+    ok = DDTable("clt.vrepurchaseguarantee", "Geri Alım Garantisi", "Geri alım garantisi", "Kredi", "", 5,
+                 display_name="CLT.vRepurchaseGuarantee", in_db=True, can_select=True)
+    ok.columns = [DDColumn(ok.name, "guaranteeamount", "Garanti Tutarı", "", "", "measure", "sum", [], False, "")]
+    for x in (sp, locked, ok):
+        dd.tables[x.name] = x
+    try:
+        ctx = ToolContext(Session(), services)
+        found = [h["table"] for h in h_search_dictionary(ctx, {"query": "geri alım garantisi"}).content["tables"]]
+        assert "clt.vrepurchaseguarantee" in found
+        assert "clt.usprepurchaseguarantee" not in found and "clt.vrepurchaseguaranteemasked" not in found
+        r = h_get_table_details(ctx, {"tables": ["CLT.uspRepurchaseGuarantee", "CLT.vRepurchaseGuarantee"]})
+        assert [d["table"] for d in r.content["tables"]] == ["clt.vrepurchaseguarantee"]
+        assert r.content["not_found"] == ["CLT.uspRepurchaseGuarantee"]
+    finally:
+        for x in (sp, locked, ok):
+            dd.tables.pop(x.name, None)

@@ -10,14 +10,14 @@ import { buildCompletion } from "../lib/sqlComplete";
 import { TYPE_BADGE, TYPE_ORDER, TYPE_SHORT, TYPE_TITLE, typeOfKind, type GroupBy, type ObjType } from "../lib/objectTypes";
 import { tags as t } from "@lezer/highlight";
 import type { Api } from "../api/client";
-import type { QueryDataset, QueryObject, QueryProcedure, QueryRunResult, QuerySchema } from "../types";
+import type { QueryDataset, QueryObject, QueryRunResult, QuerySchema } from "../types";
 import "./query.css";
 
 const LS_SQL = "bi.query.sql";
 const LS_EXPLORER = "bi.query.explorerCollapsed";
 const LS_GROUPBY = "bi.query.groupBy";
 const typeOf = typeOfKind;
-interface ExSub { key: string; title: string; type?: ObjType; objs: QueryObject[]; ds: QueryDataset[]; sps: QueryProcedure[] }
+interface ExSub { key: string; title: string; type?: ObjType; objs: QueryObject[]; ds: QueryDataset[] }
 interface ExGroup { key: string; title: string; type?: ObjType; count: number; subs: ExSub[] }
 const lsRead = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsWrite = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* yoksay */ } };
@@ -173,10 +173,8 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
     const q = filter.trim().toLocaleLowerCase("tr");
     const match = (o: QueryObject) => !q || [o.name, o.business_name, o.subject_area, ...o.columns.map((c) => `${c.name} ${c.business_name ?? ""}`)]
       .join(" ").toLocaleLowerCase("tr").includes(q);
-    const leaves: { type: ObjType; domain: string; o?: QueryObject; d?: QueryDataset; p?: QueryProcedure }[] = [
+    const leaves: { type: ObjType; domain: string; o?: QueryObject; d?: QueryDataset }[] = [
       ...schema.objects.filter(match).map((o) => ({ type: typeOf(o.kind), domain: o.subject_area || "Diğer", o })),
-      ...(schema.procedures ?? []).filter((p) => !q || `${p.name} ${p.description ?? ""} ${p.subject_area} ${p.parameters.join(" ")}`.toLocaleLowerCase("tr").includes(q))
-        .map((p) => ({ type: "procedure" as ObjType, domain: p.subject_area || "Diğer", p })),
       ...schema.datasets.filter((d) => !q || `${d.id} ${d.report_title} ${d.description ?? ""} ${d.subject_area ?? ""}`.toLocaleLowerCase("tr").includes(q))
         .map((d) => ({ type: "dataset" as ObjType, domain: d.subject_area || "Diğer", d })),
     ];
@@ -198,11 +196,10 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
           key: `${groupBy}:${g}:${k}`, title: groupBy === "domain" ? TYPE_SHORT[k as ObjType] : k,
           type: groupBy === "domain" ? (k as ObjType) : undefined,
           objs: ls.filter((l) => l.o).map((l) => l.o!), ds: ls.filter((l) => l.d).map((l) => l.d!),
-          sps: ls.filter((l) => l.p).map((l) => l.p!),
         };
       });
       return { key: `${groupBy}:${g}`, title: groupBy === "domain" ? g : TYPE_TITLE[g as ObjType],
-        type: groupBy === "type" ? (g as ObjType) : undefined, count: subs.reduce((n, x) => n + x.objs.length + x.ds.length + x.sps.length, 0), subs };
+        type: groupBy === "type" ? (g as ObjType) : undefined, count: subs.reduce((n, x) => n + x.objs.length + x.ds.length, 0), subs };
     });
   }, [schema, filter, groupBy]);
 
@@ -238,21 +235,6 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
       </div>
     );
   };
-  const renderSp = (sp: QueryProcedure) => (
-    <div key={sp.id} className="qp-obj">
-      <div className="qp-obj-row">
-        <span className="qp-caret" aria-hidden="true" />
-        <button type="button" className="qp-obj-name" onClick={() => insert(sp.name)}
-          title={[sp.description, sp.parameters.length ? `Parametreler: ${sp.parameters.join(", ")}` : "Parametre yok",
-            sp.tables.length ? `Kullandığı tablolar: ${sp.tables.join(", ")}` : "",
-            "Salt-okunur sorgu ekranında SP çalıştırılamaz (EXEC engelli). Tıkla: adını editöre ekle"].filter(Boolean).join("\n")}>
-          <span className="qp-kind k-procedure">SP</span>
-          <span className="qp-obj-label">{sp.name}</span>
-        </button>
-      </div>
-      <div className="qp-obj-bn muted">{sp.parameters.length ? sp.parameters.join(", ") : sp.description || "Parametre yok"}</div>
-    </div>
-  );
   const renderDs = (d: QueryDataset) => (
     <button key={`${d.report_id}:${d.id}`} type="button" className="qp-ds" onClick={() => replaceAll(`-- ${d.report_title} · ${d.id}\n${d.sql.trim()}\n`)}
       title={`${d.description ?? ""}${d.domains?.length ? `\nDomain: ${d.domains.join(", ")}` : ""}\nTıkla: SQL'i editöre yükle`}>
@@ -323,11 +305,10 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
                     <div className="qp-sub-title">
                       {sub.type ? <span className={`qp-kind qp-kind-sm k-${sub.type}`}>{TYPE_BADGE[sub.type]}</span> : null}
                       <span>{sub.title}</span>
-                      <span className="qp-sub-count">{sub.objs.length + sub.ds.length + sub.sps.length}</span>
+                      <span className="qp-sub-count">{sub.objs.length + sub.ds.length}</span>
                     </div>
                   )}
                   {sub.objs.map(renderObj)}
-                  {sub.sps.map(renderSp)}
                   {sub.ds.map(renderDs)}
                 </div>
               )) : null}

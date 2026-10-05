@@ -402,8 +402,11 @@ def _filter_candidates(ctx: ToolContext, text: str) -> list[tuple[float, str, st
     dd, pol = ctx.services.dictionary, ctx.services.policy(ctx.session.user_role)
     qt = tokens(re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text))
     kinds = dd._table_kinds()
+    ok = _usable(ctx)
     out = []
     for t in dd.tables.values():
+        if not ok(t):
+            continue
         for c in t.columns:
             if c.role != "dimension" or (c.is_pii and not pol.allow_pii):
                 continue
@@ -499,9 +502,16 @@ def _spec_ok(ctx: ToolContext, spec: ReportSpec, notes: list[str], what: str) ->
 
 
 # --------------------------------------------------------------------------- handler'lar
+def _usable(ctx: ToolContext):
+    """Agent'ın görebileceği nesneler: veritabanında var, SELECT yetkisi var, rol politikası izin veriyor
+    (yalnız tablo ve view'lar — stored procedure'ler projede kullanılmaz)."""
+    dd, pol = ctx.services.dictionary, ctx.services.policy(ctx.session.user_role)
+    return lambda t: dd.usable(t) and not pol.denial_reason(t.name)
+
+
 def h_search_dictionary(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     q = str(a.get("query") or "")
-    hits = ctx.services.dictionary.search(q, int(a.get("limit") or 6))
+    hits = ctx.services.dictionary.search(q, int(a.get("limit") or 6), _usable(ctx))
     metrics = ctx.services.dictionary.search_metrics(q, 3)
     return ToolResult(True, {"tables": hits, "governed_metrics": metrics},
                       f"'{q}' → {len(hits)} tablo, {len(metrics)} metrik")
@@ -512,9 +522,11 @@ def h_get_table_details(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     if isinstance(names, str):
         names = [names]
     pol = ctx.services.policy(ctx.session.user_role)
+    ok = _usable(ctx)
     out, missing = [], []
     for n in names[:5]:
-        d = ctx.services.dictionary.table_details(str(n), pol.allow_pii)
+        t = ctx.services.dictionary.tables.get(str(n).lower())
+        d = ctx.services.dictionary.table_details(str(n), pol.allow_pii) if t is not None and ok(t) else None
         (out.append(d) if d else missing.append(n))
     if not out:
         return ToolResult(False, {"error": f"Tablo(lar) sözlükte yok: {missing}. search_dictionary kullanın."}, "Tablo bulunamadı")
