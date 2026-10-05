@@ -138,3 +138,10 @@
 /* ek veritabanları test sonucu */
 .st-extra-list { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .st-extra-list li.is-bad { color: #dc2626; }
+
+/* veri kaynağı: çoklu veritabanı seçimi */
+.st-db-selected { min-height: 26px; }
+.st-src-chip.is-primary { border-color: var(--accent); background: var(--accent-soft); }
+.st-db-tag { font-size: 10px; font-weight: 650; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff; }
+.st-db-make { border: 0; background: none; padding: 0 2px; cursor: pointer; color: var(--muted); font-size: 11px; }
+.st-db-make:hover { color: var(--accent); }

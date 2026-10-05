@@ -224,41 +224,58 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const authText = (f: ConnFields) => (f.auth === "sql" ? `SQL: ${f.username || "—"}` : "Windows oturumu");
   const extras = data.extra_databases ?? [];
   const dataSummary = <>{data.server || "—"} · <b>{data.database || "veritabanı seçilmedi"}</b>{extras.length ? <> + <b>{extras.join(", ")}</b></> : null} · {authText(data)}</>;
-  const setExtras = (list: string[]) => upd("data", { extra_databases: list });
-  const addExtra = (name: string) => {
+  // veri kaynağı: birden çok veritabanı (aynı sunucu). İlk seçilen bağlantının (birincil) veritabanıdır.
+  const selectedDbs = [data.database.trim(), ...extras].filter(Boolean);
+  const setSelectedDbs = (list: string[]) => upd("data", { database: list[0] ?? "", extra_databases: list.slice(1) });
+  const hasDb = (name: string) => selectedDbs.some((x) => x.toLowerCase() === name.toLowerCase());
+  const toggleDb = (name: string) => {
     const n = name.trim().replace(/^\[|\]$/g, "");
-    if (!n || n.toLowerCase() === data.database.trim().toLowerCase() || extras.some((x) => x.toLowerCase() === n.toLowerCase())) return;
-    setExtras([...extras, n]);
+    if (!n) return;
+    setSelectedDbs(hasDb(n) ? selectedDbs.filter((x) => x.toLowerCase() !== n.toLowerCase()) : [...selectedDbs, n]);
+  };
+  const addDb = (name: string) => {
+    const n = name.trim().replace(/^\[|\]$/g, "");
+    if (n && !hasDb(n)) setSelectedDbs([...selectedDbs, n]);
     setExtraDraft("");
   };
-  const extraField = () => {
-    const avail = (dbs.data ?? []).filter((d) => d.toLowerCase() !== data.database.trim().toLowerCase()
-      && !extras.some((x) => x.toLowerCase() === d.toLowerCase()));
-    return (
-      <div className="st-field">
-        <label>Ek Veritabanları</label>
-        <div className="st-chips">
-          {extras.map((d) => (
-            <span key={d} className="st-src-chip">
-              <Ico d={P.db} size={12} /> {d}
-              <button type="button" onClick={() => setExtras(extras.filter((x) => x !== d))} aria-label={`${d} kaldır`} title="Kaldır">×</button>
-            </span>
-          ))}
-          {!extras.length ? <span className="muted small">Yok — yalnız {data.database.trim() || "seçili veritabanı"} kullanılır</span> : null}
-          {avail.map((d) => (
-            <button key={d} type="button" className="st-chip-btn st-suggest" onClick={() => addExtra(d)} title="Ek veritabanı olarak ekle">+ {d}</button>
-          ))}
-        </div>
-        <div className="st-row">
-          <input className="st-input st-input-sm" list="st-dbs-data" value={extraDraft} placeholder="veritabanı adı ekle (ör. EDW)" spellCheck={false}
-            onChange={(e) => setExtraDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addExtra(extraDraft); } }} />
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => addExtra(extraDraft)} disabled={!extraDraft.trim()}>Ekle</button>
-        </div>
-        <p className="muted small">Aynı sunucudaki diğer veritabanları (ör. EDWDM'e ek olarak EDW). Nesneleri <code>VERITABANI.şema.nesne</code> olarak
-          sorgulanır; kullanıcı yalnız SELECT yetkisi olan tablo ve view'ları görür. Veritabanlarını <b>Listele</b> ile getirip <b>+</b> ile ekleyebilirsiniz.</p>
+  const makePrimary = (name: string) => setSelectedDbs([name, ...selectedDbs.filter((x) => x !== name)]);
+  const dataDbField = () => (
+    <div className="st-field">
+      <label htmlFor="data-db">Veritabanları</label>
+      <div className="st-chips st-db-selected">
+        {selectedDbs.map((d, i) => (
+          <span key={d} className={`st-src-chip${i === 0 ? " is-primary" : ""}`}>
+            <Ico d={P.db} size={12} /> {d}
+            {i === 0 ? <span className="st-db-tag" title="Bağlantının veritabanı: nesneleri şema.nesne olarak yazılır">bağlı</span>
+              : <button type="button" className="st-db-make" onClick={() => makePrimary(d)} title="Bağlı (birincil) veritabanı yap">★</button>}
+            <button type="button" onClick={() => toggleDb(d)} aria-label={`${d} kaldır`} title="Kaldır">×</button>
+          </span>
+        ))}
+        {!selectedDbs.length ? <span className="small st-src-missing">En az bir veritabanı seçin</span> : null}
       </div>
-    );
-  };
+      <div className="st-row">
+        <input id="data-db" className="st-input" list="st-dbs-data" value={extraDraft} placeholder="veritabanı adı yazıp Enter (ör. EDWDM) ya da Listele"
+          onChange={(e) => setExtraDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addDb(extraDraft); } }}
+          spellCheck={false} />
+        <datalist id="st-dbs-data">{(dbs.data ?? []).map((d) => <option key={d} value={d} />)}</datalist>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void listDbs("data")} disabled={!!busy} title="Sunucudaki erişilebilir veritabanlarını listele">
+          {busy === "db-data" ? <span className="spinner" /> : <Ico d={P.list} />} Listele
+        </button>
+      </div>
+      {dbs.data?.length ? (
+        <div className="st-chips">
+          {dbs.data.map((d) => (
+            <button key={d} type="button" className={`st-chip-btn${hasDb(d) ? " is-on" : ""}`} onClick={() => toggleDb(d)}
+              aria-pressed={hasDb(d)} title={hasDb(d) ? "Seçimi kaldır" : "Seç"}>
+              <Ico d={P.db} size={12} /> {d}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <p className="muted small">Birden çok veritabanı seçebilirsiniz (aynı sunucu). <b>Bağlı</b> olanın nesneleri <code>şema.nesne</code>, diğerlerinin{" "}
+        <code>VERITABANI.şema.nesne</code> olarak sorgulanır; <b>★</b> ile bağlı veritabanını değiştirebilirsiniz; kullanıcı her veritabanında yalnız SELECT yetkisi olan tablo ve view'ları görür.</p>
+    </div>
+  );
   const dictSummary = kind === "none" ? <>Sözlük yok — yalnız veritabanı kataloğu</>
     : kind === "excel" ? <>Excel · <b>{(dict.excel_path ?? "").split(/[\\/]/).pop() || "dosya seçilmedi"}</b></>
     : kind === "mysql" ? <>MySQL · {dict.server || "—"}:{dict.port ?? 3306} · <b>{dict.database || "—"}</b></>
@@ -409,8 +426,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
             layout={layout.data} onChange={(x) => setLayout("data", x)} />
           {layout.data.collapsed ? null : <>
           {connFields("data", data)}
-          {dbField("data", data, "ör. AdventureWorksDW2025")}
-          {extraField()}
+          {dataDbField()}
           {testBox("data")}
           {cardFoot("data", !!data.database.trim())}
           </>}
