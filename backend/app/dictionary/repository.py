@@ -48,6 +48,7 @@ class DDTable:
     documented: bool = True        # False: veritabanında var, sözlükte tanımsız (katalogdan eklendi)
     object_type: str = ""          # table | view — veritabanı kataloğundan (sys.objects.type U / V); "" bilinmiyor
     variant_of: str = ""           # yetki varyantı ise ana view (ör. clt.vx ← clt.vxMasked); tanımı ondan devralır
+    snapshot_date: str = ""        # günlük anlık görüntü: her gün için satır çoklanır; tarih kolonu (ör. DataDate)
     in_db: bool | None = None      # veritabanı kataloğunda bulundu mu (None: bilinmiyor / katalog okunamadı)
     can_select: bool | None = None # bağlanan hesabın SELECT yetkisi (HAS_PERMS_BY_NAME)
 
@@ -392,6 +393,7 @@ class DataDictionary:
             log.info("Sözlükteki %d ad veritabanındaki nesneye eşlendi: %s", len(self.name_changes),
                      ", ".join(f"{a} → {b}" for a, b in list(self.name_changes.items())[:10]))
         self._merge_catalog(catalog)
+        self.mark_snapshots()
         return self
 
     # ------------------------------------------------------------------ veritabanı kataloğu (yetkiler)
@@ -432,7 +434,7 @@ class DataDictionary:
         desc = " ".join(x for x in (base.description, f"Yetki seviyesi: {note}") if x)
         t = DDTable(full, bn, desc, base.subject_area, base.grain, int(rows) if rows is not None else None,
                     display_name=name, table_type=base.table_type, documented=True, in_db=True, can_select=True,
-                    object_type=otype, variant_of=base.name)
+                    object_type=otype, variant_of=base.name, snapshot_date=base.snapshot_date)
         by_name = {c.name: c for c in base.columns}
         for cname, ctyp, cdesc in cols:
             b = by_name.get(cname.lower())
@@ -681,6 +683,35 @@ class DataDictionary:
             rel.cardinality = f"{'1' if fu else 'N'}:{'1' if tu else 'N'}"
 
     # ------------------------------------------------------------------ sorgular
+    # ------------------------------------------------------------------ günlük anlık görüntüler
+    SNAPSHOT_NOTE = 'GÜNLÜK ANLIK GÖRÜNTÜ: her kayıt her gün için ayrı satır olarak tekrarlanır ({col}). Toplam / sayı için tek gün seç: WHERE {col} = (SELECT MAX({col}) FROM {table}) (son gün). Trendde her dönemin tek gününü al (ör. ay sonu); başka bir anlık görüntüyle birleştirirken {col} kolonlarını da eşle.'
+
+    def snapshot_columns(self) -> list[str]:
+        """Günlük anlık görüntü tarih kolonları (dictionary.toml: snapshot_date_columns; varsayılan DataDate)."""
+        try:
+            cols = load_toml(self.settings.dictionary_config).get("snapshot_date_columns")
+        except Exception:  # noqa: BLE001
+            cols = None
+        return [str(c) for c in (cols if isinstance(cols, list) else ["DataDate"]) if str(c).strip()]
+
+    def mark_snapshots(self) -> int:
+        """Tarih kolonu (DataDate …) olan tablo / view'lar günlük anlık görüntüdür: her kayıt her gün için tekrarlanır.
+        Sorgu doğrulayıcı bunlarda tek gün seçilmeden toplama yapılmasını engeller (snapshot_guard.py)."""
+        names = {c.lower() for c in self.snapshot_columns()}
+        n = 0
+        for t in self.tables.values():
+            if t.snapshot_date:
+                continue
+            c = next((c for c in t.columns if c.name.lower() in names), None)
+            if c is not None:
+                t.snapshot_date = c.display_name or c.name
+                if c.role in ("attribute", "", "dimension"):
+                    c.role = "date"
+                n += 1
+        if n:
+            log.info("Günlük anlık görüntü olarak işaretlenen nesne: %d (%s)", n, ", ".join(sorted(names)))
+        return n
+
     def has_table(self, name: str) -> bool:
         return name.lower() in self.tables
 
@@ -759,6 +790,7 @@ class DataDictionary:
                 results.append({
                     "table": t.name, "business_name": t.business_name, "description": t.description,
                     "subject_area": t.subject_area, "score": round(score, 2),
+                    **({"snapshot_date": t.snapshot_date} if t.snapshot_date else {}),
                     "columns": [{"name": c.name, "business_name": c.business_name, "role": c.role,
                                  **({"pii": True} if c.is_pii else {})} for _, c in col_hits[:8]],
                 })
@@ -795,11 +827,15 @@ class DataDictionary:
                 if not include_pii:
                     d["note"] = "Kişisel veri — sorgulanamaz"
             cols.append(d)
-        return {
+        out = {
             "table": t.name, "business_name": t.business_name, "description": t.description,
             "grain": t.grain, "row_count": t.row_count, "columns": cols,
             "joins": [r.describe() for r in self.relationships_for(t.name)],
         }
+        if t.snapshot_date:
+            out["snapshot"] = {"date_column": t.snapshot_date,
+                               "rule": self.SNAPSHOT_NOTE.format(col=t.snapshot_date, table=t.display_name or t.name)}
+        return out
 
     def is_view(self, name: str, kinds: dict[str, str] | None = None) -> bool:
         """Nesne tipi: veritabanı kataloğundan (sözlükte tablo / view ayrımı olmasa da); katalog yoksa sözlükteki table_type."""

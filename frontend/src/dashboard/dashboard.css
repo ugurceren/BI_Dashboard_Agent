@@ -374,3 +374,13 @@
   text-overflow: ellipsis;
 }
 .db-echart.is-clickable canvas { cursor: pointer; }
+
+/* veri tarihi (günlük anlık görüntü 'itibarıyla') */
+.db-filter--date { min-width: 0; }
+.db-date-row { display: inline-flex; align-items: center; gap: 6px; }
+.db-date-input { height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--db-border, rgba(127,127,127,.35));
+  background: var(--db-surface, #fff); color: var(--db-text, inherit); font: inherit; font-size: 12.5px; color-scheme: light dark; }
+.db-date-reset { border: 0; background: none; padding: 0 2px; font: inherit; font-size: 11.5px; color: var(--db-accent, #2563eb); cursor: pointer; }
+.db-date-hint { font-size: 11px; color: var(--db-muted); white-space: nowrap; }
+.db-header--banner .db-date-hint { color: var(--db-banner-text); opacity: .8; }
+.db-header--banner .db-date-reset { color: var(--db-banner-text); text-decoration: underline; text-underline-offset: 3px; }

@@ -10,6 +10,10 @@
 
 source = "odbc"
 odbc = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=BI_Meta;Trusted_Connection=yes;TrustServerCertificate=yes;"
+# Günlük anlık görüntü (daily snapshot) tarih kolonları: bu adlı kolonu olan tablo / view'larda her kayıt her gün
+# için tekrarlanır (ör. EDWDM view'ları takvimle joinlenmiş, DataDate). Toplam / sayı alırken tek gün seçilmesi
+# zorunlu tutulur; iki anlık görüntü birleştirilirken bu kolonlar da eşlenmeli. Boş liste: kontrol kapalı.
+snapshot_date_columns = ["DataDate"]
 # Kardinalitesi boş ilişkiler için veriden (unique index / COUNT DISTINCT) otomatik tespit
 infer_cardinality = true
 

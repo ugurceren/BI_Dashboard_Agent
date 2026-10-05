@@ -132,8 +132,11 @@ def analyse(dd, accessible: Callable[[Any], bool]) -> list[dict[str, Any]]:
         kind = kinds.get(t.name, "")
         score = (3 if kind == "fact" else 0) + min(len(measures), 3) + (2 if time else 0) + min(len(dims), 3) \
             + (1 if t.documented else 0) + (1 if t.description else 0)
+        snap = getattr(t, "snapshot_date", "")
+        if snap:   # günlük anlık görüntü: tarih kolonu ölçü / kırılım değildir
+            dims = [d for d in dims if d.lower() != snap.lower()]
         out.append({"table": t, "measures": [_label(c) for c in measures[:2]], "dims": dims[:2], "time": time, "score": score,
-                    "domain": (t.subject_area or "").strip() or "Diğer"})
+                    "domain": (t.subject_area or "").strip() or "Diğer", "snapshot": bool(snap)})
     out.sort(key=lambda x: -x["score"])
     return out
 
@@ -143,6 +146,12 @@ def _sentence(a: dict[str, Any]) -> str:
     m, d = a["measures"], a["dims"]
     mtxt = " ve ".join(m)
     dtxt = " ve ".join(d)
+    if a.get("snapshot"):   # günlük anlık görüntü: güncel durum son gün, trend ay sonu değerleriyle
+        if m and d:
+            return f"{t}: son gün itibarıyla {dtxt} bazında {mtxt} ve ay sonu trendi"
+        if m:
+            return f"{t}: son gün itibarıyla {mtxt} ve ay sonu trendi"
+        return f"{t}: son gün itibarıyla {dtxt} bazında kayıt sayısı ve ay sonu trendi"
     if m and a["time"] and d:
         return f"{t}: {mtxt} aylık trendi, {dtxt} kırılımında"
     if m and a["time"]:
@@ -185,7 +194,7 @@ def rule_suggestions(dd, accessible: Callable[[Any], bool], reports: list[dict[s
         out.append({
             "id": hashlib.sha1(f"{t.name}|{a['measures']}|{a['dims']}".encode()).hexdigest()[:10],
             "domain": a["domain"], "table": t.display_name or t.name, "text": _sentence(a),
-            "measures": a["measures"], "dims": a["dims"], "time": a["time"],
+            "measures": a["measures"], "dims": a["dims"], "time": a["time"], "snapshot": a.get("snapshot", False),
             "similar_report": {"id": similar["id"], "title": similar.get("title") or "Başlıksız"} if similar else None,
         })
     return out
@@ -197,6 +206,8 @@ kullanıcısının yeni rapor isterken yazacağı TEK, doğal Türkçe cümleye 
 Kurallar:
 - Yalnız verilen tablo, ölçü ve kırılımları kullan; yeni metrik, oran, hedef ya da tablo UYDURMA.
 - "time": true ise zaman trendini anabilirsin; false ise zaman/trend sözü etme.
+- "anlik_goruntu": true ise veri günlük anlık görüntüdür: "son gün itibarıyla" / "ay sonu" ifadesini koru, günleri toplayan
+  "toplam … trendi" deme.
 - En fazla 18 kelime; teknik ad (şema, tablo adı, alt çizgi) yazma; iş adlarını kullan.
 - İngilizce adları doğru Türkçeleştir (Amount → Tutar, Quantity → Adet, Rate → Kur / Oran, Sales → Satış,
   Region → Bölge, Category → Kategori); iki farklı ölçüyü ya da kırılımı aynı kelimeye çevirme.
@@ -213,7 +224,7 @@ def _cache_file(cache_dir: Path) -> Path:
     return cache_dir / "suggestions.json"
 
 
-PROMPT_VERSION = "2"   # istem değişince önbellekteki eski LLM metinleri kullanılmaz
+PROMPT_VERSION = "3"   # istem değişince önbellekteki eski LLM metinleri kullanılmaz
 
 
 def cache_key(model: str, items: list[dict[str, Any]]) -> str:
@@ -251,7 +262,7 @@ def polish(llm, items: list[dict[str, Any]], cache_dir: Path) -> list[str] | Non
     if hit is not None:
         return hit
     skel = [{"tablo": i["text"].split(":")[0], "ölçüler": i["measures"], "kırılımlar": i["dims"], "time": i["time"],
-             "domain": i["domain"]} for i in items]
+             "domain": i["domain"], **({"anlik_goruntu": True} if i.get("snapshot") else {})} for i in items]
     try:
         turn = llm.chat([{"role": "user", "content": _PROMPT + json.dumps(skel, ensure_ascii=False, indent=1)}])
     except Exception as e:  # noqa: BLE001 — LLM yoksa kural önerileri yeterli

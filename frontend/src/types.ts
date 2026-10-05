@@ -136,6 +136,18 @@ export interface FilterInfo {
 export interface FiltersResponse {
   filters: FilterInfo[];
   bindings: Record<string, Record<string, string>>;
+  /** rapor günlük anlık görüntü (DataDate) okuyorsa: 'itibarıyla' tarihi seçicisi */
+  data_date?: DataDateInfo;
+}
+
+/** Günlük anlık görüntü veri tarihi: seçilen gün itibarıyla (boşsa son gün) */
+export interface DataDateInfo {
+  key: string;                 // "__as_of__" (seçim anahtarı)
+  column: string;              // ör. DataDate
+  table: string;
+  tables: string[];
+  min: string | null;          // YYYY-MM-DD
+  max: string | null;
 }
 
 export interface Selection {

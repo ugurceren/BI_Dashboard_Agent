@@ -4,7 +4,7 @@
 //    (Power BI dilimleyicisi + görselden tıklayarak çapraz filtre). Renderer yalnızca gösterir ve bildirir.
 //  * istemci (bağımsız HTML): backend yok; filtre, model kolonuna bağlı dataset alanlarında tarayıcıda uygulanır.
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CellValue, CrossSelection, DashboardData, Filter, FilterInfo, ReportSpec } from "../types";
+import type { CellValue, CrossSelection, DashboardData, DataDateInfo, Filter, FilterInfo, ReportSpec } from "../types";
 import { buildTables, filterOptions, type FilterState } from "./data";
 import { formatCategory } from "./format";
 import { fieldLabel } from "./charts";
@@ -23,6 +23,8 @@ export interface ModelFiltering {
   onCross: (next: CrossSelection | null) => void;
   applied: Record<string, string[]>;                 // dataset → uygulanan model filtre anahtarları
   bindings: Record<string, Record<string, string>>;  // dataset → alan → model kolonu
+  /** günlük anlık görüntü okuyan raporlarda 'itibarıyla' tarihi (seçim: selections[dataDate.key]) */
+  dataDate?: DataDateInfo;
 }
 
 export interface DashboardRendererProps {
@@ -127,8 +129,16 @@ export function DashboardRenderer({ spec, data, loading, model }: DashboardRende
           <h1 className="db-title">{spec?.title || "Başlıksız rapor"}</h1>
           {spec?.subtitle ? <p className="db-subtitle">{spec.subtitle}</p> : null}
         </div>
-        {filters.length || cross ? (
+        {filters.length || cross || model?.dataDate ? (
           <div className="db-filters">
+            {model?.dataDate ? (
+              <DataDateControl info={model.dataDate} value={String(model.selections[model.dataDate.key]?.[0] ?? "")}
+                onChange={(v) => {
+                  const next = { ...model.selections };
+                  if (v) next[model.dataDate!.key] = [v]; else delete next[model.dataDate!.key];
+                  model.onSelections(next);
+                }} />
+            ) : null}
             {filters.map((f) => (
               <FilterControl
                 key={f.id}
@@ -303,3 +313,22 @@ function MultiSelect({ filter, options, value, onChange }: {
 }
 
 export default DashboardRenderer;
+
+const trDay = (iso: string | null | undefined) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}` : "—");
+
+/** Veri tarihi (itibarıyla): boşsa son gün; seçilen gün yoksa öncesindeki son günün verisi gösterilir. */
+function DataDateControl({ info, value, onChange }: { info: DataDateInfo; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="db-filter db-filter--date" title={`Günlük anlık görüntü (${info.column}): ${info.tables.join(", ")}\n`
+      + `Veri aralığı: ${trDay(info.min)} – ${trDay(info.max)}. Seçilen gün itibarıyla değerler gösterilir; o gün veri yoksa öncesindeki son gün kullanılır.`}>
+      <span className="db-filter-label">Veri tarihi</span>
+      <span className="db-date-row">
+        <input type="date" className="db-date-input" value={value} min={info.min ?? undefined} max={info.max ?? undefined}
+          onChange={(e) => onChange(e.target.value)} aria-label="Veri tarihi" />
+        {value ? (
+          <button type="button" className="db-date-reset" onClick={() => onChange("")} title="Son güne dön">Son gün</button>
+        ) : <span className="db-date-hint">son gün: {trDay(info.max)}</span>}
+      </span>
+    </label>
+  );
+}

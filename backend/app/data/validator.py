@@ -7,6 +7,7 @@ Kurallar (hepsi modelden bağımsız, deterministik):
   * rol PII görmeye yetkili değilse sözlükte is_pii=true olan kolonlar ve PII içeren tablolarda SELECT * engellenir
   * JOIN'ler sözlükteki ilişkilerle eşlenir: eksik bileşik anahtar ve satır çoğalması (fan-out / chasm trap)
     reddedilir, sözlükte olmayan birleştirmeler uyarı olarak döner (join_guard.py)
+  * günlük anlık görüntülerde (DataDate) gün seçilmeden SUM / COUNT ve tarih eşlenmeden join reddedilir (snapshot_guard.py)
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import sqlglot
 from sqlglot import exp
 
 from app.data.join_guard import JoinGuard
+from app.data.snapshot_guard import SnapshotGuard
 from app.dictionary.repository import DataDictionary
 
 
@@ -74,6 +76,7 @@ class SqlValidator:
         self.dialect = dialect
         self.denied_functions = {f.lower() for f in denied_functions}
         self.join_guard = JoinGuard(dictionary)
+        self.snapshot_guard = SnapshotGuard(dictionary)
 
     def validate(self, sql: str, policy: RolePolicy, *, strict_joins: bool = True, autofix: bool = True) -> ValidationResult:
         """strict_joins=False: JOIN çoğalma hataları uyarıya düşer (kullanıcının kendi sorgu ekranı).
@@ -174,9 +177,10 @@ class SqlValidator:
         if errors:
             return ValidationResult(False, sorted(set(errors)), sorted(tables))
         joins = self.join_guard.check(tree)
-        if joins.errors and strict_joins:
-            return ValidationResult(False, joins.errors, sorted(tables), warnings=joins.warnings)
-        warnings = list(joins.errors) + list(joins.warnings)
+        snap = self.snapshot_guard.check(tree)   # günlük anlık görüntüler: gün seçilmeden toplama / tarih eşlenmeden join
+        if (joins.errors or snap.errors) and strict_joins:
+            return ValidationResult(False, joins.errors + snap.errors, sorted(tables), warnings=joins.warnings + snap.warnings)
+        warnings = list(joins.errors) + list(snap.errors) + list(joins.warnings) + list(snap.warnings)
         if not autofix:
             return ValidationResult(True, [], sorted(tables), sql, warnings)
         sql = self._distinct_counts(tree, sql, tables, warnings)

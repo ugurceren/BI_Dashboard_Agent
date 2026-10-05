@@ -252,6 +252,8 @@ export default function App() {
       const vals = selections[f.id];
       if (f.key && vals?.length) out.push({ key: f.key, values: vals });
     }
+    const dd = filterInfo?.data_date;
+    if (dd && selections[dd.key]?.length) out.push({ key: dd.key, values: selections[dd.key] });   // veri tarihi (itibarıyla)
     if (cross) out.push({ key: cross.key, values: [cross.value], exclude: [cross.datasetId] });
     return out;
   }, [filterInfo, selections, cross]);
@@ -281,7 +283,7 @@ export default function App() {
     api.filters(state.id).then((fi) => {
       if (!alive) return;
       setFilterInfo(fi);
-      const ids = new Set(fi.filters.map((f) => f.id));
+      const ids = new Set([...fi.filters.map((f) => f.id), ...(fi.data_date ? [fi.data_date.key] : [])]);
       setSelections((s) => Object.fromEntries(Object.entries(s).filter(([k]) => ids.has(k))));
       setCross((c) => (c && fi.bindings[c.datasetId] ? c : null));
     }).catch(() => alive && setFilterInfo(null));
@@ -494,7 +496,7 @@ export default function App() {
                 {data ? (
                   <DashboardRenderer spec={state.spec} data={data} loading={dataLoading} model={filterInfo ? {
                     filters: filterInfo.filters, bindings: filterInfo.bindings, applied: data?.applied ?? {},
-                    selections, onSelections: setSelections, cross, onCross: setCross,
+                    selections, onSelections: setSelections, cross, onCross: setCross, dataDate: filterInfo.data_date,
                   } : undefined} />
                 ) : <div className="panel-empty"><span className="spinner" /><p>Veri yükleniyor…</p></div>}
               </>
@@ -535,7 +537,7 @@ export default function App() {
           onReloadData={() => state && void loadData(state.id, selectionList)}
           model={filterInfo ? {
             filters: filterInfo.filters, bindings: filterInfo.bindings, applied: data?.applied ?? {},
-            selections, onSelections: setSelections, cross, onCross: setCross,
+            selections, onSelections: setSelections, cross, onCross: setCross, dataDate: filterInfo.data_date,
           } : undefined}
         />
       </main>

@@ -166,6 +166,37 @@ class ModelFilterEngine:
                 sel.where(c, append=True, copy=False)
         return tree.sql(dialect=self.dialect), sorted(applied)
 
+    # ------------------------------------------------------------------ veri tarihi (günlük anlık görüntü)
+    def snapshot_tables(self, sql: str) -> list[str]:
+        """SQL'in okuduğu günlük anlık görüntü tabloları (DataDate …), sık kullanılan önce."""
+        try:
+            tree = sqlglot.parse_one(sql, read=self.dialect)
+        except sqlglot.errors.ParseError:
+            return []
+        ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
+        out: list[str] = []
+        for sel in tree.find_all(exp.Select):
+            for t in _base_tables(sel, self.dd, ctes).values():
+                if getattr(self.dd.tables[t], "snapshot_date", ""):
+                    out.append(t)
+        return sorted(set(out), key=lambda t: -out.count(t))
+
+    def as_of(self, sql: str, day: str) -> tuple[str, bool]:
+        """'İtibarıyla' tarihi: anlık görüntü okuyan HER SELECT bloğuna  alias.DataDate <= 'gün'  eklenir.
+        Böylece  (SELECT MAX(DataDate) FROM …)  seçilen günü (o gün yoksa öncesindeki son günü) verir, trendler o
+        günde biter, 'geçen yıl aynı gün' karşılaştırmaları da seçilen güne göre kayar. (yeni_sql, uygulandı mı)"""
+        tree = sqlglot.parse_one(sql, read=self.dialect)
+        ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
+        lit = exp.Cast(this=exp.Literal.string(day), to=exp.DataType.build("DATE"))
+        done = False
+        for sel in list(tree.find_all(exp.Select)):
+            for alias, t in _base_tables(sel, self.dd, ctes).items():
+                dc = getattr(self.dd.tables[t], "snapshot_date", "")
+                if dc:
+                    sel.where(exp.LTE(this=exp.column(dc, table=alias), expression=lit.copy()), append=True, copy=False)
+                    done = True
+        return (tree.sql(dialect=self.dialect), True) if done else (sql, False)
+
     # ------------------------------------------------------------------ alan kökeni (lineage)
     def lineage(self, sql: str) -> dict[str, str]:
         """Dataset çıktı kolonu → 'şema.tablo.kolon' (yalnız doğrudan kolon referansları)."""

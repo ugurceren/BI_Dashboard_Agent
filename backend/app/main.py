@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -99,6 +100,7 @@ def build_services() -> Services:
         # sözlük olmasa da veritabanındaki yetkili tablo / view'lar görünsün ve sorgulanabilsin
         try:
             dictionary._merge_catalog()
+            dictionary.mark_snapshots()
         except Exception as ce:  # noqa: BLE001
             log.warning("Veritabanı kataloğu da okunamadı: %s", ce)
     policy_cfg = load_toml(settings.policy_config)
@@ -637,19 +639,38 @@ def _filter_options(key: str, role: str) -> list[Any]:
     return values
 
 
+AS_OF_KEY = "__as_of__"   # dashboard seçimi: günlük anlık görüntülerde 'itibarıyla' tarihi (YYYY-MM-DD)
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
 def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """selections: [{key: 'şema.tablo.kolon', values: [...], exclude: [dataset_id, ...]}]"""
+    """selections: [{key: 'şema.tablo.kolon', values: [...], exclude: [dataset_id, ...]}];
+    key '__as_of__' → günlük anlık görüntülerin veri tarihi (boşsa son gün)."""
     eng = _engine()
     out: dict[str, Any] = {}
     applied: dict[str, list[str]] = {}
+    as_of = next((str(sel["values"][0])[:10] for sel in selections or []
+                  if sel.get("key") == AS_OF_KEY and sel.get("values")), None)
+    if as_of and not _DAY.match(as_of):
+        raise HTTPException(400, "Veri tarihi YYYY-AA-GG biçiminde olmalı.")
     for did, d in _all_datasets(s).items():
         sql = d.sql
+        dated = False
+        if as_of:
+            try:
+                sql, dated = eng.as_of(d.sql, as_of)
+                if not dated and d.view and d.original_sql:   # view toplulaştırılmış: tarih kaynak SQL'e uygulanır
+                    alt, dated = eng.as_of(d.original_sql, as_of)
+                    sql = alt if dated else sql
+            except Exception as e:  # noqa: BLE001
+                log.warning("Veri tarihi uygulanamadı (%s): %s", did, e)
+        base_sql = sql
         active = [ModelFilter(*sel["key"].rsplit(".", 1), list(sel["values"]))
                   for sel in selections or [] if sel.get("values") and did not in (sel.get("exclude") or [])
-                  and "." in sel.get("key", "")]
+                  and "." in sel.get("key", "") and sel.get("key") != AS_OF_KEY]
         if active:
             try:
-                sql, applied[did] = eng.apply(sql, active)
+                sql, applied[did] = eng.apply(base_sql, active)
             except Exception as e:  # noqa: BLE001 — filtre uygulanamazsa filtresiz göster
                 log.warning("Filtre uygulanamadı (%s): %s", did, e)
                 applied[did] = []
@@ -657,13 +678,45 @@ def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[s
             # Bu durumda view'ın kaynak SQL'i filtrelenerek çalıştırılır (kolonlar aynı; filtresizken view kullanılır).
             if d.view and d.original_sql and len(applied.get(did, [])) < len({f.key for f in active}):
                 try:
-                    alt_sql, alt_applied = eng.apply(d.original_sql, active)
+                    src = eng.as_of(d.original_sql, as_of)[0] if as_of else d.original_sql
+                    alt_sql, alt_applied = eng.apply(src, active)
                     if len(alt_applied) > len(applied.get(did, [])):
                         sql, applied[did] = alt_sql, alt_applied
                 except Exception as e:  # noqa: BLE001
                     log.warning("View kaynağına filtre uygulanamadı (%s): %s", did, e)
+        if dated:
+            applied.setdefault(did, []).append(AS_OF_KEY)
         out[did] = _dataset_payload(sql, s.user_role)
-    return {"datasets": out, "applied": applied}
+    return {"datasets": out, "applied": applied, **({"as_of": as_of} if as_of else {})}
+
+
+def _data_date_info(s, role: str) -> dict[str, Any] | None:
+    """Rapor günlük anlık görüntü okuyorsa veri tarihi seçicisi: kolon, tablolar, en eski / en yeni gün."""
+    eng = _engine()
+    tables: list[str] = []
+    for d in _all_datasets(s).values():
+        for sql in (d.sql, d.original_sql):
+            if sql:
+                tables += eng.snapshot_tables(sql)
+    if not tables:
+        return None
+    main = max(set(tables), key=tables.count)
+    dd = state.services.dictionary
+    t = dd.tables[main]
+    key = f"{role}|asof|{main}"
+    hit = _options_cache.get(key)
+    if hit and time.time() - hit[0] < CACHE_TTL_S * 5:
+        lo, hi = hit[1]
+    else:
+        dialect = state.services.connector.dialect
+        c = exp.column(t.snapshot_date)
+        sql = exp.select(exp.Min(this=c).as_("min_d"), exp.Max(this=c.copy()).as_("max_d")) \
+            .from_(exp.to_table(t.display_name or main, dialect=dialect)).sql(dialect=dialect)
+        rows = _dataset_payload(sql, role).get("rows") or []
+        lo, hi = (str(rows[0][0])[:10] if rows and rows[0][0] else None), (str(rows[0][1])[:10] if rows and rows[0][1] else None)
+        _options_cache[key] = (time.time(), [lo, hi])
+    return {"key": AS_OF_KEY, "column": t.snapshot_date, "table": t.display_name or main,
+            "tables": sorted({dd.tables[x].display_name or x for x in tables}), "min": lo, "max": hi}
 
 
 @app.get("/api/sessions/{sid}/dashboard-data")
@@ -695,7 +748,12 @@ def dashboard_filters(sid: str) -> dict[str, Any]:
     defs = _filter_defs(s, bindings)
     for f in defs:
         f["options"] = _filter_options(f["key"], s.user_role) if f["key"] else []
-    return {"filters": defs, "bindings": bindings}
+    try:
+        data_date = _data_date_info(s, s.user_role)
+    except Exception as e:  # noqa: BLE001 — tarih seçicisi olmadan da dashboard çalışsın
+        log.warning("Veri tarihi aralığı alınamadı: %s", e)
+        data_date = None
+    return {"filters": defs, "bindings": bindings, **({"data_date": data_date} if data_date else {})}
 
 
 @app.get("/api/sessions/{sid}/export/html")
