@@ -216,6 +216,32 @@ def data_odbc(settings: Settings) -> str:
     return build_odbc(cfg["data"]) if cfg and cfg.get("data") else settings.sqlserver_odbc
 
 
+def _db_list(v: Any) -> list[str]:
+    items = v if isinstance(v, list) else str(v or "").replace(";", ",").split(",")
+    out: list[str] = []
+    for x in items:
+        x = str(x).strip().strip("[]")
+        if x and x.lower() not in {o.lower() for o in out}:
+            out.append(x)
+    return out
+
+
+def extra_databases(settings: Settings) -> list[str]:
+    """Veri kaynağının ek veritabanları (aynı sunucu): arayüz (connections.json data.extra_databases) ya da .env
+    SQLSERVER_EXTRA_DATABASES. Birincil veritabanı (DATABASE=) listede olsa bile çıkarılır."""
+    cfg = load_connections()
+    if cfg and cfg.get("data"):
+        extras, primary = _db_list(cfg["data"].get("extra_databases")), cfg["data"].get("database") or ""
+    else:
+        extras, primary = _db_list(settings.sqlserver_extra_databases), parse_odbc(settings.sqlserver_odbc).get("database") or ""
+    return [d for d in extras if d.lower() != str(primary).lower()]
+
+
+def database_odbc(settings: Settings, database: str) -> str:
+    """Veri bağlantısının aynı sunucu / kimlik bilgileriyle başka bir veritabanına bağlantı cümlesi."""
+    return _replace_db(data_odbc(settings), database)
+
+
 def open_dictionary_reader(fields: dict[str, Any]):
     """Sözlük kaynağına göre okuyucu + bağlantı bilgisi: SQL Server, MySQL ya da Excel."""
     from app.dictionary.sources import ExcelReader, MySQLReader, SqlServerReader
@@ -278,6 +304,7 @@ def effective(settings: Settings) -> dict[str, Any]:
     cfg = load_connections() or {}
     data_src = "ui" if cfg.get("data") else "env"
     data = _public(cfg["data"]) if cfg.get("data") else parse_odbc(settings.sqlserver_odbc)
+    data["extra_databases"] = extra_databases(settings)
     if cfg.get("dictionary"):
         dic = _public(cfg["dictionary"])
         dic.setdefault("kind", "sqlserver")

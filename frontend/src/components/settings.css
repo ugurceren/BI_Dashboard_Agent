@@ -134,3 +134,7 @@
 .st-info-icon { color: var(--accent); flex: none; display: inline-flex; margin-top: 1px; }
 .st-info .small { line-height: 1.55; }
 .st-info code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }
+
+/* ek veritabanları test sonucu */
+.st-extra-list { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.st-extra-list li.is-bad { color: #dc2626; }

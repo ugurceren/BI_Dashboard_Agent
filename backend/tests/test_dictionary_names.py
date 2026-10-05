@@ -110,7 +110,8 @@ def test_corporate_excel_layout_view_name_and_camelcase_headers(settings, tmp_pa
     assert roles == {"column": "columns", "table": "tables"}    # Excel yüklenince sayfalar otomatik seçilir
     got = collect(reader, {"tables": ["table"], "columns": ["column"], "relationships": [], "metrics": []})
     assert not got.errors, got.errors
-    assert {r["table_name"] for r in got.rows["columns"]} == {"CLT.vRepurchaseGuarantee", "CLT.vRepurchaseGuaranteeMasked"}
+    # DatabaseName kolonu okunur (EDWDM.CLT.v…); birincil veritabanı öneki ad çözümlemede atılır (aşağıda clt.v…)
+    assert {r["table_name"] for r in got.rows["columns"]} == {"EDWDM.CLT.vRepurchaseGuarantee", "EDWDM.CLT.vRepurchaseGuaranteeMasked"}
 
     con = CatalogConnector({"CLT.vRepurchaseGuarantee": ("V", ["CollateralName", "CustomerPartyId"]),
                             "CLT.vRepurchaseGuaranteeMasked": ("V", ["CustomerName"]),

@@ -20,7 +20,7 @@ from sqlglot import exp
 
 from app.data.join_guard import JoinGuard
 from app.data.snapshot_guard import SnapshotGuard
-from app.dictionary.repository import DataDictionary
+from app.dictionary.repository import DataDictionary, sql_table_key
 
 
 # sistem / katalog şemaları her zaman kapalı (sunucu ve veritabanı bilgisi sızmasın)
@@ -44,8 +44,10 @@ class RolePolicy:
         return "*" in allowed or s in allowed
 
     def denial_reason(self, full_name: str) -> str | None:
-        """Politika gerekçesi (veritabanı yetkisinden bağımsız): None → politika izin veriyor."""
-        schema = full_name.split(".", 1)[0]
+        """Politika gerekçesi (veritabanı yetkisinden bağımsız): None → politika izin veriyor.
+        full_name: şema.nesne ya da (ek veritabanı) db.şema.nesne — şema sondan ikinci parçadır."""
+        parts = full_name.split(".")
+        schema = parts[-2] if len(parts) >= 2 else parts[0]
         if not self.schema_allowed(schema):
             return f"'{schema}' şeması bu rol için kapalı"
         if full_name.lower() in {d.lower() for d in self.denied_tables}:
@@ -106,20 +108,26 @@ class SqlValidator:
         cte_names = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
         alias_to_table: dict[str, str] = {}
         tables: set[str] = set()
+        renamed = False
         for t in tree.find_all(exp.Table):
             if not isinstance(t.this, exp.Identifier):
                 errors.append(f"Tablo fonksiyonlarına izin yok: {t.this.sql(self.dialect)[:80]}")
                 continue
             if not t.db and t.name.lower() in cte_names:
                 continue
-            if t.catalog:
-                # BaskaDB.dbo.Tablo / linked server: izin kontrolünü atlatmasın
-                errors.append(f"Veritabanı/sunucu adı kullanmayın: '{t.sql(self.dialect)}' yerine '{t.db}.{t.name}' yazın.")
-                continue
             if not t.db:
                 errors.append(f"Tabloyu şemasıyla yazın: '{t.name}' yerine ör. 'dbo.{t.name}'.")
                 continue
-            full = f"{t.db}.{t.name}".lower()
+            full = sql_table_key(t, self.dictionary)
+            if full is None:
+                # seçili olmayan veritabanı (BaskaDB.dbo.Tablo): izin kontrolünü atlatmasın; sunucu adı (4 parça) zaten yukarıda
+                sel = ", ".join(getattr(self.dictionary, "databases", lambda: [])()) or "yalnız bağlı veritabanı"
+                errors.append(f"'{t.catalog}' veritabanı veri kaynağında seçili değil: '{t.sql(self.dialect)}'. "
+                              f"Kullanılabilir veritabanları: {sel}.")
+                continue
+            if t.catalog and full.count(".") == 1:   # birincil veritabanının adı yazılmış: gereksiz önek atılır
+                t.set("catalog", None)
+                renamed = True
             schema = t.db.lower()
             if not policy.schema_allowed(schema):
                 errors.append(f"'{full}': '{schema}' şemasına erişim yetkiniz yok.")
@@ -140,6 +148,9 @@ class SqlValidator:
             tables.add(full)
             alias_to_table[t.alias_or_name.lower()] = full
             alias_to_table.setdefault(t.name.lower(), full)
+
+        if renamed:
+            sql = tree.sql(dialect=self.dialect)
 
         # --- değişkenler (@x, @@SERVERNAME ...): tek SELECT'te gerekmez, sistem bilgisi sızdırabilir
         for node in tree.find_all(*[getattr(exp, n) for n in ("Parameter", "SessionParameter", "Placeholder") if hasattr(exp, n)]):
@@ -193,12 +204,14 @@ class SqlValidator:
         Yazılmasa da eklenir (alt sorgular ve CTE içleri dahil); zaten varsa tekrar eklenmez; CTE adlarına eklenmez.
         Yalnız veritabanı adı kesin eşleşirse ve SQL Server'da (dictionary.toml: nolock_databases)."""
         nolock = getattr(self.dictionary, "nolock", None)
-        if self.dialect != "tsql" or not callable(nolock) or not nolock():
+        if self.dialect != "tsql" or not callable(nolock):
             return sql
         ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
         changed = False
         for t in tree.find_all(exp.Table):
             if not isinstance(t.this, exp.Identifier) or (not t.db and t.name.lower() in ctes):
+                continue
+            if not nolock(sql_table_key(t, self.dictionary)):   # nesnenin kendi veritabanının kuralı (EDWDM / EDW …)
                 continue
             hints = list(t.args.get("hints") or [])
             if any(isinstance(v, exp.Var) and v.name.upper() == "NOLOCK" for h in hints for v in h.find_all(exp.Var)):

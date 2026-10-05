@@ -19,6 +19,15 @@ from app.data.connector import Connector, create_connector
 log = logging.getLogger(__name__)
 
 
+def sql_table_key(t, dd) -> str | None:
+    """SQL'deki tablo referansı (sqlglot exp.Table) → sözlük anahtarı: birincil veritabanı şema.nesne, seçili ek
+    veritabanı db.şema.nesne; şemasız ya da seçili olmayan veritabanı → None."""
+    fn = getattr(dd, "table_key", None)
+    if callable(fn):
+        return fn(t.catalog, t.db, t.name)
+    return f"{t.db}.{t.name}".lower() if t.db and not t.catalog else None
+
+
 @dataclass
 class DDColumn:
     table: str
@@ -200,6 +209,8 @@ class DataDictionary:
         self.name_changes: dict[str, str] = {}   # sözlükteki yazım → katalogdaki ad (ör. vw_Satis → dbo.vw_Satis)
         self.missing_in_db: list[str] = []       # sözlükte olup veritabanında bulunamayan nesneler
         self.database: str | None = None         # veri bağlantısının veritabanı (DB_NAME); kurala özel davranışlar için
+        self.extra_databases: list[str] = []     # aynı sunucudaki ek veritabanları (nesne anahtarı: db.şema.nesne)
+        self.extra_errors: dict[str, str] = {}   # okunamayan ek veritabanları → hata
 
     # ------------------------------------------------------------------ yükleme
     def _connector(self, cfg: dict) -> Connector:
@@ -316,8 +327,10 @@ class DataDictionary:
 
         from app.dictionary.names import NameResolver, canon
 
-        resolver = NameResolver((sch, obj) for sch, obj, *_ in catalog[0]) if catalog else None
-        fix = resolver.resolve if resolver else canon   # katalog yoksa yalnız parantez / veritabanı öneki temizlenir
+        resolver = NameResolver(((sch, obj) for sch, obj, *_ in catalog[0]), self.extra_databases) if catalog else None
+        extras = tuple(self.extra_databases)
+        # katalog yoksa yalnız parantez / birincil veritabanı öneki temizlenir
+        fix = resolver.resolve if resolver else (lambda n: canon(n, extras))
         name_keys = {"tables": ("table_name",), "columns": ("table_name",), "relationships": ("from_table", "to_table"),
                      "metrics": ("base_table",)}
 
@@ -414,27 +427,59 @@ class DataDictionary:
         ("Masked", "maskeli", "Personel dahil tüm müşteriler maskeli görünür."),
     ]
 
-    def in_scope(self, key: str) -> bool:
+    def in_scope(self, key: str, db: str | None = None) -> bool:
         """EDWDM'e özgü kurallar (view yetki varyantları, günlük anlık görüntü) yalnız listelenen veritabanlarında:
-        dictionary.toml'daki <key> (varsayılan ["EDWDM"]); boş liste = her veritabanı. Veritabanı adı bilinmiyorsa geçerli."""
+        dictionary.toml'daki <key> (varsayılan ["EDWDM"]); boş liste = her veritabanı. db: nesnenin veritabanı
+        (verilmezse birincil). Veritabanı adı bilinmiyorsa geçerli."""
         try:
             dbs = load_toml(self.settings.dictionary_config).get(key, ["EDWDM"])
         except Exception:  # noqa: BLE001
             dbs = ["EDWDM"]
-        if not isinstance(dbs, list) or not dbs or not self.database:
+        db = db or self.database
+        if not isinstance(dbs, list) or not dbs or not db:
             return True
-        return self.database.lower() in {str(d).lower() for d in dbs}
+        return db.lower() in {str(d).lower() for d in dbs}
 
-    def nolock(self) -> bool:
+    # ------------------------------------------------------------------ çok veritabanı
+    def table_key(self, catalog: str, schema: str, name: str) -> str | None:
+        """SQL'deki tablo referansı → sözlük anahtarı. Birincil veritabanı: şema.nesne; seçili ek veritabanı:
+        db.şema.nesne; seçili olmayan veritabanı → None (doğrulayıcı reddeder)."""
+        if not schema or not name:
+            return None
+        if catalog:
+            c = catalog.lower()
+            if self.database and c == self.database.lower():
+                return f"{schema}.{name}".lower()
+            if c in {d.lower() for d in self.extra_databases}:
+                return f"{c}.{schema}.{name}".lower()
+            return None
+        return f"{schema}.{name}".lower()
+
+    def db_of(self, key: str) -> str | None:
+        """Sözlük anahtarının veritabanı: db.şema.nesne → db; şema.nesne → birincil veritabanı."""
+        parts = key.split(".")
+        if len(parts) >= 3:
+            return next((d for d in self.extra_databases if d.lower() == parts[0]), parts[0])
+        return self.database
+
+    def databases(self) -> list[str]:
+        return ([self.database] if self.database else []) + list(self.extra_databases)
+
+    def nolock(self, key: str | None = None) -> bool:
         """Kurum SQL standardı: uygulamanın ürettiği sorgulara WITH (NOLOCK) (dictionary.toml: nolock_databases).
-        Diğer kurallardan farklı olarak veritabanı adı KESİN eşleşmeli (bilinmiyorsa eklenmez; SQL Server dışında bozar)."""
-        if not self.database or getattr(self._data_connector, "dialect", "") != "tsql":
+        Diğer kurallardan farklı olarak veritabanı adı KESİN eşleşmeli (bilinmiyorsa eklenmez; SQL Server dışında bozar).
+        key: nesnenin sözlük anahtarı (ek veritabanındaysa o veritabanının kuralı geçerli)."""
+        return self.nolock_db(self.db_of(key) if key else self.database)
+
+    def nolock_db(self, db: str | None) -> bool:
+        """Veritabanı veri ambarı SQL standartları kapsamında mı (nolock_databases; ad kesin eşleşmeli, SQL Server)."""
+        if not db or getattr(self._data_connector, "dialect", "") != "tsql":
             return False
-        return self.in_scope("nolock_databases")
+        return self.in_scope("nolock_databases", db)
 
     def _variant_base(self, sch: str, obj: str) -> tuple["DDTable", tuple[str, str, str]] | None:
         """vXMasked / vXPersonnelExcluded / vXPersonnelMasked → sözlükte tanımlı ana view (vX) varsa onu döner."""
-        if not self.in_scope("view_variant_databases"):
+        if not self.in_scope("view_variant_databases", self.db_of(f"{sch}.{obj}")):
             return None
         low = obj.lower()
         for v in self.VIEW_VARIANTS:
@@ -501,26 +546,53 @@ class DataDictionary:
         except Exception:  # noqa: BLE001 — veritabanı adı bilinmezse kurallar her yerde geçerli kalır
             self.database = None
         try:
-            objs = con.execute(
-                "SELECT s.name, o.name, o.type, "
-                "HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT'), "
-                "CAST(ep.value AS nvarchar(1000)), "
-                "(SELECT SUM(p.rows) FROM sys.partitions p WHERE p.object_id = o.object_id AND p.index_id IN (0, 1)) "
-                "FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id "
-                "LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = o.object_id AND ep.minor_id = 0 "
-                "AND ep.name = 'MS_Description' "
-                "WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 AND s.name NOT IN ('sys', 'INFORMATION_SCHEMA')", 200_000).rows
-            cols = [] if not columns else con.execute(
-                "SELECT s.name, o.name, c.name, TYPE_NAME(c.user_type_id), CAST(ep.value AS nvarchar(1000)) "
-                "FROM sys.columns c JOIN sys.objects o ON o.object_id = c.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id "
-                "LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = c.object_id AND ep.minor_id = c.column_id "
-                "AND ep.name = 'MS_Description' "
-                "WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 AND s.name NOT IN ('sys', 'INFORMATION_SCHEMA') "
-                "ORDER BY s.name, o.name, c.column_id", 2_000_000).rows
+            objs, cols = self._catalog_rows(con, columns)
         except Exception as e:  # noqa: BLE001
             self.catalog_error = str(e)[:300]
             log.warning("Veritabanı kataloğu okunamadı (yetkiler sözlükten bilinemiyor): %s", e)
             return None
+        # ek veritabanları (aynı sunucu): katalog o veritabanının bağlamında okunur (yetki o veritabanında kontrol edilir);
+        # şema adının önüne veritabanı eklenir → anahtar db.şema.nesne, görünen ad EDW.dbo.Nesne
+        self.extra_errors = {}
+        for db in self.extra_databases:
+            try:
+                xo, xc = self._catalog_rows(self._connector_for(db), columns)
+            except Exception as e:  # noqa: BLE001 — bir ek veritabanı okunamazsa diğerleri çalışmaya devam eder
+                self.extra_errors[db] = str(e)[:300]
+                log.warning("Ek veritabanı kataloğu okunamadı (%s): %s", db, e)
+                continue
+            objs = list(objs) + [[f"{db}.{r[0]}", *r[1:]] for r in xo]
+            cols = list(cols) + [[f"{db}.{r[0]}", *r[1:]] for r in xc]
+            log.info("Ek veritabanı %s: %d nesne", db, len(xo))
+        return objs, cols
+
+    def _connector_for(self, database: str):
+        """Aynı sunucu / kimlik bilgileriyle başka bir veritabanına bağlantı (katalog okumak için)."""
+        if getattr(self, "extra_connector", None) is not None:
+            return self.extra_connector(database)
+        from app.data.connections import database_odbc
+        from app.data.connector import SqlServerConnector
+
+        return SqlServerConnector(database_odbc(self.settings, database), self.settings.query_timeout_s)
+
+    @staticmethod
+    def _catalog_rows(con, columns: bool) -> tuple[list, list]:
+        objs = con.execute(
+            "SELECT s.name, o.name, o.type, "
+            "HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT'), "
+            "CAST(ep.value AS nvarchar(1000)), "
+            "(SELECT SUM(p.rows) FROM sys.partitions p WHERE p.object_id = o.object_id AND p.index_id IN (0, 1)) "
+            "FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id "
+            "LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = o.object_id AND ep.minor_id = 0 "
+            "AND ep.name = 'MS_Description' "
+            "WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 AND s.name NOT IN ('sys', 'INFORMATION_SCHEMA')", 200_000).rows
+        cols = [] if not columns else con.execute(
+            "SELECT s.name, o.name, c.name, TYPE_NAME(c.user_type_id), CAST(ep.value AS nvarchar(1000)) "
+            "FROM sys.columns c JOIN sys.objects o ON o.object_id = c.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id "
+            "LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = c.object_id AND ep.minor_id = c.column_id "
+            "AND ep.name = 'MS_Description' "
+            "WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 AND s.name NOT IN ('sys', 'INFORMATION_SCHEMA') "
+            "ORDER BY s.name, o.name, c.column_id", 2_000_000).rows
         return objs, cols
 
     def _merge_catalog(self, catalog: tuple[list, list] | None = None) -> None:
@@ -723,12 +795,16 @@ class DataDictionary:
     def mark_snapshots(self) -> int:
         """Tarih kolonu (DataDate …) olan tablo / view'lar günlük anlık görüntüdür: her kayıt her gün için tekrarlanır.
         Sorgu doğrulayıcı bunlarda tek gün seçilmeden toplama yapılmasını engeller (snapshot_guard.py)."""
-        if not self.in_scope("snapshot_databases"):   # EDWDM dışında DataDate adlı kolon anlık görüntü sayılmaz
-            return 0
         names = {c.lower() for c in self.snapshot_columns()}
         n = 0
+        scope: dict[str | None, bool] = {}
         for t in self.tables.values():
             if t.snapshot_date:
+                continue
+            db = self.db_of(t.name)   # EDWDM dışında DataDate adlı kolon anlık görüntü sayılmaz
+            if db not in scope:
+                scope[db] = self.in_scope("snapshot_databases", db)
+            if not scope[db]:
                 continue
             c = next((c for c in t.columns if c.name.lower() in names), None)
             if c is not None:

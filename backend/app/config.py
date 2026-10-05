@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # --- Veri kaynağı: Microsoft SQL Server (salt-okunur kullanıcı önerilir)
     sqlserver_odbc: str = ("DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=AdventureWorksDW2025;"
                            "Trusted_Connection=yes;TrustServerCertificate=yes;")
+    # aynı sunucudaki ek veritabanları (virgülle; ör. "EDW"): nesneleri VERITABANI.şema.nesne olarak sorgulanır
+    sqlserver_extra_databases: str = ""
     query_timeout_s: float = 30
     preview_rows: int = 50
     max_rows: int = 5000

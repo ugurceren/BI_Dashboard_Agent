@@ -16,6 +16,7 @@ from typing import Any
 from app.config import BACKEND_DIR
 
 RULES_DIR = BACKEND_DIR / "config" / "data_rules"
+SQL_STANDARDS = "SQL_STANDARTLARI.md"   # nolock_databases'teki veritabanları için ortak (veri ambarı kılavuzu)
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
 _PHASE_OF = [(re.compile(r"^(her|genel|tüm|tum)", re.I), "all"), (re.compile(r"^ihtiya", re.I), "requirements"),
              (re.compile(r"^veri", re.I), "data"), (re.compile(r"^tasar", re.I), "design")]
@@ -25,7 +26,7 @@ def rules_file(database: str | None, rules_dir: Path = RULES_DIR) -> Path | None
     if not database or not rules_dir.is_dir():
         return None
     want = database.strip().lower()
-    return next((p for p in sorted(rules_dir.glob("*.md")) if p.stem.lower() == want), None)
+    return next((p for p in sorted(rules_dir.glob("*.md")) if p.stem.lower() == want and p.name != SQL_STANDARDS), None)
 
 
 def parse_sections(text: str) -> dict[str, list[str]]:
@@ -60,22 +61,56 @@ def access_levels(dd, usable) -> list[tuple[str, int]]:
     return [(k, counts[k]) for k in order if k in counts]
 
 
+def databases_block(dd) -> str:
+    """Birden çok veritabanı seçiliyse: hangileri ve nesne adlarının nasıl yazılacağı."""
+    extras = list(getattr(dd, "extra_databases", []) or [])
+    if not extras:
+        return ""
+    primary = getattr(dd, "database", None) or "bağlı veritabanı"
+    lines = [f"- {primary} (bağlı / birincil): nesneler şema.nesne (ör. dbo.Tablo)"]
+    errors = getattr(dd, "extra_errors", {}) or {}
+    for db in extras:
+        lines.append(f"- {db}: nesneler {db}.şema.nesne (ör. {db}.dbo.Tablo)"
+                     + (f" — ŞU AN OKUNAMIYOR ({errors[db][:120]})" if db in errors else ""))
+    return ("## Veri kaynağı veritabanları\n" + "\n".join(lines)
+            + "\nTablo / view adlarını search_dictionary ve get_table_details sonuçlarında yazdığı gibi kullan; farklı "
+              "veritabanlarındaki nesneler aynı sorguda birleştirilebilir. Seçili olmayan bir veritabanını sorgulama.")
+
+
 def phase_rules(services: Any, session: Any, rules_dir: Path = RULES_DIR) -> str:
-    """Bu oturumun aşaması için veritabanı kuralları + erişilebilir yetki seviyeleri (yoksa boş metin)."""
+    """Bu oturumun aşaması için: seçili veritabanları + her veritabanının kural dosyası + erişilebilir yetki seviyeleri."""
     dd = services.dictionary
-    f = rules_file(getattr(dd, "database", None), rules_dir)
-    if f is None:
+    out: list[str] = []
+    block = databases_block(dd)
+    if block:
+        out.append(block)
+    dbs = dd.databases() if callable(getattr(dd, "databases", None)) else ([dd.database] if getattr(dd, "database", None) else [])
+    for db in dbs:
+        f = rules_file(db, rules_dir)
+        if f is None:
+            continue
+        try:
+            sections = parse_sections(f.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        parts = sections.get("all", []) + sections.get(session.phase, [])
+        if parts:
+            scope = "bu veritabanına özgü" if len(dbs) == 1 else f"yalnız {db} nesneleri için"
+            out += [f"## Kurum veri kuralları — {db} ({scope}; genel kurallarla çelişirse BUNLAR geçerli)", *parts]
+    # veri ambarı SQL standartları: seçili veritabanlarından biri nolock_databases listesindeyse (EDWDM, EDW …)
+    std = rules_dir / SQL_STANDARDS
+    nolock_db = getattr(dd, "nolock_db", None)
+    in_std = [db for db in dbs if callable(nolock_db) and nolock_db(db)]
+    if in_std and std.is_file():
+        try:
+            parts = (lambda sec: sec.get("all", []) + sec.get(session.phase, []))(parse_sections(std.read_text(encoding="utf-8")))
+        except OSError:
+            parts = []
+        if parts:
+            out += [f"## Veri ambarı SQL kullanım standartları (geçerli veritabanları: {', '.join(in_std)})", *parts]
+    if not out:
         return ""
-    try:
-        sections = parse_sections(f.read_text(encoding="utf-8"))
-    except OSError:
-        return ""
-    parts = sections.get("all", []) + sections.get(session.phase, [])
-    if not parts:
-        return ""
-    head = f"## Kurum veri kuralları — {dd.database} (bu veritabanına özgü; genel kurallarla çelişirse BUNLAR geçerli)"
-    out = [head, *parts]
-    if session.phase in ("requirements", "data") and dd.in_scope("view_variant_databases"):
+    if session.phase in ("requirements", "data") and any(dd.in_scope("view_variant_databases", d) for d in dbs or [None]):
         pol = services.policy(session.user_role)
         levels = access_levels(dd, lambda t: dd.usable(t) and not pol.denial_reason(t.name))
         if levels:

@@ -63,6 +63,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   // son testte okunan sözlük kaynaklarının başlıkları ve eşlemesi (form değişince kaybolmasın diye testten ayrı)
   const [srcInfo, setSrcInfo] = useState<Record<string, SourceInfo>>({});
   const [addDraft, setAddDraft] = useState<Record<DictRole, string>>({ tables: "", columns: "", relationships: "", metrics: "" });
+  const [extraDraft, setExtraDraft] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const [llmImport, setLlmImport] = useState<Partial<LlmSettings> | null>(null);
@@ -221,7 +222,43 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
     );
   };
   const authText = (f: ConnFields) => (f.auth === "sql" ? `SQL: ${f.username || "—"}` : "Windows oturumu");
-  const dataSummary = <>{data.server || "—"} · <b>{data.database || "veritabanı seçilmedi"}</b> · {authText(data)}</>;
+  const extras = data.extra_databases ?? [];
+  const dataSummary = <>{data.server || "—"} · <b>{data.database || "veritabanı seçilmedi"}</b>{extras.length ? <> + <b>{extras.join(", ")}</b></> : null} · {authText(data)}</>;
+  const setExtras = (list: string[]) => upd("data", { extra_databases: list });
+  const addExtra = (name: string) => {
+    const n = name.trim().replace(/^\[|\]$/g, "");
+    if (!n || n.toLowerCase() === data.database.trim().toLowerCase() || extras.some((x) => x.toLowerCase() === n.toLowerCase())) return;
+    setExtras([...extras, n]);
+    setExtraDraft("");
+  };
+  const extraField = () => {
+    const avail = (dbs.data ?? []).filter((d) => d.toLowerCase() !== data.database.trim().toLowerCase()
+      && !extras.some((x) => x.toLowerCase() === d.toLowerCase()));
+    return (
+      <div className="st-field">
+        <label>Ek Veritabanları</label>
+        <div className="st-chips">
+          {extras.map((d) => (
+            <span key={d} className="st-src-chip">
+              <Ico d={P.db} size={12} /> {d}
+              <button type="button" onClick={() => setExtras(extras.filter((x) => x !== d))} aria-label={`${d} kaldır`} title="Kaldır">×</button>
+            </span>
+          ))}
+          {!extras.length ? <span className="muted small">Yok — yalnız {data.database.trim() || "seçili veritabanı"} kullanılır</span> : null}
+          {avail.map((d) => (
+            <button key={d} type="button" className="st-chip-btn st-suggest" onClick={() => addExtra(d)} title="Ek veritabanı olarak ekle">+ {d}</button>
+          ))}
+        </div>
+        <div className="st-row">
+          <input className="st-input st-input-sm" list="st-dbs-data" value={extraDraft} placeholder="veritabanı adı ekle (ör. EDW)" spellCheck={false}
+            onChange={(e) => setExtraDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addExtra(extraDraft); } }} />
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => addExtra(extraDraft)} disabled={!extraDraft.trim()}>Ekle</button>
+        </div>
+        <p className="muted small">Aynı sunucudaki diğer veritabanları (ör. EDWDM'e ek olarak EDW). Nesneleri <code>VERITABANI.şema.nesne</code> olarak
+          sorgulanır; kullanıcı yalnız SELECT yetkisi olan tablo ve view'ları görür. Veritabanlarını <b>Listele</b> ile getirip <b>+</b> ile ekleyebilirsiniz.</p>
+      </div>
+    );
+  };
   const dictSummary = kind === "none" ? <>Sözlük yok — yalnız veritabanı kataloğu</>
     : kind === "excel" ? <>Excel · <b>{(dict.excel_path ?? "").split(/[\\/]/).pop() || "dosya seçilmedi"}</b></>
     : kind === "mysql" ? <>MySQL · {dict.server || "—"}:{dict.port ?? 3306} · <b>{dict.database || "—"}</b></>
@@ -316,7 +353,17 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                   : r.dictionary_tables !== undefined ? <div>Sözlükte <b>{r.dictionary_tables}</b> tablo tanımı bulundu.</div> : null}
                 {r.catalog_match ? <MatchReport m={r.catalog_match} /> : null}
               </>
-            ) : <><b>{r.server_name ? "✕ Bağlandı ama sözlük tabloları hatalı" : "✕ Bağlanılamadı"}</b><div>{r.error}</div></>}
+            ) : <><b>{!r.server_name ? "✕ Bağlanılamadı" : t === "data" ? "✕ Bağlandı ama bazı ek veritabanlarına erişilemedi"
+              : "✕ Bağlandı ama sözlük tabloları hatalı"}</b><div>{r.error}</div></>}
+            {r.extra_databases?.length ? (
+              <ul className="st-extra-list">
+                {r.extra_databases.map((x) => (
+                  <li key={x.database} className={x.ok ? "is-ok" : "is-bad"}>
+                    {x.ok ? "✓" : "✕"} <b>{x.database}</b>{x.ok ? <> — SELECT yetkisi olan <b>{x.objects}</b> tablo / view</> : <> — {x.error}</>}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -363,6 +410,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           {layout.data.collapsed ? null : <>
           {connFields("data", data)}
           {dbField("data", data, "ör. AdventureWorksDW2025")}
+          {extraField()}
           {testBox("data")}
           {cardFoot("data", !!data.database.trim())}
           </>}

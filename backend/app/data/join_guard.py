@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from sqlglot import exp
 
-from app.dictionary.repository import DataDictionary, DDRelationship
+from app.dictionary.repository import DataDictionary, DDRelationship, sql_table_key
 
 
 @dataclass
@@ -69,7 +69,7 @@ class JoinGuard:
         def add_source(node: exp.Expression) -> str | None:
             if isinstance(node, exp.Table) and isinstance(node.this, exp.Identifier):
                 alias = node.alias_or_name.lower()
-                full = f"{node.db}.{node.name}".lower() if node.db else None
+                full = sql_table_key(node, self.dd)
                 aliases[alias] = full if full and self.dd.has_table(full) else None
             elif isinstance(node, (exp.Subquery, exp.Table)):
                 alias = (node.alias_or_name or f"_q{len(order)}").lower()

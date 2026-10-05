@@ -388,6 +388,7 @@ export interface ConnFields {
   port?: number | null;          // MySQL
   excel_path?: string;           // Excel
   mappings?: Record<string, Record<string, string>>;  // yalnız sözlük: kaynak → alan → başlık ("" = kullanma)
+  extra_databases?: string[];    // yalnız veri kaynağı: aynı sunucudaki ek veritabanları (ör. EDW)
 }
 export type DictKind = "sqlserver" | "excel" | "mysql" | "none";
 export type DictRole = "tables" | "columns" | "relationships" | "metrics";
@@ -415,6 +416,7 @@ export interface ConnTestResult {
   derived_tables?: number; relationship_source?: "foreign_keys" | "name_match" | "none";
   catalog_match?: CatalogMatch;
   sources_info?: Record<string, SourceInfo>;
+  extra_databases?: { database: string; ok: boolean; objects?: number; error?: string }[];
 }
 
 // ---------------------------------------------------------------- dil modeli (LLM) bağlantısı

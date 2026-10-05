@@ -3,6 +3,7 @@
 Sözlükler (özellikle Excel) adları farklı yazabilir; hepsi kataloğa göre `şema.nesne` biçimine çevrilir:
   * köşeli parantez / tırnak / fazladan boşluk:  [dbo].[vw_Satis], "dbo"."vw_Satis", ' dbo.vw_Satis '
   * veritabanı / sunucu adıyla:                  EDWDM.dbo.vw_Satis, SUNUCU.EDWDM.dbo.vw_Satis
+    (seçili EK veritabanının adıyla yazılmışsa öneki korunur: EDW.dbo.X → edw.dbo.x; birincil veritabanında atılır)
   * şemasız:                                     vw_Satis  → katalogda bu adla tek nesne varsa onun şeması (yoksa dbo)
   * şema ayrı kolonda:                           TABLE_SCHEMA + TABLE_NAME (collect birleştirir)
   * yanlış şema:                                 rpt.vw_Satis yoksa ve katalogda vw_Satis adlı TEK nesne varsa ona eşlenir
@@ -35,14 +36,21 @@ def split_name(name: object) -> list[str]:
     return parts
 
 
-def canon(name: object) -> str:
-    """Parantezsiz `şema.nesne` (veritabanı / sunucu öneki atılır); şemasızsa yalnız nesne adı."""
+def canon(name: object, extra_databases: tuple[str, ...] | list[str] = ()) -> str:
+    """Parantezsiz `şema.nesne` (veritabanı / sunucu öneki atılır); şemasızsa yalnız nesne adı.
+    Önek seçili bir EK veritabanıysa korunur: `EDW.şema.nesne`."""
     parts = split_name(name)
-    return ".".join(parts[-2:]) if parts else str(name or "").strip()
+    if not parts:
+        return str(name or "").strip()
+    if len(parts) >= 3 and parts[-3].lower() in {d.lower() for d in extra_databases}:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
 
 
 class NameResolver:
-    def __init__(self, objects: Iterable[tuple[str, str]]):
+    def __init__(self, objects: Iterable[tuple[str, str]], extra_databases: tuple[str, ...] | list[str] = ()):
+        """objects: (şema, nesne) — ek veritabanı nesnelerinde şema 'EDW.dbo' biçimindedir."""
+        self.extra = tuple(extra_databases)
         self.full: dict[str, str] = {}
         self.by_name: dict[str, list[str]] = {}
         for sch, obj in objects:
@@ -54,11 +62,16 @@ class NameResolver:
 
     def resolve(self, name: object) -> str:
         raw = str(name or "")
-        c = canon(raw)
+        c = canon(raw, self.extra)
         hit = self.full.get(c.lower())
         if hit is None:
             obj = c.rsplit(".", 1)[-1].lower()
             cands = self.by_name.get(obj, [])
+            db = c.split(".")[0].lower() if c.count(".") >= 2 else ""
+            if db:   # veritabanı açıkça yazılmış: yalnız o veritabanında ara (başka veritabanına atlama)
+                cands = [x for x in cands if x.count(".") >= 2 and x.split(".")[0].lower() == db]
+            else:    # veritabanı yok: önce birincil veritabanı, orada yoksa tek eşleşme
+                cands = [x for x in cands if x.count(".") < 2] or cands
             if len(cands) == 1:
                 hit = cands[0]
             elif "." not in c:

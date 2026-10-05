@@ -22,13 +22,13 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 
-from app.dictionary.repository import DataDictionary, DDRelationship
+from app.dictionary.repository import DataDictionary, DDRelationship, sql_table_key
 
 
 def with_nolock(table: exp.Table, dd: DataDictionary) -> exp.Table:
     """Kurum SQL standardı (EDWDM: 'tüm sorgularda WITH (NOLOCK)'): uygulamanın ürettiği tablo referanslarına da eklenir."""
     nolock = getattr(dd, "nolock", None)
-    if callable(nolock) and nolock():
+    if callable(nolock) and nolock(sql_table_key(table, dd)):   # tablonun kendi veritabanına göre
         table.set("hints", [exp.WithTableHint(expressions=[exp.Var(this="NOLOCK")])])
     return table
 
@@ -56,8 +56,8 @@ def _base_tables(sel: exp.Select, dd: DataDictionary, ctes: set[str]) -> dict[st
     out: dict[str, str] = {}
     for src in _sources(sel):
         if isinstance(src, exp.Table) and isinstance(src.this, exp.Identifier) and src.db:
-            full = f"{src.db}.{src.name}".lower()
-            if dd.has_table(full) and not (not src.db and src.name.lower() in ctes):
+            full = sql_table_key(src, dd)
+            if full and dd.has_table(full) and not (not src.db and src.name.lower() in ctes):
                 out[src.alias_or_name.lower()] = full
     return out
 
@@ -240,7 +240,7 @@ class ModelFilterEngine:
                 if not src.db and src.name.lower() in cte_map:
                     inner = cte_map[src.name.lower()]
                 elif src.db:
-                    full = f"{src.db}.{src.name}".lower()
+                    full = sql_table_key(src, self.dd) or ""
                     t = self.dd.tables.get(full)
                     if t and any(c.name == col for c in t.columns):
                         return f"{full}.{col}"

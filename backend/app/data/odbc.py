@@ -70,8 +70,9 @@ _HINTS: list[tuple[str, str]] = [
     (r"Error Locating Server/Instance|server was not found or was not accessible|SQL Server does not exist",
      "Sunucu / instance bulunamadı. Adı doğru mu (SUNUCU\\INSTANCE veya SUNUCU,port)? Adlandırılmış instance için "
      "SQL Server Browser servisi çalışmalı ve güvenlik duvarı UDP 1434'e izin vermeli."),
-    (r"Login failed for user|18456", "Oturum açılamadı: kullanıcı adı / şifre hatalı ya da bu hesabın sunucuya erişim izni yok."),
+    # 'Cannot open database' ile birlikte 'Login failed' de gelir: önce veritabanı (asıl neden)
     (r"Cannot open database|4060", "Veritabanı açılamadı: adı doğru mu, bu hesabın o veritabanında yetkisi var mı?"),
+    (r"Login failed for user|18456", "Oturum açılamadı: kullanıcı adı / şifre hatalı ya da bu hesabın sunucuya erişim izni yok."),
     (r"certificate chain|SSL Provider|certificate verify", "Sunucu sertifikası doğrulanamadı: 'Sunucu sertifikasına güven' seçeneğini açın "
      "ya da sunucuya kurumsal sertifika tanımlayın."),
     (r"Data source name not found|IM002|Can't open lib", "ODBC sürücüsü bulunamadı: 'ODBC Driver 18 (veya 17) for SQL Server' kurulu olmalı."),

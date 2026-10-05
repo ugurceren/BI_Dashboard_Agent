@@ -90,6 +90,7 @@ def build_services() -> Services:
         state.startup_error = f"Veri bağlantısı: {e}"
         connector = _BrokenConnector(str(e))
     dictionary = DataDictionary(settings, connector)
+    dictionary.extra_databases = conns.extra_databases(settings)   # aynı sunucudaki ek veritabanları (ör. EDW)
     try:
         dictionary.load()
     except Exception as e:  # noqa: BLE001
@@ -923,6 +924,7 @@ class ConnIn(BaseModel):
     kind: str = "sqlserver"          # yalnız sözlük: sqlserver | mysql | excel
     port: int | None = None          # MySQL (varsayılan 3306)
     excel_path: str = ""             # Excel dosyası (yüklenen ya da ağ yolu)
+    extra_databases: list[str] = []  # yalnız veri kaynağı: aynı sunucudaki ek veritabanları (ör. EDW)
     mappings: dict[str, dict[str, str]] | None = None   # yalnız sözlük: kaynak → alan → başlık ("" = kullanma)
 
 
@@ -947,6 +949,7 @@ def _fields(c: ConnIn, saved: dict[str, Any] | None) -> dict[str, Any]:
         d["password"] = conns.unprotect((saved or {}).get("password_enc") or "") if saved else ""
     d["server"] = (d["server"] or "localhost").strip()
     d["database"] = (d["database"] or "").strip()
+    d["extra_databases"] = [x for x in conns._db_list(d.get("extra_databases") or []) if x.lower() != d["database"].lower()]
     return d
 
 
@@ -1267,9 +1270,15 @@ def test_connection(body: ConnTestIn, request: Request) -> dict[str, Any]:
     data, dic = _resolved(body)
     if body.target != "dictionary":
         try:
-            return {"ok": True, **_probe(data)}
+            info = _probe(data)
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": friendly_error(str(e))}
+        extras = [_probe_extra(data, db) for db in data.get("extra_databases") or []]
+        bad = [x for x in extras if not x["ok"]]
+        out = {"ok": not bad, **info, **({"extra_databases": extras} if extras else {})}
+        if bad:
+            out["error"] = "Ek veritabanlarına erişilemedi: " + "; ".join(f"{x['database']}: {x['error']}" for x in bad)
+        return out
     # sözlük: kaynağa bağlan (SQL Server / MySQL / Excel), seçilen tablo / sayfaları gerçekten oku (rol başına satır sayısı)
     from app.dictionary.sources import collect
     if dic["kind"] == "none":
@@ -1304,6 +1313,19 @@ def test_connection(body: ConnTestIn, request: Request) -> dict[str, Any]:
     return {"ok": True, **info}
 
 
+def _probe_extra(data: dict[str, Any], database: str) -> dict[str, Any]:
+    """Ek veritabanı: aynı sunucu / kimlik bilgisiyle bağlanılabiliyor mu, kaç nesneye SELECT yetkisi var."""
+    from app.data.connector import SqlServerConnector
+    try:
+        con = SqlServerConnector(conns.build_odbc(data, database), 15)
+        n = con.execute("SELECT COUNT(*) FROM sys.objects o WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 "
+                        "AND HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT') = 1",
+                        1).rows[0][0]
+        return {"database": database, "ok": True, "objects": int(n or 0)}
+    except Exception as e:  # noqa: BLE001
+        return {"database": database, "ok": False, "error": friendly_error(str(e))}
+
+
 def _data_catalog(data: dict[str, Any]) -> dict[str, Any]:
     """Veri kaynağının kataloğu (nesneler + farklı kolon adları) — sözlük testi / kaydı için. Hata olursa {"error"}."""
     if not data.get("database"):
@@ -1311,10 +1333,13 @@ def _data_catalog(data: dict[str, Any]) -> dict[str, Any]:
     from app.data.connector import SqlServerConnector
     try:
         dd = DataDictionary(get_settings(), SqlServerConnector(data.get("odbc") or conns.build_odbc(data), 15))
+        dd.extra_databases = list(data.get("extra_databases") or [])
+        if not data.get("odbc"):   # formdaki bağlantı: ek veritabanları aynı kimlik bilgileriyle
+            dd.extra_connector = lambda db: SqlServerConnector(conns.build_odbc(data, db), 15)
         cat = dd._read_catalog(columns=False)
         if cat is None:
             return {"error": dd.catalog_error}
-        return {"objects": cat[0], "known": dd.known(cat, dd.column_names())}
+        return {"objects": cat[0], "known": dd.known(cat, dd.column_names()), "extra_databases": dd.extra_databases}
     except Exception as e:  # noqa: BLE001
         return {"error": friendly_error(str(e))}
 
@@ -1329,7 +1354,7 @@ def _dictionary_match(data: dict[str, Any], got: Any, catalog: dict[str, Any]) -
     if "objects" not in catalog:
         return {"ok": False, "database": data["database"], "error": catalog.get("error")}
     objs = catalog["objects"]
-    res = NameResolver((s, o) for s, o, *_ in objs)
+    res = NameResolver(((s, o) for s, o, *_ in objs), catalog.get("extra_databases") or [])
     resolved = {res.resolve(n) for n in names}
     perms = {f"{s}.{o}".lower(): bool(p) for s, o, _t, p, *_ in objs}
     missing = sorted(res.missing.values())

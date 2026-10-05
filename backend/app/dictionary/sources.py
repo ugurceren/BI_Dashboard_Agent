@@ -88,6 +88,8 @@ _FOLD = str.maketrans({"ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "�
 ALIASES: dict[str, str] = {
     # şema ayrı kolondaysa (ör. INFORMATION_SCHEMA dökümü: TABLE_SCHEMA + TABLE_NAME) table_name'e birleştirilir
     **dict.fromkeys(["schema", "sema", "sema_adi", "table_schema", "tablo_semasi", "owner", "schema_adi", "view_schema"], "schema_name"),
+    # veritabanı ayrı kolondaysa (DatabaseName): ek veritabanı nesneleri VERITABANI.şema.nesne olur (birincilde atılır)
+    **dict.fromkeys(["database", "veritabani", "veritabani_adi", "db", "db_name", "database_adi", "table_catalog"], "database_name"),
     **dict.fromkeys(["tablo", "tablo_adi", "tablo_ismi", "tablename", "table", "object_name", "nesne_adi", "tam_tablo_adi",
                      "view_name", "viewname", "view", "view_adi", "nesne", "nesne_ismi", "obje_adi", "tablo_view_adi", "table_or_view"], "table_name"),
     **dict.fromkeys(["kolon", "kolon_adi", "kolon_ismi", "alan", "alan_adi", "sutun", "sutun_adi", "columnname", "column", "field_name", "field"], "column_name"),
@@ -319,7 +321,7 @@ class ExcelReader:
 
 # ------------------------------------------------------------------ toplama
 # tablo / kolon satırlarında şema ayrı kolonda olabilir (ör. SchemaName + view_name); zorunlu değil, uyarı üretmez
-_EXTRA = {"tables": ["schema_name"], "columns": ["schema_name"]}
+_EXTRA = {"tables": ["schema_name", "database_name"], "columns": ["schema_name", "database_name"]}
 # içerikten tanıma: değerleri veritabanı kataloğuyla karşılaştırılan alanlar
 _CONTENT_KIND = {"table_name": "object", "from_table": "object", "to_table": "object", "base_table": "object",
                  "column_name": "column", "from_column": "column", "to_column": "column", "schema_name": "schema"}
@@ -473,6 +475,9 @@ def collect(reader: Reader, sources: dict[str, list[str]], mappings: dict[str, d
                 sch = _norm_value("schema_name", r.get(mapping["schema_name"])) if mapping.get("schema_name") else None
                 if sch and "." not in str(row["table_name"]).strip("[]"):
                     row["table_name"] = f"{sch}.{row['table_name']}"
+                db = _norm_value("database_name", r.get(mapping["database_name"])) if mapping.get("database_name") else None
+                if db and str(row["table_name"]).count(".") == 1:   # şema.nesne → db.şema.nesne (ad çözümleyici birincilde atar)
+                    row["table_name"] = f"{db}.{row['table_name']}"
                 rows.append(row)
             if skipped:
                 out.warnings.append(f"{spec['label']}: '{name}' içinde zorunlu alanı boş {skipped} satır atlandı.")

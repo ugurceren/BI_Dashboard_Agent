@@ -19,8 +19,9 @@ snapshot_date_columns = ["DataDate"]
 #   view_variant_databases  → ana view sözlükteyse Masked / PersonnelExcluded / PersonnelMasked varyantları da tanımlı
 snapshot_databases = ["EDWDM"]
 view_variant_databases = ["EDWDM"]
-#   nolock_databases        → uygulamanın ürettiği sorgulara (filtre alt sorguları, seçenek listeleri) WITH (NOLOCK)
-nolock_databases = ["EDWDM"]
+#   nolock_databases        → veri ambarı SQL standartları: her sorguya WITH (NOLOCK) otomatik + LLM'e
+#                             config/data_rules/SQL_STANDARTLARI.md (Veri Ambarı Kullanım Kılavuzu bölüm 8)
+nolock_databases = ["EDWDM", "EDW"]
 # Kardinalitesi boş ilişkiler için veriden (unique index / COUNT DISTINCT) otomatik tespit
 infer_cardinality = true
 

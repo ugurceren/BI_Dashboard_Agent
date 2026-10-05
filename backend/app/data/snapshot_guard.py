@@ -26,7 +26,7 @@ class SnapshotResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def _scope_tables(select: exp.Select) -> dict[str, str]:
+def _scope_tables(select: exp.Select, dd=None) -> dict[str, str]:
     """Bu SELECT'in kendi FROM / JOIN'lerindeki tablolar: alias → şema.tablo (alt sorgular hariç)."""
     out: dict[str, str] = {}
     sources = []
@@ -37,7 +37,10 @@ def _scope_tables(select: exp.Select) -> dict[str, str]:
         sources.append(j.this)
     for s in sources:
         if isinstance(s, exp.Table) and s.db:
-            out[s.alias_or_name.lower()] = f"{s.db}.{s.name}".lower()
+            from app.dictionary.repository import sql_table_key
+            key = sql_table_key(s, dd) if dd is not None else f"{s.db}.{s.name}".lower()
+            if key:
+                out[s.alias_or_name.lower()] = key
     return out
 
 
@@ -81,7 +84,7 @@ class SnapshotGuard:
         return res
 
     def _check_select(self, select: exp.Select, res: SnapshotResult) -> None:
-        scope = _scope_tables(select)
+        scope = _scope_tables(select, self.dictionary)
         snaps = {a: (t, self._snap(t)) for a, t in scope.items() if self._snap(t)}
         if not snaps:
             return

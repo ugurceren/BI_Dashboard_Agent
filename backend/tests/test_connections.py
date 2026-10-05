@@ -138,7 +138,9 @@ def test_excel_and_mysql_dictionary_kinds_resolved(settings, services, conn_file
     my = {"kind": "mysql", "server": "mysqlhost", "database": "meta", "username": "ro", "password": "pw"}
     assert c.put("/api/settings/connections", json={"data": data, "dictionary": my}).status_code == 200
     d = conns.load_connections()["dictionary"]
-    assert d["kind"] == "mysql" and d["port"] == 3306 and d["auth"] == "sql" and "pw" not in str(d)
+    # şifre açık metin saklanmaz (şifreli değerde "pw" harfleri tesadüfen geçebilir: alanları kontrol et)
+    assert d["kind"] == "mysql" and d["port"] == 3306 and d["auth"] == "sql" and "password" not in d
+    assert conns.unprotect(d["password_enc"]) == "pw" and d["password_enc"] != "pw"
     assert conns.saved_dictionary()[0]["server"] == "mysqlhost" and conns.dictionary_odbc(settings) is None
 
 

@@ -131,8 +131,9 @@ def _source_tables(datasets: list[dict[str, Any]]) -> list[str]:
                 for tree in sqlglot.parse(sql, read="tsql"):
                     ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)} if tree else set()
                     for t in tree.find_all(exp.Table) if tree else []:
-                        if t.name and t.name.lower() not in ctes:
-                            names.add(f"{t.db or 'dbo'}.{t.name}".lower())
+                        if t.name and t.name.lower() not in ctes:   # ek veritabanı: db.şema.nesne
+                            prefix = f"{t.catalog}." if t.catalog else ""
+                            names.add(f"{prefix}{t.db or 'dbo'}.{t.name}".lower())
             except Exception:  # bozuk SQL envanteri düşürmesin
                 continue
     return sorted(names)

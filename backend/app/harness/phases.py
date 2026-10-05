@@ -15,7 +15,8 @@ DIALECT_NOTES = {
     "tsql": "SQL lehçesi Microsoft SQL Server (T-SQL): LIMIT kullanma, TOP N kullan; ORDER BY'ı alt sorguda değil en dışta kullan; "
             "ay etiketi için CONVERT(char(7), tarih, 126) → 'YYYY-MM'; yıl/çeyrek için tarih boyutunun kolonlarını tercih et; "
             "money kolonlarını CAST(... AS float) ile ondalığa çevir, tamsayı oranlarında * 1.0 kullan; NULLIF ile sıfıra bölmeyi engelle; "
-            "GROUP BY'da SELECT'teki takma adı (alias) kullanamazsın, ifadeyi tekrar yaz; veritabanı adıyla (DB.dbo.Tablo) yazma.",
+            "GROUP BY'da SELECT'teki takma adı (alias) kullanamazsın, ifadeyi tekrar yaz; tablo adlarını araç sonuçlarındaki gibi yaz "
+            "(bağlı veritabanı: şema.tablo; seçili ek veritabanı: VERITABANI.şema.tablo); sunucu adı yazma.",
 }
 
 BASE = """Sen kurum içinde (on-prem) çalışan bir BI rapor agent'ısın. Kullanıcıyla her zaman Türkçe, kısa ve net konuş.

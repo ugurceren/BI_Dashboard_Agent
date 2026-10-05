@@ -159,7 +159,9 @@ def _alias_misuse(ctx: ToolContext, sql: str, col: str) -> list[str]:
         tree = sqlglot.parse_one(sql, read=ctx.services.connector.dialect)
     except Exception:  # noqa: BLE001
         return []
-    aliases = {t.alias_or_name.lower(): f"{t.db}.{t.name}".lower() for t in tree.find_all(exp.Table) if t.db}
+    from app.dictionary.repository import sql_table_key
+    aliases = {t.alias_or_name.lower(): k for t in tree.find_all(exp.Table) if t.db
+               for k in [sql_table_key(t, ctx.services.dictionary)] if k}
     out = []
     for c in tree.find_all(exp.Column):
         if c.name.lower() != col.lower() or not c.table or c.table.lower() not in aliases:

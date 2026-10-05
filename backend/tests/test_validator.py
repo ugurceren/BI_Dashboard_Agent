@@ -38,7 +38,7 @@ def test_allowed(services, sql):
     ("SELECT SalesAmount FROM dbo.FactInternetSales WHERE SalesOrderNumber = @x", "sistem değişkeni"),
     ("SELECT * FROM DimDate", "şemasıyla"),
     ("SELECT * FROM dbo.NotInDictionary", "sözlüğünde yok"),
-    ("SELECT * FROM OtherDb.dbo.DimDate", "Veritabanı/sunucu adı"),
+    ("SELECT * FROM OtherDb.dbo.DimDate", "veri kaynağında seçili değil"),
     ("SELECT * FROM dbo.DimCustomer", "SELECT *"),
     ("SELECT c.* FROM dbo.DimCustomer c", "SELECT *"),
     ("SELECT EmailAddress FROM dbo.DimCustomer", "PII"),
