@@ -7,7 +7,11 @@ her dataset SQL'inin her SELECT bloğuna ilişkiler üzerinden yayılan bir koş
   * Yoksa blokta, filtre tablosundan "tek → çok" yönünde (N:1 ilişkinin 1 tarafından N tarafına; 1:1 iki yönde)
     ulaşılabilen tablolar aranır; fact/köprü tabloları tercih edilir, yol üstündeki ara tablolar atlanır.
     Koşul iç içe EXISTS olarak yazılır:  EXISTS (SELECT 1 FROM Dim d WHERE d.Key = f.Key AND d.kolon IN (...))
-  * Ulaşılamayan dataset'ler filtrelenmez (Power BI'da ilişkisi olmayan görsel gibi) ve "uygulanmadı" döner.
+  * İlişki yolu yoksa (ör. sözlükte ilişkisi tanımlı olmayan EDWDM view'ları) iki yedek yol denenir:
+      1) blokta filtre kolonuyla AYNI ADLI kolon varsa (genel adlar hariç) → doğrudan  t.kolon IN (...)
+      2) filtre tablosu ile bloktaki tablo ortak bir anahtar paylaşıyorsa (filter_bridge_keys; varsayılan CustomerPartyId)
+         → EXISTS (SELECT 1 FROM FiltreTablosu x WHERE x.Anahtar = t.Anahtar AND x.kolon IN (...) [AND x.DataDate = t.DataDate])
+  * Hâlâ ulaşılamayan dataset'ler filtrelenmez ve "uygulanmadı" döner (görselde "Filtre dışı").
 
 Yalnızca aktif ilişkiler kullanılır; aynı iki tablo arasında birden çok ilişki varsa (rol yapan tarih boyutu)
 dataset'in kendi JOIN'i o rolü belirler, çünkü o durumda filtre tablosu zaten bloktadır.
@@ -161,6 +165,10 @@ class ModelFilterEngine:
                 paths = paths_cache.setdefault(f.table, self.paths_from(f.table))
                 cands = [(a, t, paths[t]) for a, t in tables.items() if t in paths]
                 if not cands:
+                    fallback = self._fallback(tables, f)   # ilişki yok: aynı adlı kolon / ortak anahtar
+                    if fallback is not None:
+                        conds.append(fallback)
+                        applied.add(f.key)
                     continue
                 facts = [c for c in cands if kinds.get(c[1]) in ("fact", "bridge", "view")]
                 if facts:
@@ -173,6 +181,43 @@ class ModelFilterEngine:
             for c in conds:
                 sel.where(c, append=True, copy=False)
         return tree.sql(dialect=self.dialect), sorted(applied)
+
+    # ------------------------------------------------------------------ ilişki yoksa: yedek yollar
+    # her tabloda farklı anlama gelebilecek genel kolon adları: aynı ad eşleşmesiyle filtre uygulanmaz
+    _GENERIC = {"name", "ad", "adi", "id", "code", "kod", "description", "aciklama", "type", "tip", "status", "durum",
+                "value", "deger", "date", "tarih", "title", "baslik", "note", "not", "label", "etiket", "datadate"}
+
+    def _fallback(self, tables: dict[str, str], f: ModelFilter) -> exp.Expression | None:
+        """İlişki yolu olmayan blok için koşul: 1) aynı adlı kolon, 2) ortak anahtar (EXISTS); yoksa None."""
+        ft = self.dd.tables.get(f.table)
+        if ft is None:
+            return None
+        col = f.column.lower()
+        if col not in self._GENERIC and not col.endswith("key"):
+            for a, t in tables.items():
+                tt = self.dd.tables.get(t)
+                if tt is not None and any(c.name == col for c in tt.columns):
+                    return exp.In(this=exp.column(self._c(t, col), table=a), expressions=[self._lit(v) for v in f.values])
+        keys = [k.lower() for k in (self.dd.filter_bridge_keys() if callable(getattr(self.dd, "filter_bridge_keys", None)) else [])]
+        fcols = {c.name for c in ft.columns}
+        for a, t in tables.items():
+            tt = self.dd.tables.get(t)
+            if tt is None:
+                continue
+            tcols = {c.name for c in tt.columns}
+            k = next((k for k in keys if k in fcols and k in tcols), None)
+            if k is None:
+                continue
+            al = "_mfb"
+            conds: list[exp.Expression] = [
+                exp.EQ(this=exp.column(self._c(f.table, k), table=al), expression=exp.column(self._c(t, k), table=a)),
+                exp.In(this=exp.column(self._c(f.table, col), table=al), expressions=[self._lit(v) for v in f.values]),
+            ]
+            fs, ts = getattr(ft, "snapshot_date", ""), getattr(tt, "snapshot_date", "")
+            if fs and ts:   # iki günlük anlık görüntü: aynı gün eşleşsin
+                conds.append(exp.EQ(this=exp.column(fs, table=al), expression=exp.column(ts, table=a)))
+            return exp.Exists(this=exp.select("1").from_(self._t(f.table).as_(al)).where(exp.and_(*conds)))
+        return None
 
     # ------------------------------------------------------------------ veri tarihi (günlük anlık görüntü)
     def snapshot_tables(self, sql: str) -> list[str]:

@@ -403,28 +403,122 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
     return spec, [], notes
 
 
-def _filter_candidates(ctx: ToolContext, text: str) -> list[tuple[float, str, str, str]]:
-    """Filtre etiketine/kolon adına en uygun BOYUT kolonları: (skor, tablo, kolon, iş adı)."""
+_AMOUNT_TYPES = {"decimal", "numeric", "money", "smallmoney", "float", "real", "double"}
+
+
+def _filterable(c, allow_pii: bool) -> bool:
+    """Filtre (dilimleyici) olabilecek kolon: ölçü / tutar değil, kişisel veri değil (rol bilinmese de: metin, tarih, kod)."""
+    if c.is_pii and not allow_pii:
+        return False
+    if (c.role or "").lower() in ("measure", "key") or c.name.endswith("key"):   # vekil anahtar: dilimleyici olarak anlamsız
+        return False
+    return re.sub(r"\(.*", "", (c.data_type or "").lower()) not in _AMOUNT_TYPES
+
+
+def _dashboard_tables(ctx: ToolContext) -> dict[str, list[str]]:
+    """Dashboard'un (spec + kayıtlı) dataset'lerinin okuduğu tablo / view'lar → onları okuyan dataset id'leri."""
+    from app.harness.session import _source_tables
+    s = ctx.session
+    datasets = {d.id: d for d in s.datasets}
+    if s.spec:
+        datasets.update({d.id: d for d in s.spec.datasets})
+    out: dict[str, list[str]] = {}
+    for did, d in datasets.items():
+        for t in _source_tables([d.model_dump()]):
+            out.setdefault(t, []).append(did)
+    return out
+
+
+def _filter_candidates(ctx: ToolContext, text: str, scope: str = "auto") -> list[tuple[float, str, str, str]]:
+    """Filtre etiketine / kolon adına en uygun kolonlar: (skor, tablo, kolon, iş adı).
+    Önce dashboard'un kullandığı tablolarda aranır; orada eşleşme yoksa sözlüğün tamamında (scope: auto | dashboard | dictionary)."""
     from app.dictionary.repository import _score, tokens
 
     dd, pol = ctx.services.dictionary, ctx.services.policy(ctx.session.user_role)
     qt = tokens(re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text))
     kinds = dd._table_kinds()
     ok = _usable(ctx)
+    mine = set(_dashboard_tables(ctx))
+
+    def search(tables, in_dashboard: bool):
+        out = []
+        for t in tables:
+            if not ok(t):
+                continue
+            for c in t.columns:
+                if not _filterable(c, pol.allow_pii):
+                    continue
+                sc = _score(qt, [(c.business_name, 3), (c.name, 2), (" ".join(c.synonyms), 2.5), (t.business_name, 1)])
+                if sc <= 0:
+                    continue
+                extra = len([w for w in tokens(c.business_name) if not any(w.startswith(q[:4]) or q.startswith(w[:4]) for q in qt)])
+                sc = sc / (1 + 0.3 * extra)
+                if not in_dashboard:   # sözlükte: boyut tablosu / boyut kolonu tercih edilir
+                    sc *= (1.5 if kinds.get(t.name) == "dimension" else 0.5) * (1.3 if c.role == "dimension" else 1)
+                out.append((round(sc, 2), t.display_name or t.name, c.display_name or c.name, c.business_name))
+        return sorted(out, reverse=True)
+
+    if scope in ("auto", "dashboard"):
+        hits = search([dd.tables[n] for n in mine if n in dd.tables], True)
+        if hits or scope == "dashboard":
+            return hits[:6]
+    return search([t for n, t in dd.tables.items() if n not in mine], False)[:6]
+
+
+def _filter_reach(ctx: ToolContext, table: str, column: str) -> tuple[list[str], list[str]]:
+    """Bu kolonla filtre hangi görsellere uygulanır (ilişkiler üzerinden / doğrudan), hangilerine uygulanamaz."""
+    from app.data.model_filters import ModelFilter, ModelFilterEngine
+    s = ctx.session
+    if not s.spec:
+        return [], []
+    eng = ModelFilterEngine(ctx.services.dictionary, ctx.services.connector.dialect)
+    datasets = {d.id: d for d in s.datasets}
+    datasets.update({d.id: d for d in s.spec.datasets})
+    key = f"{table}.{column}".lower()
+    reach: dict[str, bool] = {}
+    for did, d in datasets.items():
+        try:
+            hit = key in eng.apply(d.sql, [ModelFilter(table.lower(), column.lower(), ["x"])])[1]
+            if not hit and d.original_sql:
+                hit = key in eng.apply(d.original_sql, [ModelFilter(table.lower(), column.lower(), ["x"])])[1]
+        except Exception:  # noqa: BLE001
+            hit = False
+        reach[did] = hit
+    yes = [v.title or v.id for v in s.spec.visuals if v.type != "text" and reach.get(v.datasetId or "")]
+    no = [v.title or v.id for v in s.spec.visuals if v.type != "text" and v.datasetId and not reach.get(v.datasetId)]
+    return yes, no
+
+
+def h_find_filter_column(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+    """Filtre kolonu ara: önce dashboard'un tablolarında, bulunamazsa sözlükte; her aday için uygulanacağı görseller."""
+    q = str(a.get("query") or "").strip()
+    if not q:
+        return ToolResult(False, {"error": "query gerekli (ör. 'bölge', 'şube', 'ürün kategorisi')."}, "Sorgu yok")
+    in_dash = _filter_candidates(ctx, q, "dashboard")
+    source = "dashboard" if in_dash else "sözlük"
+    cands = in_dash or _filter_candidates(ctx, q, "dictionary")
+    dd = ctx.services.dictionary
     out = []
-    for t in dd.tables.values():
-        if not ok(t):
-            continue
-        for c in t.columns:
-            if c.role != "dimension" or (c.is_pii and not pol.allow_pii):
-                continue
-            sc = _score(qt, [(c.business_name, 3), (c.name, 2), (" ".join(c.synonyms), 2.5), (t.business_name, 1)])
-            if sc <= 0:
-                continue
-            extra = len([w for w in tokens(c.business_name) if not any(w.startswith(q[:4]) or q.startswith(w[:4]) for q in qt)])
-            sc = sc / (1 + 0.3 * extra) * (1.5 if kinds.get(t.name) == "dimension" else 0.5)  # filtre boyut tablosunda olmalı
-            out.append((round(sc, 2), t.display_name or t.name, c.display_name or c.name, c.business_name))
-    return sorted(out, reverse=True)[:4]
+    for sc, tb, col, bn in cands[:6]:
+        t = dd.tables.get(tb.lower())
+        c = next((x for x in t.columns if x.name == col.lower()), None) if t else None
+        yes, no = _filter_reach(ctx, tb, col)
+        out.append({"table": tb, "column": col, "business_name": bn, "table_name": t.business_name if t else "",
+                    **({"description": c.description} if c and c.description else {}),
+                    **({"sample_values": c.sample_values} if c and c.sample_values else {}),
+                    "applies_to_visuals": yes, "not_applied_visuals": no, "score": sc})
+    out.sort(key=lambda c: (len(c["not_applied_visuals"]), -c["score"]))   # tüm görsellere uygulananlar önce
+    out = out[:5]
+    if not out:
+        return ToolResult(True, {"source": None, "candidates": [],
+                                 "note": "Ne dashboard'un tablolarında ne sözlükte eşleşen kolon bulundu; kullanıcıya hangi alanla "
+                                         "filtrelemek istediğini sor ya da search_dictionary ile farklı kelimelerle ara."},
+                          f"'{q}' için filtre kolonu bulunamadı")
+    note = ("Adaylar dashboard'un kullandığı tablolardan." if source == "dashboard" else
+            "Dashboard'un tablolarında bulunamadı; adaylar sözlükten. Kullanıcıya hangi tablodan geldiğini ve hangi görsellere "
+            "uygulanacağını (not_applied_visuals dahil) söyle; uygun değilse farklı bir alan öner.")
+    return ToolResult(True, {"source": source, "candidates": out, "note": note},
+                      f"'{q}' → {len(out)} aday ({source})")
 
 
 def _resolve_filters(ctx: ToolContext, raw: dict[str, Any]) -> list[str]:
@@ -791,7 +885,9 @@ _VISUAL = {
         "options": {"type": "object", "description": "stacked, horizontal, smooth, showLabels, showLegend, format(number|currency|percent|compact), "
                                                      "decimals, sort(asc|desc), limit, aggregate, deltaField (hazır değişim oranı kolonu), "
                                                      "compareField (kpi: önceki dönem değeri kolonu), deltaLabel, "
-                                                     "sparklineDatasetId, sparklineField, target, text, color"},
+                                                     "sparklineDatasetId, sparklineField, target, text, color, "
+                                                     "ignoreFilters (true: görsel filtrelerden etkilenmez — YALNIZ kullanıcı "
+                                                     "açıkça isterse; varsayılan: filtreler tüm görselleri etkiler)"},
         "position": _POSITION,
         "page": {"type": "string", "description": "Sayfa id'si (birden çok sayfa varsa). Boşsa ilk sayfa."},
     },
@@ -860,6 +956,11 @@ TOOLS: list[Tool] = [
                                            "layout": {"type": "object", "properties": {"rowHeight": {"type": "integer"}}},
                                            "pages": _PAGES}},
          ("design",), h_update_report, status="Rapor ayarları güncelleniyor…"),
+    Tool("find_filter_column", "Filtre (dilimleyici) için kolon arar: ÖNCE dashboard'un kullandığı tablo / view'larda, orada "
+                               "yoksa sözlükte. Her aday için filtrenin uygulanacağı ve uygulanamayacağı görselleri verir. "
+                               "Filtre eklemeden önce kullan; sonra update_report (filters) ile ekle.",
+         {"type": "object", "required": ["query"], "properties": {"query": {"type": "string", "description": "ör. bölge, şube, kanal"}}},
+         ("design",), h_find_filter_column, status="Filtre alanı aranıyor…"),
     Tool("add_page", "Dashboard'a yeni sayfa (sekme) ekler; isteğe bağlı olarak görselleriyle birlikte. Rapor tek sayfalıysa "
                      "mevcut görseller ilk sayfada ('Genel Bakış', first_title ile değiştirilebilir) kalır. Görselleri sonradan "
                      "add_visual (page) ile ekleyebilir, update_visual (changes.page) ile sayfalar arasında taşıyabilirsin.",

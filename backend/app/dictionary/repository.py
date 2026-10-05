@@ -792,6 +792,14 @@ class DataDictionary:
             cols = None
         return [str(c) for c in (cols if isinstance(cols, list) else ["DataDate"]) if str(c).strip()]
 
+    def filter_bridge_keys(self) -> list[str]:
+        """İlişki tanımlı olmayan tablolar arasında filtreyi taşıyan ortak anahtarlar (dictionary.toml: filter_bridge_keys)."""
+        try:
+            keys = load_toml(self.settings.dictionary_config).get("filter_bridge_keys")
+        except Exception:  # noqa: BLE001
+            keys = None
+        return [str(k) for k in (keys if isinstance(keys, list) else ["CustomerPartyId"]) if str(k).strip()]
+
     def mark_snapshots(self) -> int:
         """Tarih kolonu (DataDate …) olan tablo / view'lar günlük anlık görüntüdür: her kayıt her gün için tekrarlanır.
         Sorgu doğrulayıcı bunlarda tek gün seçilmeden toplama yapılmasını engeller (snapshot_guard.py)."""

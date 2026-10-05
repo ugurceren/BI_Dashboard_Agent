@@ -34,6 +34,7 @@ export interface VisualEncoding {
 }
 
 export interface VisualOptions {
+  ignoreFilters?: boolean;       // true: görsel filtrelerden etkilenmez (yalnız açıkça istenirse)
   stacked?: boolean;
   horizontal?: boolean;
   smooth?: boolean;

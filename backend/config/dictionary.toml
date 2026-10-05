@@ -22,6 +22,9 @@ view_variant_databases = ["EDWDM"]
 #   nolock_databases        → veri ambarı SQL standartları: her sorguya WITH (NOLOCK) otomatik + LLM'e
 #                             config/data_rules/SQL_STANDARTLARI.md (Veri Ambarı Kullanım Kılavuzu bölüm 8)
 nolock_databases = ["EDWDM", "EDW"]
+# Dashboard filtreleri sözlükte ilişkisi olmayan tablolar arasında bu ortak anahtar(lar) üzerinden taşınır
+# (ör. şube filtresi → aynı CustomerPartyId'li kayıtlar). Önce aynı adlı kolon aranır, sonra bu anahtarlar.
+filter_bridge_keys = ["CustomerPartyId"]
 # Kardinalitesi boş ilişkiler için veriden (unique index / COUNT DISTINCT) otomatik tespit
 infer_cardinality = true
 

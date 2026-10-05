@@ -196,7 +196,9 @@ export function DashboardRenderer({ spec, data, loading, model }: DashboardRende
           const y = Math.max(0, Math.round(pos.y ?? 0));
           const table = v.datasetId ? tables[v.datasetId] : undefined;
           const unaffected = v.type !== "text" && v.datasetId ? unaffectedFor(v.id, v.datasetId) : [];
-          const note = unaffected.length
+          const note = unaffected.length && v.options?.ignoreFilters
+            ? `Bu görsel tasarım gereği filtrelerden bağımsız (${unaffected.join(", ")} uygulanmadı).`
+            : unaffected.length
             ? (model ? `Bu görselin verisi modelde ${unaffected.join(", ")} ile ilişkili değil; filtre uygulanmadı.`
                      : `Bu görselin verisinde ${unaffected.join(", ")} alanı yok; filtre uygulanmadı.`)
             : undefined;

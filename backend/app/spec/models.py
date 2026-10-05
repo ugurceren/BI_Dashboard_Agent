@@ -83,6 +83,7 @@ class VisualOptions(_Base):
     target: float | None = None
     text: str | None = None
     color: str | None = None
+    ignoreFilters: bool | None = None  # true: bu görsel filtrelerden etkilenmez (yalnız kullanıcı açıkça isterse)
 
 
 class Position(_Base):

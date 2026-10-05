@@ -652,6 +652,14 @@ def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[s
     applied: dict[str, list[str]] = {}
     as_of = next((str(sel["values"][0])[:10] for sel in selections or []
                   if sel.get("key") == AS_OF_KEY and sel.get("values")), None)
+    # filtreler varsayılan olarak tüm görselleri etkiler; yalnız TÜM görselleri ignoreFilters olan dataset'ler muaf
+    exempt: set[str] = set()
+    if s.spec:
+        by_ds: dict[str, list[bool]] = {}
+        for v in s.spec.visuals:
+            if v.datasetId:
+                by_ds.setdefault(v.datasetId, []).append(bool(v.options.ignoreFilters))
+        exempt = {d for d, flags in by_ds.items() if flags and all(flags)}
     if as_of and not _DAY.match(as_of):
         raise HTTPException(400, "Veri tarihi YYYY-AA-GG biçiminde olmalı.")
     for did, d in _all_datasets(s).items():
@@ -668,7 +676,7 @@ def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[s
         base_sql = sql
         active = [ModelFilter(*sel["key"].rsplit(".", 1), list(sel["values"]))
                   for sel in selections or [] if sel.get("values") and did not in (sel.get("exclude") or [])
-                  and "." in sel.get("key", "") and sel.get("key") != AS_OF_KEY]
+                  and "." in sel.get("key", "") and sel.get("key") != AS_OF_KEY and did not in exempt]
         if active:
             try:
                 sql, applied[did] = eng.apply(base_sql, active)
