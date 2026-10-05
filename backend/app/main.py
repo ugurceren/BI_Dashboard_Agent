@@ -32,7 +32,7 @@ from sqlglot import exp
 
 from app.config import BACKEND_DIR, get_settings, load_toml
 from app.data.connector import QueryError, create_connector
-from app.data.model_filters import ModelFilter, ModelFilterEngine
+from app.data.model_filters import ModelFilter, ModelFilterEngine, with_nolock
 from app.data.views import ViewRegistry, build_view_script, safe_view_name, select_from_view, view_columns
 from app.data.validator import RolePolicy, SqlValidator
 from app.dictionary.repository import DataDictionary
@@ -632,7 +632,7 @@ def _filter_options(key: str, role: str) -> list[Any]:
         return []
     dialect = state.services.connector.dialect
     c = exp.column(col.display_name or column)
-    sql = exp.select(c).distinct().from_(exp.to_table(t.display_name or table, dialect=dialect)).where(c.is_(exp.null()).not_())         .order_by(c).limit(500).sql(dialect=dialect)
+    sql = exp.select(c).distinct().from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd)).where(c.is_(exp.null()).not_())         .order_by(c).limit(500).sql(dialect=dialect)
     payload = _dataset_payload(sql, role)  # validator: izinli şema + PII kontrolü burada da geçerli
     values = [r[0] for r in payload.get("rows", [])]
     _options_cache[f"{role}|{key}"] = (time.time(), values)
@@ -711,7 +711,8 @@ def _data_date_info(s, role: str) -> dict[str, Any] | None:
         dialect = state.services.connector.dialect
         c = exp.column(t.snapshot_date)
         sql = exp.select(exp.Min(this=c).as_("min_d"), exp.Max(this=c.copy()).as_("max_d")) \
-            .from_(exp.to_table(t.display_name or main, dialect=dialect)).sql(dialect=dialect)
+            .from_(with_nolock(exp.to_table(t.display_name or main, dialect=dialect), dd)) \
+            .where(c.copy().is_(exp.null()).not_()).sql(dialect=dialect)   # kurum standardı: WHERE koşulsuz sorgu yok
         rows = _dataset_payload(sql, role).get("rows") or []
         lo, hi = (str(rows[0][0])[:10] if rows and rows[0][0] else None), (str(rows[0][1])[:10] if rows and rows[0][1] else None)
         _options_cache[key] = (time.time(), [lo, hi])

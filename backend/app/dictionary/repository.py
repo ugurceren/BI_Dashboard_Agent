@@ -425,6 +425,13 @@ class DataDictionary:
             return True
         return self.database.lower() in {str(d).lower() for d in dbs}
 
+    def nolock(self) -> bool:
+        """Kurum SQL standardı: uygulamanın ürettiği sorgulara WITH (NOLOCK) (dictionary.toml: nolock_databases).
+        Diğer kurallardan farklı olarak veritabanı adı KESİN eşleşmeli (bilinmiyorsa eklenmez; SQL Server dışında bozar)."""
+        if not self.database or getattr(self._data_connector, "dialect", "") != "tsql":
+            return False
+        return self.in_scope("nolock_databases")
+
     def _variant_base(self, sch: str, obj: str) -> tuple["DDTable", tuple[str, str, str]] | None:
         """vXMasked / vXPersonnelExcluded / vXPersonnelMasked → sözlükte tanımlı ana view (vX) varsa onu döner."""
         if not self.in_scope("view_variant_databases"):

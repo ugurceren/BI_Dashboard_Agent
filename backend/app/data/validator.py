@@ -8,6 +8,7 @@ Kurallar (hepsi modelden bağımsız, deterministik):
   * JOIN'ler sözlükteki ilişkilerle eşlenir: eksik bileşik anahtar ve satır çoğalması (fan-out / chasm trap)
     reddedilir, sözlükte olmayan birleştirmeler uyarı olarak döner (join_guard.py)
   * günlük anlık görüntülerde (DataDate) gün seçilmeden SUM / COUNT ve tarih eşlenmeden join reddedilir (snapshot_guard.py)
+  * EDWDM'de her tablo / view referansına WITH (NOLOCK) otomatik eklenir (kurum SQL standardı)
 """
 
 from __future__ import annotations
@@ -181,10 +182,34 @@ class SqlValidator:
         if (joins.errors or snap.errors) and strict_joins:
             return ValidationResult(False, joins.errors + snap.errors, sorted(tables), warnings=joins.warnings + snap.warnings)
         warnings = list(joins.errors) + list(snap.errors) + list(joins.warnings) + list(snap.warnings)
-        if not autofix:
-            return ValidationResult(True, [], sorted(tables), sql, warnings)
+        if not autofix:   # kullanıcının kendi sorgusu: anlam değiştiren düzeltme yok, yalnız kurum standardı (NOLOCK)
+            return ValidationResult(True, [], sorted(tables), self._nolock(tree, sql), warnings)
         sql = self._distinct_counts(tree, sql, tables, warnings)
-        return ValidationResult(True, [], sorted(tables), self._float_division(tree, sql), warnings)
+        sql = self._float_division(tree, sql)
+        return ValidationResult(True, [], sorted(tables), self._nolock(tree, sql), warnings)
+
+    def _nolock(self, tree: exp.Expression, sql: str) -> str:
+        """Kurum SQL standardı (EDWDM, Veri Ambarı Kullanım Kılavuzu 8.1): her tablo / view referansına WITH (NOLOCK).
+        Yazılmasa da eklenir (alt sorgular ve CTE içleri dahil); zaten varsa tekrar eklenmez; CTE adlarına eklenmez.
+        Yalnız veritabanı adı kesin eşleşirse ve SQL Server'da (dictionary.toml: nolock_databases)."""
+        nolock = getattr(self.dictionary, "nolock", None)
+        if self.dialect != "tsql" or not callable(nolock) or not nolock():
+            return sql
+        ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
+        changed = False
+        for t in tree.find_all(exp.Table):
+            if not isinstance(t.this, exp.Identifier) or (not t.db and t.name.lower() in ctes):
+                continue
+            hints = list(t.args.get("hints") or [])
+            if any(isinstance(v, exp.Var) and v.name.upper() == "NOLOCK" for h in hints for v in h.find_all(exp.Var)):
+                continue
+            with_hint = next((h for h in hints if isinstance(h, exp.WithTableHint)), None)
+            if with_hint is not None:   # başka ipuçları varsa (ör. INDEX) NOLOCK yanına eklenir
+                with_hint.append("expressions", exp.Var(this="NOLOCK"))
+            else:
+                t.set("hints", hints + [exp.WithTableHint(expressions=[exp.Var(this="NOLOCK")])])
+            changed = True
+        return tree.sql(dialect=self.dialect) if changed else sql
 
     def _distinct_counts(self, tree: exp.Expression, sql: str, tables: set[str], warnings: list[str]) -> str:
         """Sözlükte varsayılan toplaması count_distinct olan kolonlarda (ör. SalesOrderNumber) COUNT(x) → COUNT(DISTINCT x).

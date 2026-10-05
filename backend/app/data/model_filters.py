@@ -25,6 +25,14 @@ from sqlglot import exp
 from app.dictionary.repository import DataDictionary, DDRelationship
 
 
+def with_nolock(table: exp.Table, dd: DataDictionary) -> exp.Table:
+    """Kurum SQL standardı (EDWDM: 'tüm sorgularda WITH (NOLOCK)'): uygulamanın ürettiği tablo referanslarına da eklenir."""
+    nolock = getattr(dd, "nolock", None)
+    if callable(nolock) and nolock():
+        table.set("hints", [exp.WithTableHint(expressions=[exp.Var(this="NOLOCK")])])
+    return table
+
+
 @dataclass
 class ModelFilter:
     table: str                 # küçük harf şema.tablo
@@ -88,7 +96,7 @@ class ModelFilterEngine:
     def _t(self, table: str) -> exp.Table:
         t = self.dd.tables.get(table)
         name = (t.display_name if t and t.display_name else table)
-        return exp.to_table(name, dialect=self.dialect)
+        return with_nolock(exp.to_table(name, dialect=self.dialect), self.dd)
 
     def _c(self, table: str, col: str) -> str:
         t = self.dd.tables.get(table)

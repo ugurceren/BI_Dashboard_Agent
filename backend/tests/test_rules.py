@@ -86,3 +86,77 @@ def test_agent_sends_rules_to_llm(edwdm, settings):
     list(agent.run_turn(s.id, "Teminat tutarlarını görmek istiyorum", None))
     sys_msg = llm.calls[0]["messages"][0]["content"]
     assert "Kurum veri kuralları — EDWDM" in sys_msg and "Masked" in sys_msg
+
+
+def test_sql_standards_go_to_data_phase_only(edwdm):
+    """Veri Ambarı Kullanım Kılavuzu bölüm 8: veri hazırlığı aşamasında LLM'e verilir."""
+    data = phase_rules(edwdm, Session(phase="data"))
+    for needle in ("WHERE koşulu zorunludur", "PartyId", "FECId = '1'", "WITH (NOLOCK)", "SELECT * kullanma",
+                   "COUNT(1)", "UNION ALL", "önce bütün INNER JOIN", "JOIN kolonlarında fonksiyon", "COR.vCalendar"):
+        assert needle in data, needle
+    assert "SQL kullanım standartları" not in phase_rules(edwdm, Session(phase="requirements"))
+
+
+@pytest.mark.parametrize("db,dialect,expected", [("EDWDM", "tsql", True), ("AdventureWorksDW2025", "tsql", False),
+                                                 (None, "tsql", False), ("EDWDM", "duckdb", False)])
+def test_generated_sql_gets_nolock_only_in_edwdm(services, monkeypatch, db, dialect, expected):
+    """Uygulamanın ürettiği filtre alt sorgularına WITH (NOLOCK) yalnız EDWDM'de (SQL Server) eklenir."""
+    from app.data.model_filters import ModelFilter, ModelFilterEngine
+    dd = services.dictionary
+    monkeypatch.setattr(dd, "database", db)
+    monkeypatch.setattr(dd._data_connector, "dialect", dialect, raising=False)
+    eng = ModelFilterEngine(dd, "tsql")
+    sql, _ = eng.apply("SELECT SUM(f.SalesAmount) FROM dbo.FactInternetSales f WITH (NOLOCK) WHERE f.OrderDateKey > 1",
+                       [ModelFilter("dbo.dimsalesterritory", "salesterritoryregion", ["Europe"])])
+    sub = sql[sql.index("EXISTS"):]
+    assert ("WITH (NOLOCK)" in sub) is expected
+    assert services.validator.validate(sql, services.policy("standart")).ok
+
+
+@pytest.fixture()
+def edwdm_db(services, monkeypatch):
+    monkeypatch.setattr(services.dictionary, "database", "EDWDM")
+    return services
+
+
+def test_validator_adds_nolock_everywhere(edwdm_db):
+    """Kullanıcı / LLM yazmasa da her tablo ve view referansına WITH (NOLOCK) eklenir: JOIN, alt sorgu, CTE içi;
+    CTE adına eklenmez, zaten yazılmışsa tekrarlanmaz."""
+    pol = edwdm_db.policy("standart")
+    sql = ("WITH s AS (SELECT f.SalesTerritoryKey, f.SalesAmount FROM dbo.FactInternetSales f WHERE f.OrderDateKey > 1) "
+           "SELECT t.SalesTerritoryRegion, SUM(s.SalesAmount) AS amt FROM s "
+           "JOIN dbo.DimSalesTerritory t WITH (NOLOCK) ON t.SalesTerritoryKey = s.SalesTerritoryKey "
+           "WHERE t.SalesTerritoryKey IN (SELECT SalesTerritoryKey FROM dbo.DimSalesTerritory WHERE SalesTerritoryGroup = 'Europe') "
+           "GROUP BY t.SalesTerritoryRegion")
+    r = edwdm_db.validator.validate(sql, pol)
+    assert r.ok, r.errors
+    out = r.sql.upper()
+    assert out.count("WITH (NOLOCK)") == 3                       # CTE içi + JOIN (tekrar yok) + alt sorgu
+    assert "FROM S WITH" not in out                               # CTE adına eklenmez
+    assert edwdm_db.validator.validate(r.sql, pol).sql.upper().count("WITH (NOLOCK)") == 3   # ikinci geçişte değişmez
+
+
+def test_nolock_in_query_console_and_other_hints(edwdm_db):
+    pol = edwdm_db.policy("standart")
+    r = edwdm_db.validator.validate("SELECT TOP 5 EnglishProductName FROM dbo.DimProduct WHERE ProductKey > 0", pol,
+                                    strict_joins=False, autofix=False)      # Sorgu Çalıştır ekranı
+    assert r.ok and "WITH (NOLOCK)" in r.sql.upper()
+    r2 = edwdm_db.validator.validate("SELECT ProductKey FROM dbo.DimProduct WITH (INDEX(1)) WHERE ProductKey > 0", pol)
+    assert r2.ok and "NOLOCK" in r2.sql.upper() and "INDEX" in r2.sql.upper()
+
+
+def test_no_nolock_outside_edwdm(services):
+    r = services.validator.validate("SELECT TOP 5 EnglishProductName FROM dbo.DimProduct WHERE ProductKey > 0",
+                                    services.policy("standart"))
+    assert r.ok and "NOLOCK" not in r.sql.upper()                  # veritabanı adı bilinmiyor / EDWDM değil
+
+
+def test_query_endpoint_executes_with_nolock(edwdm_db, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    m.state.services = edwdm_db
+    c = TestClient(m.app)
+    r = c.post("/api/query", json={"sql": "SELECT TOP 5 EnglishProductName FROM dbo.DimProduct WHERE ProductKey > 0"})
+    assert r.status_code == 200, r.text
+    assert "WITH (NOLOCK)" in edwdm_db.connector.executed[-1].upper()
