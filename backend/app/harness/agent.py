@@ -23,11 +23,13 @@ from app.harness.rules import phase_rules
 from app.harness.session import Session, SessionStore, ToolInfo, TranscriptItem, now_iso
 from app.harness.tools import TOOLS_BY_NAME, Services, ToolContext, ToolResult, to_llm_content, tools_for
 from app.harness.vision import analyze_design_images
-from app.llm.gateway import AssistantTurn, LLMError, LLMGateway, ToolCall
+from app.llm.gateway import AssistantTurn, ContextOverflow, LLMError, LLMGateway, ToolCall
 
 log = logging.getLogger(__name__)
 
 FULL_TOOL_RESULTS = 12    # son N araç sonucu tam, daha eskiler kısaltılır
+CHARS_PER_TOKEN = 2.5     # token tahmini (Türkçe metin + JSON için ihtiyatlı: gerçek ~3–3.5)
+CONTEXT_MARGIN = 512      # token: tahmin hatası payı
 OLD_TOOL_RESULT_CHARS = 700
 CACHEABLE_TOOLS = {"search_dictionary", "get_table_details", "find_metrics", "run_sql"}
 MAX_REPEATS = 3           # üst üste bu kadar tekrarlanan çağrıda tur durdurulur
@@ -130,6 +132,19 @@ class Agent:
         self.audit = Audit(services.settings.audit_log)
 
     # ------------------------------------------------------------------ public
+    def _budget(self, sys_prompt: str, schemas: list[dict[str, Any]]) -> tuple[int, int | None]:
+        """Konuşma geçmişinin karakter bütçesi ve istenecek çıktı token'ı — modelin bağlam penceresine göre.
+        Pencere bilinmiyorsa ayardaki sabit bütçe (LLM_CONTEXT_CHARS). Pencere = girdi + çıktı: sistem talimatı
+        ve araç tanımlarının yeri düşülür, kalan geçmişe ayrılır."""
+        base = self.services.settings.llm_context_chars
+        ctx = self.llm.context_window() if callable(getattr(self.llm, "context_window", None)) else None
+        if not ctx:
+            return base, None
+        max_out = min(self.llm.s.llm_max_tokens, max(1024, ctx // 4))
+        fixed = (len(sys_prompt) + len(json.dumps(schemas, ensure_ascii=False))) / CHARS_PER_TOKEN
+        avail = ctx - max_out - fixed - CONTEXT_MARGIN
+        return max(1500, min(base, int(avail * CHARS_PER_TOKEN))), max_out
+
     def run_turn(self, sid: str, text: str, images: list[str] | None = None) -> Iterator[Event]:
         lock = self.store.lock(sid)
         if not lock.acquire(blocking=False):
@@ -194,9 +209,24 @@ class Agent:
             remaining = self.services.settings.max_agent_steps - step
             sys_prompt = system_prompt(s, self.services.connector.dialect, steps_left=remaining,
                                        rules=_safe_rules(self.services, s))
-            messages = [{"role": "system", "content": sys_prompt}] + _trim(s.llm_messages, self.services.settings.llm_context_chars)
+            schemas = [t.schema() for t in tools]
+            budget, max_out = self._budget(sys_prompt, schemas)
             t0 = time.perf_counter()
-            turn: AssistantTurn = self.llm.chat(messages, [t.schema() for t in tools])
+            for attempt in range(3):   # bağlam penceresi aşılırsa geçmişi kısaltıp yeniden dene
+                messages = [{"role": "system", "content": sys_prompt}] + _trim(s.llm_messages, budget)
+                try:
+                    turn: AssistantTurn = (self.llm.chat(messages, schemas, max_tokens=max_out) if max_out
+                                           else self.llm.chat(messages, schemas))
+                    break
+                except ContextOverflow as e:
+                    if attempt == 2:
+                        raise LLMError("Model bağlam penceresi çok küçük: geçmiş kısaltılsa da talimat ve araçlar sığmıyor. "
+                                       "Daha geniş bağlamlı bir model seçin ya da LLM_MAX_TOKENS'ı düşürün.") from e
+                    fresh, max_out = self._budget(sys_prompt, schemas)
+                    budget = max(1500, min(fresh, budget // 2))
+                    log.info("Bağlam sığmadı (pencere %s, girdi %s token); geçmiş %d karaktere kısaltılıp yeniden deneniyor.",
+                             e.context, e.input_tokens, budget)
+                    yield Event("status", {"text": "Bağlam sığmadı; eski adımlar kısaltılıp yeniden deneniyor…"})
             self.audit.write(session=s.id, event="llm", phase=s.phase, ms=int((time.perf_counter() - t0) * 1000),
                              tool_calls=[c.name for c in turn.tool_calls], usage=turn.usage, tool_mode=self.llm.tool_mode)
 

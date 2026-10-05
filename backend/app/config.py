@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     llm_model: str = "Qwen/Qwen3-32B"
     llm_temperature: float = 0.2
     llm_max_tokens: int = 4096
+    # modelin bağlam penceresi (token). 0 = otomatik: sunucudan (vLLM /models max_model_len) ya da ilk
+    # "context length" hatasından öğrenilir; konuşma geçmişi buna göre kırpılır
+    llm_context_tokens: int = 0
     llm_timeout_s: float = 180
     # native: sunucunun tools desteği | prompt: araçlar sistem mesajında, <tool_call> etiketiyle
     # auto: native dene, sunucu desteklemiyorsa prompt'a düş

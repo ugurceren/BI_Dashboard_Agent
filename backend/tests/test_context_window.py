@@ -1,0 +1,98 @@
+"""Modelin bağlam penceresi: konuşma geçmişi pencereye göre kırpılır; sığmazsa hata mesajından pencere öğrenilip
+geçmiş kısaltılarak yeniden denenir (ör. kurum modeli 16384 token: 'You passed 12289 input tokens …')."""
+
+import json
+from types import SimpleNamespace
+
+import httpx
+import openai
+import pytest
+
+from app.harness.agent import CHARS_PER_TOKEN, Agent
+from app.harness.session import SessionStore
+from app.llm.gateway import AssistantTurn, ContextOverflow, LLMGateway
+from tests.conftest import FakeLLM
+
+VLLM_MSG = ("You passed 12289 input tokens and requested 4096 output tokens. However, the model's context length is only "
+            "16384 tokens, resulting in a maximum input length of 12288 tokens. Please reduce the length of the input prompt. "
+            "(parameter=input_tokens, value=12289)")
+
+
+def _bad_request(msg):
+    req = httpx.Request("POST", "http://llm/v1/chat/completions")
+    return openai.BadRequestError(msg, response=httpx.Response(400, request=req), body={"message": msg})
+
+
+def test_gateway_learns_context_from_vllm_error(settings, monkeypatch):
+    gw = LLMGateway(settings)
+
+    def create(**kw):
+        raise _bad_request(VLLM_MSG)
+    monkeypatch.setattr(gw.client.chat.completions, "create", create)
+    with pytest.raises(ContextOverflow) as ei:
+        gw.chat([{"role": "user", "content": "x"}])
+    assert ei.value.context == 16384 and ei.value.input_tokens == 12289
+    assert gw.context_window() == 16384                                   # sonraki istekler buna göre kırpılır
+
+
+def test_gateway_reads_max_model_len_from_models(settings, monkeypatch):
+    gw = LLMGateway(settings)
+    models = SimpleNamespace(data=[SimpleNamespace(id="baska", model_extra={"max_model_len": 999}),
+                                   SimpleNamespace(id=settings.llm_model, model_extra={"max_model_len": 16384})])
+    fake = SimpleNamespace(models=SimpleNamespace(list=lambda: models))
+    monkeypatch.setattr(gw.client, "with_options", lambda **kw: fake)
+    assert gw.context_window() == 16384
+
+
+def test_setting_overrides_context(settings):
+    s = settings.model_copy(update={"llm_context_tokens": 8192})
+    assert LLMGateway(s).context_window() == 8192
+
+
+class SmallCtxLLM(FakeLLM):
+    """16384 token pencereli model: ilk çağrıda sığmadı hatası (isteğe bağlı), sonra yanıt."""
+
+    def __init__(self, script, settings, overflow_first=False):
+        super().__init__(script, settings)
+        self.overflow_first = overflow_first
+        self.sizes = []
+
+    def context_window(self):
+        return 16384
+
+    def chat(self, messages, tools=None, max_tokens=None):
+        self.sizes.append(sum(len(json.dumps(m, ensure_ascii=False)) for m in messages))
+        self.max_tokens = max_tokens
+        if self.overflow_first:
+            self.overflow_first = False
+            raise ContextOverflow(VLLM_MSG, 16384, 12289)
+        return super().chat(messages, tools)
+
+
+def _long_session(store):
+    s = store.create("standart")
+    for i in range(80):   # uzun geçmiş: ~160K karakter (sabit bütçe 120K'yı ve 16K token pencereyi aşar)
+        s.llm_messages.append({"role": "user", "content": f"mesaj {i} " + "x" * 1000})
+        s.llm_messages.append({"role": "assistant", "content": f"yanıt {i} " + "y" * 1000})
+    store.save(s)
+    return s
+
+
+def test_history_is_trimmed_to_model_window(settings, services):
+    llm = SmallCtxLLM([AssistantTurn("Tamam.")], settings)
+    store = SessionStore(settings.sessions_dir)
+    s = _long_session(store)
+    list(Agent(llm, services, store).run_turn(s.id, "son tarihte top 100 mevduatı olan müşteriler", None))
+    assert llm.max_tokens == 4096
+    est_tokens = llm.sizes[0] / CHARS_PER_TOKEN
+    assert est_tokens <= 16384 - 4096                                     # ihtiyatlı tahminle bile pencereye sığar
+
+
+def test_overflow_retries_with_shorter_history(settings, services):
+    llm = SmallCtxLLM([AssistantTurn("Tamam.")], settings, overflow_first=True)
+    store = SessionStore(settings.sessions_dir)
+    s = _long_session(store)
+    events = list(Agent(llm, services, store).run_turn(s.id, "rapor istiyorum", None))
+    assert len(llm.sizes) == 2 and llm.sizes[1] < llm.sizes[0]            # ikinci deneme daha kısa
+    assert not [e for e in events if e.type == "error"]
+    assert any(e.type == "status" and "kısaltılıp" in e.data.get("text", "") for e in events)

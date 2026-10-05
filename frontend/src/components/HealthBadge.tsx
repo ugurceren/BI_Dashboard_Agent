@@ -11,6 +11,7 @@ export function HealthBadge({ health, healthError, compact, inline, onClick }: {
       ? [
           `LLM: ${health.llm.model} (${health.llm.reachable ? "erişilebilir" : "erişilemiyor"})`,
           health.llm.base_url ? `Adres: ${health.llm.base_url}` : "",
+          health.llm.context_tokens ? `Bağlam penceresi: ${health.llm.context_tokens.toLocaleString("tr-TR")} token` : "",
           health.llm.error ? `Hata: ${health.llm.error}` : "",
           `Görsel model: ${health.vision.configured ? health.vision.model : "yapılandırılmamış"}`,
           `Veri: ${health.data.ok ? "bağlı" : "hata"} (${health.data.dialect})`,

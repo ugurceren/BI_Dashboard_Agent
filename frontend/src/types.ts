@@ -254,7 +254,7 @@ export interface SessionSummary {
 
 export interface Health {
   ok: boolean;
-  llm: { reachable: boolean; model: string; base_url: string; error?: string };
+  llm: { reachable: boolean; model: string; base_url: string; error?: string; context_tokens?: number };
   vision: { configured: boolean; model: string | null };
   data: { ok: boolean; dialect: string; error?: string };
   dictionary?: { tables: number; error?: string };

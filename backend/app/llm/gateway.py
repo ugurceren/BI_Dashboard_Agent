@@ -32,6 +32,19 @@ class LLMError(Exception):
     pass
 
 
+class ContextOverflow(LLMError):
+    """İstek modelin bağlam penceresine sığmadı (girdi + istenen çıktı > pencere). context: modelin penceresi."""
+
+    def __init__(self, msg: str, context: int | None = None, input_tokens: int | None = None):
+        super().__init__(msg)
+        self.context, self.input_tokens = context, input_tokens
+
+
+# vLLM: "...the model's context length is only 16384 tokens..." / OpenAI: "maximum context length is 16384 tokens"
+_CTX_RE = re.compile(r"(?:context length is only|maximum context length is|max_model_len[^0-9]{0,20})\s*(\d{3,7})", re.I)
+_IN_RE = re.compile(r"passed (\d+) input tokens|resulted in (\d+) tokens|messages resulted in (\d+)", re.I)
+
+
 @dataclass
 class ToolCall:
     id: str
@@ -150,24 +163,56 @@ class LLMGateway:
         self.client = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key or "EMPTY",
                              timeout=settings.llm_timeout_s, max_retries=1)
         self.tool_mode = settings.llm_tool_mode  # auto → ilk hatada prompt'a düşebilir
+        self._ctx: int | None = settings.llm_context_tokens or None   # bağlam penceresi (öğrenilince önbellek)
+        self._ctx_probed = bool(self._ctx)
         vision_url = settings.vision_base_url or settings.llm_base_url
         self.vision_client = OpenAI(base_url=vision_url, api_key=settings.vision_api_key or settings.llm_api_key or "EMPTY",
                                     timeout=settings.llm_timeout_s, max_retries=1)
 
     # ------------------------------------------------------------------ sohbet
-    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> AssistantTurn:
+    # ------------------------------------------------------------------ bağlam penceresi
+    def context_window(self) -> int | None:
+        """Modelin bağlam penceresi (token): ayar (LLM_CONTEXT_TOKENS) → sunucunun /models yanıtındaki max_model_len
+        (vLLM) → ilk 'context length' hatasından öğrenilen değer. Bilinmiyorsa None."""
+        if self._ctx:
+            return self._ctx
+        if not self._ctx_probed:
+            self._ctx_probed = True
+            try:
+                for m in self.client.with_options(timeout=5, max_retries=0).models.list().data:
+                    if m.id == self.s.llm_model:
+                        extra = getattr(m, "model_extra", None) or {}
+                        v = extra.get("max_model_len") or extra.get("context_length") or extra.get("max_context_length")
+                        if v:
+                            self._ctx = int(v)
+                            log.info("LLM bağlam penceresi: %d token (%s)", self._ctx, self.s.llm_model)
+                        break
+            except Exception as e:  # noqa: BLE001 — öğrenilemezse ilk hatadan öğrenilir
+                log.info("Bağlam penceresi sunucudan alınamadı: %s", e)
+        return self._ctx
+
+    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
+             max_tokens: int | None = None) -> AssistantTurn:
         use_native = bool(tools) and self.tool_mode in ("auto", "native")
         try:
             if use_native:
-                resp = self._create(messages, tools)
+                resp = self._create(messages, tools, max_tokens)
             else:
-                resp = self._create(_to_prompt_mode(messages, tools), None)
+                resp = self._create(_to_prompt_mode(messages, tools), None, max_tokens)
         except openai.BadRequestError as e:
             if use_native and self.tool_mode == "auto" and _looks_like_tool_unsupported(e):
                 log.warning("Sunucu native tool calling desteklemiyor, prompt moduna geçiliyor: %s", e)
                 self.tool_mode = "prompt"
-                return self.chat(messages, tools)
-            raise LLMError(f"LLM isteği reddedildi: {_err_text(e)}") from e
+                return self.chat(messages, tools, max_tokens)
+            text = _err_text(e)
+            ctx = _CTX_RE.search(text)
+            if ctx or "context length" in text.lower() or "too long" in text.lower():
+                if ctx:
+                    self._ctx = int(ctx.group(1))   # öğrenildi: sonraki istekler buna göre kırpılır
+                m = _IN_RE.search(text)
+                n_in = int(next(g for g in m.groups() if g)) if m else None
+                raise ContextOverflow(f"İstek modelin bağlam penceresine sığmadı: {text}", self._ctx, n_in) from e
+            raise LLMError(f"LLM isteği reddedildi: {text}") from e
         except openai.APIConnectionError as e:
             raise LLMError(f"LLM sunucusuna bağlanılamadı ({self.s.llm_base_url}). Sunucu açık mı?") from e
         except openai.APIStatusError as e:
@@ -195,9 +240,9 @@ class LLMGateway:
             content += "\n\n_(Yanıt uzunluk sınırında kesildi.)_"
         return AssistantTurn(content.strip(), calls, usage)
 
-    def _create(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None):
+    def _create(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, max_tokens: int | None = None):
         kwargs: dict[str, Any] = dict(model=self.s.llm_model, messages=messages,
-                                      temperature=self.s.llm_temperature, max_tokens=self.s.llm_max_tokens)
+                                      temperature=self.s.llm_temperature, max_tokens=max_tokens or self.s.llm_max_tokens)
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -235,6 +280,9 @@ class LLMGateway:
             info["available_models"] = models[:20]
             if models and self.s.llm_model not in models:
                 info["error"] = f"'{self.s.llm_model}' sunucuda yok. Mevcut: {', '.join(models[:5])}"
+            ctx = self.context_window()
+            if ctx:
+                info["context_tokens"] = ctx   # konuşma geçmişi buna göre kırpılır
         except Exception as e:  # noqa: BLE001
             info["error"] = f"{type(e).__name__}: {str(e)[:200]}"
         return info
