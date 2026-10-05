@@ -90,3 +90,18 @@ def test_suggestions_endpoints(settings, services, monkeypatch, tmp_path):
     assert p["polished"] and p["items"][0]["text"] == "İstek 0" and p["items"][0]["rule_text"]
     again = c.get("/api/suggestions").json()                             # önbellekte: GET doğrudan düzenlenmiş döner
     assert again["polished"] and again["items"][0]["text"] == "İstek 0"
+
+
+def test_view_variants_do_not_duplicate_suggestions(settings):
+    """Masked / PersonnelExcluded varyantları: ana view erişilebilirse öneri tekrarlanmaz; yalnız varyanta erişim
+    varsa öneri varyanttan gelir."""
+    dd = _dd(settings)
+    base = dd.tables["clt.vrepurchaseguarantee"]
+    v = DDTable("clt.vrepurchaseguaranteemasked", "Geri Alım Garantileri (maskeli)", base.description, "Kredi", "", 1200,
+                display_name="CLT.vRepurchaseGuaranteeMasked", variant_of=base.name)
+    v.columns = [col(v.name, "GuaranteeAmount", "decimal", bn="Teminat Tutarı"), col(v.name, "GuaranteeDate", "date")]
+    dd.tables[v.name] = v
+    both = [i["table"] for i in sugg.rule_suggestions(dd, lambda t: True)]
+    assert "CLT.vRepurchaseGuarantee" in both and "CLT.vRepurchaseGuaranteeMasked" not in both
+    only_masked = [i["table"] for i in sugg.rule_suggestions(dd, lambda t: t.name != base.name)]
+    assert "CLT.vRepurchaseGuaranteeMasked" in only_masked

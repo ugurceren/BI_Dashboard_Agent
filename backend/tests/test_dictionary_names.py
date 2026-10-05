@@ -123,7 +123,9 @@ def test_corporate_excel_layout_view_name_and_camelcase_headers(settings, tmp_pa
     assert v.documented and v.in_db and v.description.startswith("Geri alım garantisi")
     assert {c.name: c.description for c in v.columns}["collateralname"] == "Teminat Adı"
     assert dd.tables["clt.vrepurchaseguaranteemasked"].documented
-    assert not dd.tables["clt.vrepurchaseguaranteepersonnelmasked"].documented   # Excel'de yok: "sözlükte yok" doğru
+    # Excel'de yok ama ana view (vRepurchaseGuarantee) sözlükte: yetki varyantı olarak tanımlı sayılır
+    pm = dd.tables["clt.vrepurchaseguaranteepersonnelmasked"]
+    assert pm.documented and pm.variant_of == "clt.vrepurchaseguarantee"
     # sözlükte tablo / view ayrımı yok: tip veritabanı kataloğundan (sys.objects.type = 'V')
     assert v.object_type == "view" and dd.is_view("clt.vrepurchaseguarantee")
     assert dd.is_view("clt.vrepurchaseguaranteepersonnelmasked")
@@ -236,3 +238,46 @@ def test_agent_sees_only_usable_tables_and_views(services):
     finally:
         for x in (sp, locked, ok):
             dd.tables.pop(x.name, None)
+
+
+
+def test_view_permission_variants_inherit_base_definition(settings, monkeypatch):
+    """EDWDM yetki seviyeleri: ana view sözlükteyse Masked / PersonnelExcluded / PersonnelMasked varyantları da
+    sözlükte tanımlı sayılır; tablo ve aynı adlı kolon bilgileri ana view'dan gelir. Ana view'ı sözlükte olmayan
+    varyantlar ve eki benzeyen başka nesneler etkilenmez."""
+    import app.data.connections as conns
+    from app.dictionary.sources import Collected
+
+    rows = {"tables": [{"table_name": "CLT.vGuarantee", "business_name": "Geri Alım Garantisi",
+                        "description": "Geri alım garantisi bilgileri.", "subject_area": "Kredi", "grain": "", "row_count": None,
+                        "table_type": None}],
+            "columns": [{"table_name": "CLT.vGuarantee", "column_name": "CustomerName", "business_name": "Müşteri Adı",
+                         "description": "Müşterinin adı", "data_type": None, "column_role": "dimension", "default_aggregation": None,
+                         "synonyms": "isim", "is_pii": True, "sample_values": None},
+                        {"table_name": "CLT.vGuarantee", "column_name": "Amount", "business_name": "Teminat Tutarı",
+                         "description": "", "data_type": None, "column_role": "measure", "default_aggregation": "sum",
+                         "synonyms": None, "is_pii": False, "sample_values": None}]}
+    monkeypatch.setattr(conns, "saved_dictionary", lambda: ({"kind": "excel"}, {"tables": ["t"], "columns": ["c"]}))
+    monkeypatch.setattr(conns, "open_dictionary_reader", lambda f: (None, {}))
+    import app.dictionary.sources as dsrc
+    monkeypatch.setattr(dsrc, "collect", lambda *a, **k: Collected(rows=rows))
+    monkeypatch.setattr(DataDictionary, "_view_registry", lambda self: [])
+    con = CatalogConnector({
+        "CLT.vGuarantee": ("V", ["CustomerName", "Amount"]),
+        "CLT.vGuaranteeMasked": ("V", ["CustomerName", "Amount", "MaskFlag"]),
+        "CLT.vGuaranteePersonnelExcluded": ("V", ["CustomerName", "Amount"]),
+        "CLT.vGuaranteePersonnelMasked": ("V", ["CustomerName", "Amount"]),
+        "CLT.vOtherMasked": ("V", ["X"]),            # ana view (vOther) sözlükte yok
+        "CLT.Masked": ("V", ["X"]),                  # yalnız ek: ana ad yok
+    })
+    dd = DataDictionary(settings, con).load()
+    m = dd.tables["clt.vguaranteemasked"]
+    assert m.documented and m.variant_of == "clt.vguarantee" and m.subject_area == "Kredi"
+    assert m.business_name == "Geri Alım Garantisi (maskeli)" and "maskeli görünür" in m.description
+    cols = {c.name: c for c in m.columns}
+    assert cols["customername"].business_name == "Müşteri Adı" and cols["customername"].is_pii
+    assert cols["amount"].role == "measure" and cols["amount"].default_aggregation == "sum"
+    assert cols["maskflag"].business_name == "MaskFlag"                       # ana view'da olmayan kolon: veritabanından
+    assert dd.tables["clt.vguaranteepersonnelexcluded"].business_name == "Geri Alım Garantisi (personel hariç)"
+    assert dd.tables["clt.vguaranteepersonnelmasked"].business_name == "Geri Alım Garantisi (personel maskeli)"
+    assert not dd.tables["clt.vothermasked"].documented and not dd.tables["clt.masked"].documented

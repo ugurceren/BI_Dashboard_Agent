@@ -47,6 +47,7 @@ class DDTable:
     table_type: str = ""     # fact | dimension | bridge (sözlükte yoksa ilişkilerden çıkarılır)
     documented: bool = True        # False: veritabanında var, sözlükte tanımsız (katalogdan eklendi)
     object_type: str = ""          # table | view — veritabanı kataloğundan (sys.objects.type U / V); "" bilinmiyor
+    variant_of: str = ""           # yetki varyantı ise ana view (ör. clt.vx ← clt.vxMasked); tanımı ondan devralır
     in_db: bool | None = None      # veritabanı kataloğunda bulundu mu (None: bilinmiyor / katalog okunamadı)
     can_select: bool | None = None # bağlanan hesabın SELECT yetkisi (HAS_PERMS_BY_NAME)
 
@@ -401,6 +402,48 @@ class DataDictionary:
         r"birth|dogum|tckn|tc_?kimlik|kimlik_?no|national_?id|ssn|passport|pasaport|iban|card_?number|kart_?no|"
         r"first_?name|last_?name|middle_?name|full_?name|ad_?soyad|^ad$|^soyad|isim|salary|maas|income|gelir)", re.IGNORECASE)
     _SKIP_OBJECTS = {"dbo.sysdiagrams"}   # SSMS diyagram tablosu
+    # EDWDM view yetki seviyeleri: her veri seti için ana view + ekli varyantlar (personel / müşteri tanımlayıcı
+    # verilerinin görünürlüğü). Ana view sözlükte tanımlıysa varyantlar da tanımlı sayılır (iş adı, açıklama, kolonlar).
+    # Uzun ekler önce denenir (PersonnelMasked, Masked'tan önce).
+    VIEW_VARIANTS: list[tuple[str, str, str]] = [
+        ("PersonnelExcluded", "personel hariç", "Personel kayıtları filtrelenmiş, diğer müşteri verileri açık görünür."),
+        ("PersonnelMasked", "personel maskeli", "Personeli ayırt edici veriler maskeli, müşteri verileri açık görünür."),
+        ("Masked", "maskeli", "Personel dahil tüm müşteriler maskeli görünür."),
+    ]
+
+    def _variant_base(self, sch: str, obj: str) -> tuple["DDTable", tuple[str, str, str]] | None:
+        """vXMasked / vXPersonnelExcluded / vXPersonnelMasked → sözlükte tanımlı ana view (vX) varsa onu döner."""
+        low = obj.lower()
+        for v in self.VIEW_VARIANTS:
+            suf = v[0].lower()
+            if low.endswith(suf) and len(low) > len(suf):
+                base = self.tables.get(f"{sch}.{obj[:-len(suf)]}".lower())
+                if base is not None and base.documented and not base.variant_of:
+                    return base, v
+        return None
+
+    def _variant_table(self, full: str, name: str, base: "DDTable", v: tuple[str, str, str], rows: Any, otype: str,
+                       cols: list[tuple[str, str, str]]) -> "DDTable":
+        """Varyant view: tablo düzeyi bilgiler ana view'dan (+ varyant notu); aynı adlı kolonların iş adı / açıklama /
+        rol / toplama / eş anlamlılar / kişisel veri işareti ana view'dan, diğerleri veritabanından."""
+        _suffix, label, note = v
+        has_bn = bool(base.business_name) and base.business_name.lower() not in (base.name, (base.display_name or "").lower())
+        bn = f"{base.business_name} ({label})" if has_bn else name   # ana view'ın iş adı yoksa varyantın kendi adı
+        desc = " ".join(x for x in (base.description, f"Yetki seviyesi: {note}") if x)
+        t = DDTable(full, bn, desc, base.subject_area, base.grain, int(rows) if rows is not None else None,
+                    display_name=name, table_type=base.table_type, documented=True, in_db=True, can_select=True,
+                    object_type=otype, variant_of=base.name)
+        by_name = {c.name: c for c in base.columns}
+        for cname, ctyp, cdesc in cols:
+            b = by_name.get(cname.lower())
+            if b is not None:
+                t.columns.append(DDColumn(full, b.name, b.business_name, b.description or cdesc, b.data_type or ctyp, b.role,
+                                          b.default_aggregation, list(b.synonyms), b.is_pii, b.sample_values,
+                                          display_name=cname))
+            else:
+                t.columns.append(DDColumn(full, cname.lower(), cname, cdesc, ctyp, "attribute", None, [], self._guess_pii(cname), "",
+                                          display_name=cname))
+        return t
 
     @classmethod
     def _guess_pii(cls, column: str) -> bool:
@@ -469,6 +512,7 @@ class DataDictionary:
             by_obj.setdefault(f"{sch}.{obj}".lower(), []).append((str(col), str(typ or ""), str(desc or "")))
         seen: set[str] = set()
         added = 0
+        variants = 0
         with self._lock:
             for sch, obj, typ, perm, desc, rows in objs:
                 full = f"{sch}.{obj}".lower()
@@ -493,6 +537,11 @@ class DataDictionary:
                 if not can or full in self._SKIP_OBJECTS:  # yetki yoksa listelenmez (SQL Server zaten çoğu zaman göstermez)
                     continue
                 name = f"{sch}.{obj}"
+                vb = self._variant_base(str(sch), str(obj)) if otype == "view" else None
+                if vb is not None:   # ana view sözlükte: varyant da tanımlı sayılır
+                    self.tables[full] = self._variant_table(full, name, vb[0], vb[1], rows, otype, by_obj.get(full, []))
+                    variants += 1
+                    continue
                 t = DDTable(full, name, str(desc or ""), self.UNDOCUMENTED_AREA, "", int(rows) if rows is not None else None,
                             display_name=name, table_type="view" if str(typ).strip().upper() == "V" else "",
                             documented=False, in_db=True, can_select=True, object_type=otype)
@@ -506,7 +555,8 @@ class DataDictionary:
             self.missing_in_db = sorted(t.display_name or n for n, t in self.tables.items() if t.in_db is False)
             if added:
                 self._add_catalog_foreign_keys()
-        log.info("Veritabanı kataloğu: %d nesne, %d tanesi sözlükte tanımsız olarak eklendi.", len(seen), added)
+        log.info("Veritabanı kataloğu: %d nesne, %d tanesi sözlükte tanımsız olarak eklendi, %d view varyantı ana view'dan tanımlandı.",
+                 len(seen), added, variants)
         if self.missing_in_db:
             log.warning("Sözlükteki %d nesne veritabanında bulunamadı: %s", len(self.missing_in_db), ", ".join(self.missing_in_db[:15]))
 

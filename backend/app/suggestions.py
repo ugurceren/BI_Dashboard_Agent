@@ -119,6 +119,9 @@ def analyse(dd, accessible: Callable[[Any], bool]) -> list[dict[str, Any]]:
             continue
         if _DATE_DIM.search(t.name.split(".")[-1]) or t.name in referenced:
             continue
+        base = dd.tables.get(getattr(t, "variant_of", "") or "")
+        if base is not None and accessible(base):   # yetki varyantı (Masked …): ana view'a erişim varsa tek öneri yeter
+            continue
         measures = [c for c in t.columns if _is_measure(c)]
         measures.sort(key=_measure_rank)
         dims = [_label(c) for c in t.columns if _is_dim(c)]
