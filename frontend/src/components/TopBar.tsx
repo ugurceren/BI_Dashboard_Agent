@@ -5,6 +5,7 @@ import { HealthBadge } from "./HealthBadge";
 import { PHASES } from "./Chat";
 import { StatusPicker } from "./StatusPicker";
 import { ConfirmDialog } from "./ConfirmDialog";
+import "./vitrin.css";
 
 export type ThemePref = "light" | "dark";
 
@@ -25,7 +26,10 @@ const PAGE_CRUMBS: Record<string, [string, string]> = {
   vitrin: ["Vitrin", "Yayınlanmış raporlar"], "vitrin-report": ["Vitrin", "Yayınlanmış raporlar"],
 };
 
-export function TopBar({ onMode, canView, page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme, health, healthError, onHealthClick, onPublish, published }: {
+export function TopBar({ onMode, canView, page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme, health, healthError, onHealthClick, onPublish, published, appMode = "design", onAppMode }: {
+  /** uygulama modu: vitrin (yayınlar) | design (tasarım çalışma alanı); onAppMode yoksa anahtar gösterilmez (izleyici) */
+  appMode?: "vitrin" | "design";
+  onAppMode?: (m: "vitrin" | "design") => void;
   /** Vitrin'e yayınla (rapor açıkken, dashboard varsa) */
   onPublish?: () => void;
   published?: SessionSummary["published"];
@@ -84,6 +88,20 @@ export function TopBar({ onMode, canView, page, mock, sessions, currentId, curre
         {mock ? <span className="pill pill-warn" title="Backend olmadan sahte veriyle çalışıyor">mock</span> : null}
       </div>
 
+      {onAppMode ? (
+        <div className="app-mode-seg" role="group" aria-label="Uygulama modu">
+          <button type="button" className={appMode === "vitrin" ? "is-on" : undefined} aria-pressed={appMode === "vitrin"} disabled={busy}
+            onClick={() => onAppMode("vitrin")} title="Vitrin: yayınlanmış raporları gör">
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 6.5h12M3 6.5V13.5h10V6.5M2 6.5l1.5-4h9l1.5 4M6.5 13.5V10h3v3.5" /></svg>
+            <span>Vitrin</span>
+          </button>
+          <button type="button" className={appMode === "design" ? "is-on" : undefined} aria-pressed={appMode === "design"} disabled={busy}
+            onClick={() => onAppMode("design")} title="Tasarım: rapor tasarla, veri ve ayarlar">
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11.5V13h1.5l7-7L10 4.5l-7 7ZM9.5 5 11 6.5" /></svg>
+            <span>Tasarım</span>
+          </button>
+        </div>
+      ) : null}
       <nav className="crumbs" aria-label="Konum">
         {crumbs.map((c, i) => (
           <span key={i} className="crumb">
@@ -167,7 +185,7 @@ export function TopBar({ onMode, canView, page, mock, sessions, currentId, curre
           <span>{published?.status === "active" ? `Yayında · v${published.version}` : "Yayınla"}</span>
         </button>
       ) : null}
-      <HealthBadge health={health} healthError={healthError} inline onClick={onHealthClick} />
+      {appMode === "design" ? <HealthBadge health={health} healthError={healthError} inline onClick={onHealthClick} /> : null}
       <div className="theme-seg" role="group" aria-label="Görünüm">
         {([["light", "Gündüz modu", <path key="l" d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6ZM8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />],
            ["dark", "Gece modu", <path key="d" d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6Z" />]] as [ThemePref, string, ReactNode][]).map(([k, l, icon]) => (

@@ -106,6 +106,8 @@ def test_publish_share_and_view(srv):
     assert srv.get(f"/api/vitrin/{rid}", headers=H(VELI)).status_code == 404
     lst = srv.get("/api/vitrin", headers=H(VELI, "Satis")).json()
     assert [x["id"] for x in lst] == [rid] and lst[0]["can_manage"] is False and lst[0]["can_export"] is False
+    assert lst[0]["session_id"] is None                                     # izleyici tasarım oturumunu bilmez
+    assert srv.get("/api/vitrin", headers=H(ALI)).json()[0]["session_id"] == s.id   # sahibi "Tasarımda aç"
     got = srv.get(f"/api/vitrin/{rid}", headers=H(VELI, "Satis")).json()
     assert got["spec"]["datasets"][0]["sql"] == "" and "transcript" not in got   # SQL ve sohbet izleyiciye gitmez
     d = srv.post(f"/api/vitrin/{rid}/data", headers=H(VELI, "Satis"), json={"selections": []}).json()

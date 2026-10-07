@@ -387,6 +387,8 @@ export interface VitrinCard {
   can_export: boolean;
   can_manage: boolean;
   shared_with: number | null;
+  /** yönetebilen tasarımcı / admin için tasarım oturumu ("Tasarımda aç") */
+  session_id?: string | null;
 }
 
 export interface VitrinReport {

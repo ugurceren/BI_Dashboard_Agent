@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Api } from "../api/client";
 import type { CellValue, CrossSelection, DashboardData, Selection, VitrinReport } from "../types";
 import { DashboardRenderer } from "../dashboard/DashboardRenderer";
+import { markOpened } from "../lib/vitrin";
 import "./vitrin.css";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function ReportView({ api, id, onBack }: { api: Api; id: string; onBack: () => void }) {
+export function ReportView({ api, id, onBack, onOpenDesign }: { api: Api; id: string; onBack: () => void; onOpenDesign: (sessionId: string) => void }) {
   const [rep, setRep] = useState<VitrinReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DashboardData | null>(null);
@@ -20,7 +21,7 @@ export function ReportView({ api, id, onBack }: { api: Api; id: string; onBack: 
   useEffect(() => {
     let alive = true;
     setRep(null); setError(null); setData(null); setSelections({}); setCross(null);
-    api.vitrinReport(id).then((r) => alive && setRep(r)).catch((e) => alive && setError(errMsg(e)));
+    api.vitrinReport(id).then((r) => { if (alive) { setRep(r); markOpened(id); } }).catch((e) => alive && setError(errMsg(e)));
     return () => { alive = false; };
   }, [api, id]);
 
@@ -77,6 +78,7 @@ export function ReportView({ api, id, onBack }: { api: Api; id: string; onBack: 
           {r.status === "retired" ? <span className="pill pill-warn">Yayından kaldırıldı</span> : null}
         </div>
         <span className="pd-spacer" />
+        {r.session_id ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenDesign(r.session_id!)}>Tasarımda aç</button> : null}
         {r.can_export ? <a className="btn btn-secondary btn-sm" href={api.vitrinExportUrl(r.id)} target="_blank" rel="noopener">HTML indir</a> : null}
       </div>
       {dataError ? <div className="banner-error">Veri alınamadı: {dataError}</div> : null}

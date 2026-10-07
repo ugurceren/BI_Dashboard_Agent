@@ -16,11 +16,12 @@ import { Vitrin } from "./components/Vitrin";
 import { ReportView } from "./components/ReportView";
 import { AdminPage } from "./components/AdminPage";
 import { PublishDialog } from "./components/PublishDialog";
-import type { Me } from "./types";
+import type { Me, VitrinCard } from "./types";
+import type { VitrinFilter } from "./lib/vitrin";
 import type { ThemePref } from "./components/TopBar";
 import { ApiError } from "./api/client";
 
-/** #/ envanter · #/access veri erişimi · #/model veri modeli · #/query sorgu · #/r/<id> rapor tasarımı · #/v/<id> canlı görünüm
+/** #/ Vitrin (açılış) · #/envanter rapor envanteri · #/access veri erişimi · #/model veri modeli · #/query sorgu · #/r/<id> rapor tasarımı · #/v/<id> canlı görünüm
  *  #/vitrin yayınlanmış raporlar · #/vitrin/<id> yayın görüntüleme · #/admin yönetim */
 function parseRoute(): { view: Page; id: string | null } {
   const h = window.location.hash;
@@ -28,6 +29,7 @@ function parseRoute(): { view: Page; id: string | null } {
   if (vr) return { view: "vitrin-report", id: vr[1] };
   if (h.startsWith("#/vitrin")) return { view: "vitrin", id: null };
   if (h.startsWith("#/admin")) return { view: "admin", id: null };
+  if (h.startsWith("#/envanter")) return { view: "home", id: null };
   const m = /^#\/r\/([A-Za-z0-9]+)/.exec(h);
   if (m) return { view: "designer", id: m[1] };
   const v = /^#\/v\/([A-Za-z0-9]+)/.exec(h);
@@ -36,7 +38,7 @@ function parseRoute(): { view: Page; id: string | null } {
   if (h.startsWith("#/model")) return { view: "model", id: null };
   if (h.startsWith("#/query")) return { view: "query", id: null };
   if (h.startsWith("#/settings")) return { view: "settings", id: null };
-  return { view: "home", id: null };
+  return { view: "vitrin", id: null };   // açılış: Vitrin
 }
 const LS_SIDEBAR = "bi.sidebarCollapsed";
 const LS_THEME = "bi.theme";
@@ -92,6 +94,17 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [publishing, setPublishing] = useState(false);
   const canDesign = me?.capabilities?.design ?? true;
+  // uygulama modu: Vitrin (yayınlanmış raporlar) ya da Tasarım (rapor tasarlama, veri, ayarlar); izleyici yalnız Vitrin
+  const appMode: "vitrin" | "design" = route.view === "vitrin" || route.view === "vitrin-report" || !canDesign ? "vitrin" : "design";
+  const [vitrinItems, setVitrinItems] = useState<VitrinCard[] | null>(null);
+  const [vitrinError, setVitrinError] = useState<string | null>(null);
+  const [vitrinFilter, setVitrinFilter] = useState<VitrinFilter>({ scope: "all", domain: null });
+  const loadVitrin = useCallback(async () => {
+    try { setVitrinItems(await api.vitrin()); setVitrinError(null); }
+    catch (e) { setVitrinError(errMsg(e)); setVitrinItems((cur) => cur ?? []); }
+  }, [api]);
+  useEffect(() => { if (appMode === "vitrin") void loadVitrin(); }, [appMode, loadVitrin]);
+  const openDesign = (sid: string) => { window.location.hash = `#/r/${sid}`; };
   const [chatWidth, setChatWidth] = useState(() => Math.min(640, Math.max(320, Number(lsGet(LS_WIDTH)) || 400)));
   const chatRef = useRef<HTMLElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -200,7 +213,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route]);
 
-  const goHome = () => { window.location.hash = "#/"; };
+  const goHome = () => { window.location.hash = "#/envanter"; };
   const goReport = (id: string) => { window.location.hash = `#/r/${id}`; };
   /** envanterden açış: canlıdaki (dashboard'u olan) rapor tam sayfa görünümde, diğerleri tasarım modunda açılır */
   const openFromInventory = (id: string) => {
@@ -470,8 +483,9 @@ export default function App() {
       page={route.view}
       collapsed={sidebarCollapsed}
       onToggle={() => { const v = !sidebarCollapsed; setSidebarPref(v); lsSet(LS_SIDEBAR, v ? "1" : "0"); }}
-      onNavigate={(p) => { window.location.hash = p === "home" ? "#/" : `#/${p}`; }}
-      onNew={() => void newSession()}
+      onNavigate={(p) => { window.location.hash = p === "home" ? "#/envanter" : `#/${p}`; }}
+      mode={appMode}
+      vitrin={{ items: vitrinItems, filter: vitrinFilter, onFilter: setVitrinFilter }}
       me={me}
       currentReport={state && sessionId ? { id: sessionId, title: state.title } : null}
       busy={streaming}
@@ -500,15 +514,18 @@ export default function App() {
         onHealthClick={() => { if (me?.capabilities?.admin ?? true) window.location.hash = "#/settings"; }}
         onPublish={me?.capabilities?.vitrin && canDesign ? () => setPublishing(true) : undefined}
         published={sessions.find((x) => x.id === sessionId)?.published}
+        appMode={appMode}
+        onAppMode={canDesign && (me?.capabilities?.vitrin ?? true) ? (m) => { window.location.hash = m === "vitrin" ? "#/vitrin" : "#/envanter"; } : undefined}
       />
       {publishing && sessionId ? (
         <PublishDialog api={api} sessionId={sessionId} onClose={() => { setPublishing(false); void refreshSessions(); }}
-          onPublished={(s, rid) => { setPublishing(false); setState(s); void refreshSessions(); showToast(`Vitrin'de yayınlandı. Açmak için: Vitrin → ${s.title}`); void rid; }} />
+          onPublished={(s, rid) => { setPublishing(false); setState(s); void refreshSessions(); void loadVitrin(); showToast(`Vitrin'de yayınlandı. Açmak için: Vitrin → ${s.title}`); void rid; }} />
       ) : null}
       {route.view === "vitrin" ? (
-        <main className="main main-home"><Vitrin api={api} me={me} onOpen={(id) => { window.location.hash = `#/vitrin/${id}`; }} /></main>
+        <main className="main main-home"><Vitrin api={api} me={me} items={vitrinItems} error={vitrinError} filter={vitrinFilter} reload={() => void loadVitrin()}
+          onOpen={(id) => { window.location.hash = `#/vitrin/${id}`; }} onOpenDesign={openDesign} /></main>
       ) : route.view === "vitrin-report" && route.id ? (
-        <main className="main main-viewer"><ReportView api={api} id={route.id} onBack={() => { window.location.hash = "#/vitrin"; }} /></main>
+        <main className="main main-viewer"><ReportView api={api} id={route.id} onBack={() => { window.location.hash = "#/vitrin"; }} onOpenDesign={openDesign} /></main>
       ) : route.view === "admin" ? (
         <main className="main main-home"><AdminPage api={api} onOpenReport={(id) => { window.location.hash = `#/vitrin/${id}`; }} /></main>
       ) : route.view === "access" ? (

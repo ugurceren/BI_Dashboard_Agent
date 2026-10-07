@@ -1,10 +1,11 @@
 // Vitrin: kullanıcının görebildiği yayınlanmış raporlar (kendisine / grubuna paylaşılanlar, kendi yayınları; admin hepsi).
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Api } from "../api/client";
 import type { Grant, Me, VitrinCard } from "../types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ShareEditor } from "./ShareEditor";
+import { applyFilter, SCOPE_LABEL, type VitrinFilter } from "../lib/vitrin";
 import "./home.css";
 import "./vitrin.css";
 
@@ -19,50 +20,38 @@ function relTime(iso?: string): string {
   return new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" });
 }
 
-type Scope = "all" | "shared" | "mine" | "retired";
-
-export function Vitrin({ api, me, onOpen }: { api: Api; me: Me | null; onOpen: (id: string) => void }) {
-  const [items, setItems] = useState<VitrinCard[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function Vitrin({ api, me, items, error, filter, reload, onOpen, onOpenDesign }: {
+  api: Api;
+  me: Me | null;
+  items: VitrinCard[] | null;
+  error: string | null;
+  filter: VitrinFilter;
+  reload: () => void;
+  onOpen: (id: string) => void;
+  onOpenDesign: (sessionId: string) => void;
+}) {
   const [q, setQ] = useState("");
-  const [scope, setScope] = useState<Scope>("all");
-  const [domain, setDomain] = useState<string | null>(null);
   const [sharing, setSharing] = useState<VitrinCard | null>(null);
   const [retiring, setRetiring] = useState<VitrinCard | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setItems(await api.vitrin());
-      setError(null);
-    } catch (e) {
-      setError(errMsg(e));
-      setItems([]);
-    }
-  }, [api]);
-  useEffect(() => { void load(); }, [load]);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const active = useMemo(() => (items ?? []).filter((r) => r.status === "active"), [items]);
-  const domains = useMemo(() => [...new Set(active.flatMap((r) => r.domains))].sort((a, b) => a.localeCompare(b, "tr")), [active]);
-  const counts = {
-    all: active.length, shared: active.filter((r) => !r.mine).length, mine: active.filter((r) => r.mine).length,
-    retired: (items ?? []).filter((r) => r.status === "retired").length,
-  };
   const list = useMemo(() => {
     const ql = q.trim().toLocaleLowerCase("tr");
-    return (items ?? []).filter((r) => (scope === "retired" ? r.status === "retired" : r.status === "active")
-      && (scope !== "shared" || !r.mine) && (scope !== "mine" || r.mine)
-      && (!domain || r.domains.includes(domain))
-      && (!ql || [r.title, r.description, r.owner_name, ...r.domains].join(" ").toLocaleLowerCase("tr").includes(ql)));
-  }, [items, q, scope, domain]);
+    return applyFilter(items ?? [], filter)
+      .filter((r) => !ql || [r.title, r.description, r.owner_name, ...r.domains].join(" ").toLocaleLowerCase("tr").includes(ql));
+  }, [items, q, filter]);
 
   const canDesign = me?.capabilities?.design ?? true;
+  const heading = filter.domain ?? SCOPE_LABEL[filter.scope];
   return (
     <div className="home vitrin">
       <div className="vt-hero">
         <div>
-          <h1 className="home-title">Vitrin</h1>
+          <h1 className="home-title">{heading}</h1>
           <p className="muted home-sub">
-            {canDesign ? "Yayınlanmış raporlar: size paylaşılanlar ve kendi yayınlarınız." : "Size açılan raporlar. Veriler kendi veri yetkinizle gösterilir."}
+            {filter.scope === "recent" ? "Bu tarayıcıda en son açtığınız raporlar."
+              : canDesign ? "Yayınlanmış raporlar: size paylaşılanlar ve kendi yayınlarınız." : "Size açılan raporlar. Veriler kendi veri yetkinizle gösterilir."}
           </p>
         </div>
         <label className="home-search">
@@ -70,22 +59,11 @@ export function Vitrin({ api, me, onOpen }: { api: Api; me: Me | null; onOpen: (
           <input type="search" placeholder="Rapor ara… (ad, açıklama, alan, sahip)" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Vitrin'de ara" />
         </label>
       </div>
-      <div className="st-filter vt-scope" role="group" aria-label="Kapsam">
-        {([["all", "Tümü"], ["shared", "Bana paylaşılanlar"], ...(canDesign ? [["mine", "Yayınlarım"]] : []),
-          ...(counts.retired ? [["retired", "Yayından kalkanlar"]] : [])] as [Scope, string][]).map(([k, label]) => (
-          <button key={k} type="button" className={`st-chip${scope === k ? " is-on" : ""}`} onClick={() => setScope(k)}>
-            {label} <span className="st-count">{counts[k]}</span>
-          </button>
-        ))}
-        {domains.length > 1 ? <span className="vt-sep" aria-hidden="true" /> : null}
-        {domains.length > 1 ? domains.map((d) => (
-          <button key={d} type="button" className={`st-chip vt-domain${domain === d ? " is-on" : ""}`} onClick={() => setDomain(domain === d ? null : d)}>{d}</button>
-        )) : null}
-      </div>
 
       {error ? <div className="banner-error">Vitrin alınamadı: {error}</div> : null}
+      {actionError ? <div className="banner-error">{actionError}</div> : null}
       {items === null ? <div className="panel-empty"><span className="spinner" /><p>Vitrin yükleniyor…</p></div> : null}
-      {items && !active.length && scope !== "retired" ? (
+      {items && !active.length && filter.scope !== "retired" ? (
         <div className="panel-empty">
           <h3>Vitrin'de henüz rapor yok</h3>
           <p>{canDesign ? "Bir raporu tasarladıktan sonra üst çubuktaki “Yayınla” ile Vitrin'e ekleyip paylaşabilirsiniz."
@@ -114,6 +92,7 @@ export function Vitrin({ api, me, onOpen }: { api: Api; me: Me | null; onOpen: (
             <div className="rc-actions" onClick={(e) => e.stopPropagation()}>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => onOpen(r.id)}>Aç</button>
               {r.can_export && r.status === "active" ? <a className="btn btn-secondary btn-sm" href={api.vitrinExportUrl(r.id)} target="_blank" rel="noopener">HTML</a> : null}
+              {r.session_id ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenDesign(r.session_id!)} title="Bu raporu Tasarım modunda aç">Tasarımda aç</button> : null}
               {r.can_manage ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSharing(r)}>Paylaş</button> : null}
               {r.can_manage && r.status === "active" ? (
                 <button type="button" className="btn btn-secondary btn-sm rc-del" onClick={() => setRetiring(r)}>Kaldır</button>
@@ -124,12 +103,12 @@ export function Vitrin({ api, me, onOpen }: { api: Api; me: Me | null; onOpen: (
       </div>
       {items && items.length && !list.length ? <p className="muted">Bu filtreye uyan rapor yok.</p> : null}
 
-      {sharing ? <ShareDialog api={api} report={sharing} onClose={() => { setSharing(null); void load(); }} /> : null}
+      {sharing ? <ShareDialog api={api} report={sharing} onClose={() => { setSharing(null); reload(); }} /> : null}
       {retiring ? (
         <ConfirmDialog danger title="Yayından kaldırılsın mı?" confirmLabel="Evet, kaldır"
           message={`"${retiring.title}" Vitrin'den kalkar; paylaşılan kişiler artık göremez. Tasarım ve sürüm geçmişi korunur, yeniden yayınlayabilirsiniz.`}
           onCancel={() => setRetiring(null)}
-          onConfirm={() => { const id = retiring.id; setRetiring(null); api.retireReport(id).then(load).catch((e) => setError(errMsg(e))); }} />
+          onConfirm={() => { const id = retiring.id; setRetiring(null); api.retireReport(id).then(reload).catch((e) => setActionError(errMsg(e))); }} />
       ) : null}
     </div>
   );

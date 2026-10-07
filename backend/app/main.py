@@ -1737,8 +1737,9 @@ def _report_card(rep: dict[str, Any], ident: Identity, grants: list[dict[str, An
             "status": rep["status"], "domains": rep.get("domains") or [], "created_at": rep["created_at"],
             "updated_at": rep["updated_at"], "mine": authz.owns(ident, rep["owner"]),
             "can_export": authz.can_export_report(ident, rep, grants),
-            "can_manage": authz.at_least(ident, "admin") or authz.owns(ident, rep["owner"]),
-            "shared_with": len(grants) if (authz.at_least(ident, "admin") or authz.owns(ident, rep["owner"])) else None}
+            "can_manage": (manage := authz.at_least(ident, "admin") or authz.owns(ident, rep["owner"])),
+            "shared_with": len(grants) if manage else None,
+            "session_id": rep["session_id"] if manage and authz.at_least(ident, "builder") else None}   # "Tasarımda aç"
 
 
 def _viewable(request: Request, report_id: str) -> tuple[dict[str, Any], Identity, list[dict[str, Any]]]:

@@ -108,3 +108,9 @@
 .acc-badge.k-dataset { background: #0ea5e9; }
 .acc-undoc { font-size: 10.5px; font-weight: 600; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 999px; padding: 0 7px; margin-left: 4px; white-space: nowrap; }
 .acc-info { margin: 0; }
+
+/* Vitrin modu: katalog menüsü */
+.sb-count { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--surface-3); border-radius: 999px; padding: 1px 7px; }
+.sb-item.is-on .sb-count { background: var(--surface); color: var(--accent); }
+.sb-brand-sub { color: var(--accent); font-weight: 600; }
+.sidebar-vitrin .sb-brand { margin-bottom: 8px; }

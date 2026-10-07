@@ -60,3 +60,13 @@ textarea.vt-input { height: auto; padding: 8px 10px; resize: vertical; line-heig
 .adm-link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
 .adm-link:hover { text-decoration: underline; }
 .adm-details { max-width: 420px; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+
+/* üst çubuk: Vitrin | Tasarım anahtarı */
+.app-mode-seg { display: inline-flex; height: 32px; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface-3); flex: none; margin-right: 6px; }
+.app-mode-seg button { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--text-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.app-mode-seg button.is-on { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+.app-mode-seg button:disabled:not(.is-on) { opacity: .5; cursor: default; }
+@media (max-width: 760px) { .app-mode-seg span { display: none; } }
+
+.vt-card .rc-actions { flex-wrap: wrap; row-gap: 6px; }
