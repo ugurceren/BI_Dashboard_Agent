@@ -682,6 +682,46 @@ def h_get_table_details(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
                       ", ".join(d["table"] for d in out))
 
 
+def _object_key(dd, name: str) -> str | None:
+    """Model'in yazdığı ad → sözlük anahtarı (şema yazılmadıysa dbo, köşeli parantezler atılır)."""
+    n = name.strip().replace("[", "").replace("]", "").lower()
+    if n in dd.tables:
+        return n
+    if "." not in n and f"dbo.{n}" in dd.tables:
+        return f"dbo.{n}"
+    return next((k for k, t in dd.tables.items() if (t.display_name or "").lower() == n), None)
+
+
+def h_discover_object(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+    """SQL Server kataloğundan nesne özellikleri: kolon tipleri, NULL, PK, index, FK, satır sayısı, view kaynağı / tanımı."""
+    from app.dictionary.discovery import compact, discover
+
+    names = a.get("objects") or ([a["object"]] if a.get("object") else [])
+    if isinstance(names, str):
+        names = [names]
+    if not names:
+        return ToolResult(False, {"error": "objects listesi gerekli (ör. ['dbo.FactResellerSales'])."}, "Nesne adı yok")
+    if ctx.services.connector.dialect != "tsql":
+        return ToolResult(False, {"error": "Nesne keşfi yalnız SQL Server'da çalışır; get_table_details kullanın."}, "Desteklenmiyor")
+    dd = ctx.services.dictionary
+    pol = ctx.services.policy(ctx.session.user_role)
+    ok = _usable(ctx)
+    out, errors = [], []
+    for n in names[:3]:
+        key = _object_key(dd, str(n))
+        if key is None or not ok(dd.tables[key]):
+            errors.append(f"{n}: yetkili nesneler arasında yok (search_dictionary ile doğru adı bulun)")
+            continue
+        try:
+            out.append(compact(discover(dd, ctx.services.connector, key, include_pii=pol.allow_pii)))
+        except Exception as e:  # noqa: BLE001 — katalog okunamazsa sözlük bilgisi yine kullanılabilir
+            errors.append(f"{n}: {_short_db_error(str(e)) if not isinstance(e, LookupError) else e}")
+    if not out:
+        return ToolResult(False, {"error": "; ".join(errors)}, "Nesne keşfi başarısız")
+    return ToolResult(True, {"objects": out, **({"errors": errors} if errors else {})},
+                      ", ".join(f"{o['object']} ({o['type']}, {len(o['columns'])} kolon)" for o in out))
+
+
 def h_find_metrics(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     m = ctx.services.dictionary.search_metrics(str(a.get("query") or ""), 8)
     return ToolResult(True, {"metrics": m}, f"{len(m)} metrik tanımı")
@@ -971,6 +1011,14 @@ TOOLS: list[Tool] = [
     Tool("get_table_details", "Tabloların tüm kolonlarını, rollerini (measure/dimension/key), örnek değerlerini ve join ilişkilerini getirir.",
          {"type": "object", "required": ["tables"], "properties": {"tables": {**_STRS, "description": "şema.tablo adları, en fazla 5"}}},
          DATA_DESIGN, h_get_table_details, status="Tablo detayları okunuyor…"),
+    Tool("discover_object", "Nesne keşfi: tablo / view'ın veritabanındaki TEKNİK özelliklerini getirir — kolon SQL tipi "
+         "(uzunluk, hassasiyet), NULL olabilir mi, identity / hesaplanan / varsayılan değer, birincil anahtar, index'ler, "
+         "yabancı anahtarlar (giden ve gelen), satır sayısı, oluşturma / değişiklik tarihi, açıklama; view ise kaynak nesneleri "
+         "ve SQL tanımı. JOIN anahtarının tekilliğini, tarih kolonunun tipini, NULL riskini veya bir view'ın neyi okuduğunu "
+         "doğrulamak için kullan. Veri satırı okumaz.",
+         {"type": "object", "required": ["objects"], "properties": {
+             "objects": {**_STRS, "description": "şema.nesne (ek veritabanında db.şema.nesne) adları, en fazla 3"}}},
+         DATA_DESIGN, h_discover_object, status="Nesne özellikleri veritabanı kataloğundan okunuyor…"),
     Tool("find_metrics", "Kurumsal olarak tanımlı (onaylı) metrik formüllerini arar. Varsa bu formülleri kullan.",
          {"type": "object", "properties": {"query": _STR}}, DATA_DESIGN, h_find_metrics, status="Metrik tanımları aranıyor…"),
     Tool("run_sql", "Salt-okunur SELECT sorgusunu doğrular ve çalıştırır; ilk satırları ve kolon profilini döndürür. Keşif ve test için.",

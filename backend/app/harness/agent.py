@@ -31,7 +31,7 @@ FULL_TOOL_RESULTS = 12    # son N araç sonucu tam, daha eskiler kısaltılır
 CHARS_PER_TOKEN = 2.5     # token tahmini (Türkçe metin + JSON için ihtiyatlı: gerçek ~3–3.5)
 CONTEXT_MARGIN = 512      # token: tahmin hatası payı
 OLD_TOOL_RESULT_CHARS = 700
-CACHEABLE_TOOLS = {"search_dictionary", "get_table_details", "find_metrics", "run_sql"}
+CACHEABLE_TOOLS = {"search_dictionary", "get_table_details", "discover_object", "find_metrics", "run_sql"}
 MAX_REPEATS = 3           # üst üste bu kadar tekrarlanan çağrıda tur durdurulur
 MAX_FAIL_STREAK = 6       # aynı araç üst üste bu kadar başarısız olursa tur durdurulur
 

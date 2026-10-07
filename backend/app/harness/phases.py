@@ -50,6 +50,9 @@ Adımlar:
 1. Her KPI ve kırılım için search_dictionary ile doğru tabloları bul.
    Sonuçlarda "Onaylı rapor view'ları" (rpt şeması) varsa ve ihtiyacı karşılıyorsa ÖNCE onları kullan: tanımları onaylıdır.
 2. get_table_details ile seçtiğin olgu (fact) ve boyut (dim) tablolarının kolonlarını ve JOIN ilişkilerini öğren.
+   Teknik ayrıntı gerekirse discover_object kullan: kolonun SQL tipi / NULL olabilmesi, birincil anahtar ve unique index
+   (JOIN anahtarı tekil mi?), yabancı anahtarlar, satır sayısı, view'ın hangi tablolardan okuduğu ve tanımı. Sözlükte ilişki
+   yoksa yabancı anahtarlardan ve PK'den JOIN'i doğrula; tarih kolonunun tipi (date / datetime / int YYYYMMDD) filtreyi belirler.
 3. find_metrics ile kurumsal metrik tanımlarını kontrol et; varsa o formülleri kullan.
 4. Önce verinin tarih aralığını run_sql ile kontrol et (ör. MIN/MAX tarih). Sonra her dataset SQL'ini run_sql ile test et.
 5. save_datasets ile 4–7 dataset kaydet. Tipik set:
