@@ -1,5 +1,5 @@
 // Görsel bileşenleri: grafik, KPI, tablo, metin + kart kabuğu ve hata sınırı.
-import { Component, useMemo, useState, type ReactNode } from "react";
+import { Component, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { CellValue, Dataset, Visual } from "../types";
 import { EChart } from "./EChart";
 import {
@@ -8,13 +8,14 @@ import {
 } from "./charts";
 import { groupBy, keyOf, type Row } from "./data";
 import { escapeHtml, formatCategory, formatValue, isPeriodLike, resolveFormat, toNumber } from "./format";
-import { alpha, type DerivedTheme } from "./theme";
+import { alpha, luminance, type DerivedTheme } from "./theme";
 
 export interface TableData {
   all: Row[];
   rows: Row[];
   columns: string[];
   error?: string;
+  denied?: boolean;   // Vitrin: izleyicinin veri rolü izin vermiyor
 }
 
 export interface VisualProps {
@@ -85,6 +86,24 @@ export class VisualBoundary extends Component<{ title: string; resetKey: string;
     if (this.state.error) return <ErrorCard title={this.props.title} message={this.state.error.message} />;
     return this.props.children;
   }
+}
+
+/** Vitrin: izleyicinin veri rolü bu görselin verisine izin vermiyor (şema / tablo / kişisel veri). */
+export function DeniedCard({ title }: { title?: string }) {
+  return (
+    <div className="db-card db-card--denied">
+      {title ? <div className="db-card-head"><div className="db-card-title">{title}</div></div> : null}
+      <div className="db-error">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+          <rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
+        </svg>
+        <div>
+          <div className="db-error-title">Bu veriye erişim yetkiniz yok</div>
+          <div className="db-error-msg">Görsel, veri rolünüzün kapsamı dışındaki bir tabloyu ya da kişisel veriyi kullanıyor.</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function ErrorCard({ title, message }: { title?: string; message: string }) {
@@ -297,13 +316,21 @@ export function KpiVisual(p: VisualProps) {
   }, [spark, theme, o.color]);
 
   const up = (delta ?? 0) >= 0;
+  // kart stili: zemin, yazı rengi (verilmezse zemine göre okunur renk), vurgu şeridi, değer boyutu
+  const fg = o.textColor ?? (o.background ? (luminance(o.background) > 0.4 ? "#0f172a" : "#f8fafc") : undefined);
+  const cardStyle = {
+    ...(o.background ? { background: o.background } : {}),
+    ...(fg ? { "--db-text": fg, "--db-muted": alpha(fg, 0.72) } : {}),
+    ...(o.accentBar ? { "--db-kpi-bar": o.color ?? theme.accent } : {}),
+  } as CSSProperties;
+  const cls = ["db-card", "db-kpi", o.valueSize ? `is-${o.valueSize}` : "", o.accentBar ? "has-bar" : ""].filter(Boolean).join(" ");
   return (
-    <div className="db-card db-kpi">
+    <div className={cls} style={cardStyle}>
       <div className="db-kpi-top">
         <div className="db-kpi-label">{visual.title}</div>
         {p.filterNote ? <span className="db-badge" title={p.filterNote}>Filtre dışı</span> : null}
       </div>
-      <div className="db-kpi-value" title={value === null ? undefined : formatValue(value, { ...fmt, format: fmt.format === "compact" ? (fmt.currency ? "currency" : "number") : fmt.format })}>
+      <div className="db-kpi-value" style={o.color ? { color: o.color } : undefined} title={value === null ? undefined : formatValue(value, { ...fmt, format: fmt.format === "compact" ? (fmt.currency ? "currency" : "number") : fmt.format })}>
         {value === null ? "–" : formatValue(value, fmt)}
       </div>
       {deltaText || visual.subtitle ? (
@@ -462,6 +489,7 @@ function precheck(p: VisualProps): string | null {
 }
 
 export function VisualSwitch(p: VisualProps) {
+  if (p.table?.denied) return <DeniedCard title={p.visual.title} />;
   const problem = precheck(p);
   if (problem) return <ErrorCard title={p.visual.title} message={problem} />;
   switch (p.visual.type) {

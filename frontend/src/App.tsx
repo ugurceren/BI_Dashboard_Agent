@@ -12,13 +12,22 @@ import { Home } from "./components/Home";
 import { Sidebar, type Page } from "./components/Sidebar";
 import { AccessPage } from "./components/AccessPage";
 import { ModelTab } from "./components/ModelTab";
+import { Vitrin } from "./components/Vitrin";
+import { ReportView } from "./components/ReportView";
+import { AdminPage } from "./components/AdminPage";
+import { PublishDialog } from "./components/PublishDialog";
 import type { Me } from "./types";
 import type { ThemePref } from "./components/TopBar";
 import { ApiError } from "./api/client";
 
-/** #/ envanter · #/access veri erişimi · #/model veri modeli · #/query sorgu · #/r/<id> rapor tasarımı · #/v/<id> canlı görünüm */
+/** #/ envanter · #/access veri erişimi · #/model veri modeli · #/query sorgu · #/r/<id> rapor tasarımı · #/v/<id> canlı görünüm
+ *  #/vitrin yayınlanmış raporlar · #/vitrin/<id> yayın görüntüleme · #/admin yönetim */
 function parseRoute(): { view: Page; id: string | null } {
   const h = window.location.hash;
+  const vr = /^#\/vitrin\/([A-Za-z0-9]+)/.exec(h);
+  if (vr) return { view: "vitrin-report", id: vr[1] };
+  if (h.startsWith("#/vitrin")) return { view: "vitrin", id: null };
+  if (h.startsWith("#/admin")) return { view: "admin", id: null };
   const m = /^#\/r\/([A-Za-z0-9]+)/.exec(h);
   if (m) return { view: "designer", id: m[1] };
   const v = /^#\/v\/([A-Za-z0-9]+)/.exec(h);
@@ -81,6 +90,8 @@ export default function App() {
   const [selections, setSelections] = useState<Record<string, CellValue[]>>({});
   const [cross, setCross] = useState<CrossSelection | null>(null);
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [publishing, setPublishing] = useState(false);
+  const canDesign = me?.capabilities?.design ?? true;
   const [chatWidth, setChatWidth] = useState(() => Math.min(640, Math.max(320, Number(lsGet(LS_WIDTH)) || 400)));
   const chatRef = useRef<HTMLElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -163,8 +174,19 @@ export default function App() {
     }
   }, [api, refreshSessions, showToast]);
 
+  // izleyici (viewer): tasarım sayfaları yok, Vitrin'e yönlendir; tasarımcı: oturum listesini yükle
   useEffect(() => {
-    void refreshSessions();
+    if (!me) return;
+    if (me.capabilities && !me.capabilities.design) {
+      setSessionsLoading(false);
+      if (!["vitrin", "vitrin-report"].includes(parseRoute().view)) window.location.hash = "#/vitrin";
+    } else {
+      void refreshSessions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
+
+  useEffect(() => {
     const onHash = () => setRoute(parseRoute());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -174,7 +196,7 @@ export default function App() {
   // rota değişince: rapor sayfasıysa o oturumu aç, anasayfaysa listeyi tazele
   useEffect(() => {
     if ((route.view === "designer" || route.view === "viewer") && route.id && route.id !== sessionId) void openSession(route.id);
-    if (route.view === "home") void refreshSessions();
+    if (route.view === "home" && me && canDesign) void refreshSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route]);
 
@@ -188,6 +210,12 @@ export default function App() {
   const setMode = (m: "designer" | "viewer") => { if (sessionId) window.location.hash = `#/${m === "viewer" ? "v" : "r"}/${sessionId}`; };
 
   const setReportStatus = async (id: string, status: string) => {
+    // canlıya alma = Vitrin'e yayınlama (sürüm + paylaşım)
+    if (status === "live" && me?.capabilities?.vitrin) {
+      if (id !== sessionId) { window.location.hash = `#/r/${id}`; }
+      setPublishing(true);
+      return;
+    }
     try {
       const s = await api.setStatus(id, status);
       if (id === sessionId) setState(s);
@@ -469,9 +497,21 @@ export default function App() {
         busy={streaming}
         health={health}
         healthError={healthError}
-        onHealthClick={() => { window.location.hash = "#/settings"; }}
+        onHealthClick={() => { if (me?.capabilities?.admin ?? true) window.location.hash = "#/settings"; }}
+        onPublish={me?.capabilities?.vitrin && canDesign ? () => setPublishing(true) : undefined}
+        published={sessions.find((x) => x.id === sessionId)?.published}
       />
-      {route.view === "access" ? (
+      {publishing && sessionId ? (
+        <PublishDialog api={api} sessionId={sessionId} onClose={() => { setPublishing(false); void refreshSessions(); }}
+          onPublished={(s, rid) => { setPublishing(false); setState(s); void refreshSessions(); showToast(`Vitrin'de yayınlandı. Açmak için: Vitrin → ${s.title}`); void rid; }} />
+      ) : null}
+      {route.view === "vitrin" ? (
+        <main className="main main-home"><Vitrin api={api} me={me} onOpen={(id) => { window.location.hash = `#/vitrin/${id}`; }} /></main>
+      ) : route.view === "vitrin-report" && route.id ? (
+        <main className="main main-viewer"><ReportView api={api} id={route.id} onBack={() => { window.location.hash = "#/vitrin"; }} /></main>
+      ) : route.view === "admin" ? (
+        <main className="main main-home"><AdminPage api={api} onOpenReport={(id) => { window.location.hash = `#/vitrin/${id}`; }} /></main>
+      ) : route.view === "access" ? (
         <main className="main"><AccessPage api={api} onOpenReport={goReport} /></main>
       ) : route.view === "settings" ? (
         <main className="main"><SettingsPage api={api} onSaved={() => { void refreshHealth(); void refreshSessions(); }} /></main>

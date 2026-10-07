@@ -82,8 +82,22 @@ class VisualOptions(_Base):
     sparklineField: str | None = None
     target: float | None = None
     text: str | None = None
-    color: str | None = None
+    color: str | None = None                # seri rengi; kpi'da değer + vurgu şeridi + sparkline rengi
+    # KPI kart stili (yalnız kpi): kart zemini, yazı rengi (yoksa zemine göre otomatik), değer boyutu, sol renkli şerit
+    background: str | None = None
+    textColor: str | None = None
+    valueSize: Literal["sm", "md", "lg", "xl"] | None = None
+    accentBar: bool | None = None
     ignoreFilters: bool | None = None  # true: bu görsel filtrelerden etkilenmez (yalnız kullanıcı açıkça isterse)
+
+
+    @field_validator("color", "background", "textColor")
+    @classmethod
+    def _color(cls, v: str | None) -> str | None:
+        # eski spec'lerde 'red' gibi CSS renk adları olabilir: yüklenebilsin (yalnız harf → enjeksiyon riski yok)
+        if v is not None and not (_HEX.match(v) or re.fullmatch(r"[a-zA-Z]{3,20}", v)):
+            raise ValueError(f"hex renk olmalı (ör. #2563eb): {v}")
+        return v
 
 
 class Position(_Base):

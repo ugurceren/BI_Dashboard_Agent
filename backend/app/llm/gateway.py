@@ -41,7 +41,8 @@ class ContextOverflow(LLMError):
 
 
 # vLLM: "...the model's context length is only 16384 tokens..." / OpenAI: "maximum context length is 16384 tokens"
-_CTX_RE = re.compile(r"(?:context length is only|maximum context length is|max_model_len[^0-9]{0,20})\s*(\d{3,7})", re.I)
+_CTX_RE = re.compile(r"(?:context length is only|context length of only|maximum context length is|max_model_len[^0-9]{0,20})"
+                     r"\s*(\d{3,7})", re.I)
 _IN_RE = re.compile(r"passed (\d+) input tokens|resulted in (\d+) tokens|messages resulted in (\d+)", re.I)
 
 
@@ -189,7 +190,27 @@ class LLMGateway:
                         break
             except Exception as e:  # noqa: BLE001 — öğrenilemezse ilk hatadan öğrenilir
                 log.info("Bağlam penceresi sunucudan alınamadı: %s", e)
+            if not self._ctx:
+                self._ctx = self._lmstudio_context()
         return self._ctx
+
+    def _lmstudio_context(self) -> int | None:
+        """LM Studio: /api/v0/models yüklü modelin bağlam uzunluğunu verir (loaded_context_length)."""
+        import httpx
+        root = re.sub(r"/v1/?$", "", self.s.llm_base_url.rstrip("/"))
+        key = self.s.llm_api_key
+        try:
+            r = httpx.get(f"{root}/api/v0/models", timeout=5,
+                          headers={"Authorization": f"Bearer {key}"} if key and key != "EMPTY" else {})
+            for m in (r.json() or {}).get("data", []) if r.status_code == 200 else []:
+                if m.get("id") == self.s.llm_model:
+                    v = m.get("loaded_context_length") or m.get("max_context_length")
+                    if v:
+                        log.info("LLM bağlam penceresi (LM Studio): %s token", v)
+                        return int(v)
+        except Exception as e:  # noqa: BLE001
+            log.info("LM Studio model bilgisi alınamadı: %s", e)
+        return None
 
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
              max_tokens: int | None = None) -> AssistantTurn:

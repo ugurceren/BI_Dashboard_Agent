@@ -16,6 +16,7 @@ import ctypes
 import logging
 import os
 import sys
+import time
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from typing import Any
@@ -34,9 +35,11 @@ class Identity:
     department: str | None = None
     title: str | None = None
     groups: list[str] = field(default_factory=list)
-    role: str = "standart"
+    role: str = "standart"        # VERİ rolü (policy.toml [roles.*]): hangi veriyi görebilir
     source: str = "windows"       # header | windows | ldap
     domain_joined: bool = False
+    platform_role: str = "admin"  # PLATFORM rolü (Vitrin): admin | builder | viewer — app.authz doldurur
+    platform_mode: str = "desktop"
 
     def public(self) -> dict[str, Any]:
         return asdict(self)
@@ -156,12 +159,15 @@ def _known_role(settings: Settings, role: str, cfg: dict[str, Any]) -> str:
     return default if default in roles else ("standart" if "standart" in roles else sorted(roles)[0])
 
 
-_ldap_cache: dict[str, dict[str, Any] | None] = {}
+_ldap_cache: dict[str, tuple[float, dict[str, Any] | None]] = {}
+LDAP_CACHE_TTL_S = 900   # AD grup üyeliği değişince en geç 15 dk içinde yansısın
 
 
 def current_identity(settings: Settings, headers: dict[str, str] | None = None) -> Identity:
     headers = {k.lower(): v for k, v in (headers or {}).items()}
-    remote = headers.get("x-remote-user") if settings.trust_remote_user_header else None
+    trusted = settings.trust_remote_user_header or settings.platform_mode == "server"
+    remote = (headers.get("x-remote-user") or "").strip() if trusted else None
+    header_groups = [g.strip() for g in (headers.get("x-remote-groups") or "").split(",") if g.strip()] if trusted else []
     if remote:
         username, source, joined = remote, "header", True
         domain, _, short = remote.rpartition("\\")
@@ -169,12 +175,13 @@ def current_identity(settings: Settings, headers: dict[str, str] | None = None) 
     else:
         username, domain, short, display, joined = _process_identity()
         source = "windows"
-    if short not in _ldap_cache:
-        _ldap_cache[short] = _ldap_lookup(settings, short)
-    ld = _ldap_cache[short] or {}
+    hit = _ldap_cache.get(short)
+    if hit is None or time.time() - hit[0] > LDAP_CACHE_TTL_S:
+        hit = _ldap_cache[short] = (time.time(), _ldap_lookup(settings, short))
+    ld = hit[1] or {}
     if ld:
         source = "ldap"
-    groups = ld.get("groups") or []
+    groups = list(dict.fromkeys([*(ld.get("groups") or []), *header_groups]))   # LDAP + proxy'nin ilettiği gruplar
     return Identity(
         username=username, display_name=ld.get("display_name") or display or short, domain=domain,
         email=ld.get("email"), department=ld.get("department"), title=ld.get("title"), groups=groups,

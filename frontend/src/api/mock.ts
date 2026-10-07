@@ -349,4 +349,22 @@ export const mockApi: Api = {
     return clone(demoModelJson as unknown as DataModel);
   },
   exportUrl: () => "/viewer.html",
+  // Vitrin ve yönetim: mock modunda platform veritabanı yok
+  async publication() { return { published: false }; },
+  async publish() { throw new ApiError(409, "Mock modunda yayınlama yok."); },
+  async vitrin() { return []; },
+  async vitrinReport() { throw new ApiError(404, "Mock modunda Vitrin yok."); },
+  async vitrinData() { return { datasets: {} }; },
+  vitrinExportUrl: () => "/viewer.html",
+  async retireReport() { return { ok: true }; },
+  async getGrants() { return []; },
+  async setGrants() { return []; },
+  async transferOwner() { return { ok: true }; },
+  async adminOverview() { throw new ApiError(503, "Mock modunda yönetim yok."); },
+  async setAssignment() { return { ok: true }; },
+  async deleteAssignment() { return { ok: true }; },
+  async audit() { return []; },
+  async getPlatformSettings() { throw new ApiError(503, "Mock modunda platform veritabanı yok."); },
+  async savePlatformSettings() { return { ok: false, error: "Mock modu" }; },
+  async resetPlatformSettings() { return { ok: true, error: null }; },
 };

@@ -130,6 +130,7 @@ class Agent:
         self.services = services
         self.store = store
         self.audit = Audit(services.settings.audit_log)
+        self._actors: dict[str, str | None] = {}   # oturum → şu an mesajı işlenen kullanıcı (denetim kaydı)
 
     # ------------------------------------------------------------------ public
     def _budget(self, sys_prompt: str, schemas: list[dict[str, Any]]) -> tuple[int, int | None]:
@@ -145,7 +146,10 @@ class Agent:
         avail = ctx - max_out - fixed - CONTEXT_MARGIN
         return max(1500, min(base, int(avail * CHARS_PER_TOKEN))), max_out
 
-    def run_turn(self, sid: str, text: str, images: list[str] | None = None) -> Iterator[Event]:
+    def run_turn(self, sid: str, text: str, images: list[str] | None = None, user: str | None = None,
+                 role: str | None = None) -> Iterator[Event]:
+        """user / role: mesajı gönderen (denetim kaydı) ve onun GÜNCEL veri rolü — rolü geri alınan kullanıcı
+        oturumu oluşturduğu andaki yetkiyle sorgu çalıştıramaz."""
         lock = self.store.lock(sid)
         if not lock.acquire(blocking=False):
             yield Event("error", {"message": "Bu oturumda zaten çalışan bir istek var."})
@@ -155,6 +159,9 @@ class Agent:
         try:
             s = self.store.get(sid)
             s.busy = True
+            if role:
+                s.user_role = role
+            self._actors[sid] = user
             self.store.save(s)
             yield from self._turn(s, text.strip(), images or [])
         except LLMError as e:
@@ -170,6 +177,7 @@ class Agent:
                 s.busy = False
                 self.store.save(s)
                 yield Event("state", s.public())
+            self._actors.pop(sid, None)
             lock.release()
             yield Event("done", {})
 
@@ -227,7 +235,7 @@ class Agent:
                     log.info("Bağlam sığmadı (pencere %s, girdi %s token); geçmiş %d karaktere kısaltılıp yeniden deneniyor.",
                              e.context, e.input_tokens, budget)
                     yield Event("status", {"text": "Bağlam sığmadı; eski adımlar kısaltılıp yeniden deneniyor…"})
-            self.audit.write(session=s.id, event="llm", phase=s.phase, ms=int((time.perf_counter() - t0) * 1000),
+            self.audit.write(session=s.id, user=self._actors.get(s.id), event="llm", phase=s.phase, ms=int((time.perf_counter() - t0) * 1000),
                              tool_calls=[c.name for c in turn.tool_calls], usage=turn.usage, tool_mode=self.llm.tool_mode)
 
             if not turn.tool_calls:
@@ -241,7 +249,7 @@ class Agent:
                     claim_nudges += 1
                     s.llm_messages.append(turn.to_message())
                     s.llm_messages.append({"role": "user", "content": nudge})
-                    self.audit.write(session=s.id, event="claim_nudge", phase=s.phase)
+                    self.audit.write(session=s.id, user=self._actors.get(s.id), event="claim_nudge", phase=s.phase)
                     continue
                 s.llm_messages.append(turn.to_message())
                 yield self._emit(s, TranscriptItem(role="assistant", content=turn.content or "(yanıt yok)"))
@@ -337,7 +345,7 @@ class Agent:
 
         s.llm_messages.append({"role": "tool", "tool_call_id": call.id, "name": call.name,
                                "content": to_llm_content(result.content, self.services.settings.tool_result_char_limit)})
-        self.audit.write(session=s.id, event="tool", phase=s.phase, tool=call.name, ok=result.ok, ms=ms,
+        self.audit.write(session=s.id, user=self._actors.get(s.id), event="tool", phase=s.phase, tool=call.name, ok=result.ok, ms=ms,
                          arguments=call.arguments, summary=result.summary,
                          errors=result.content.get("errors") if isinstance(result.content, dict) else None)
         yield self._emit(s, TranscriptItem(role="tool", content=result.summary, tool=ToolInfo(

@@ -9,10 +9,11 @@ from __future__ import annotations
 import copy
 import json
 import re
+import typing
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.config import Settings
 from app.data.connector import Connector, QueryError, QueryResult
@@ -345,10 +346,44 @@ def _layout_visuals(visuals: list[dict[str, Any]], pages: list[dict[str, Any]] |
     return notes
 
 
+_IGNORED = "UYGULANMADI (desteklenmeyen alan)"
+
+
+def _model_of(ann: Any) -> type[BaseModel] | None:
+    if isinstance(ann, type) and issubclass(ann, BaseModel):
+        return ann
+    for a in typing.get_args(ann):
+        if (m := _model_of(a)) is not None:
+            return m
+    return None
+
+
+def _ignored_fields(model: type[BaseModel], raw: Any, path: str = "") -> list[str]:
+    """Şemada olmayan alanlar (spec extra='ignore' ile onları sessizce atar): modele bildirilsin ki
+    'değiştirdim' demesin. Dataset'ler session'dan geldiği için atlanır."""
+    if not isinstance(raw, dict):
+        return []
+    out: list[str] = []
+    fields = model.model_fields
+    for k, v in raw.items():
+        if k not in fields:
+            out.append(f"{path}{k}")
+            continue
+        if k == "datasets" or (sub := _model_of(fields[k].annotation)) is None:
+            continue
+        if isinstance(v, list):
+            for i, it in enumerate(v):
+                out += _ignored_fields(sub, it, f"{path}{k}[{it.get('id', i) if isinstance(it, dict) else i}].")
+        else:
+            out += _ignored_fields(sub, v, f"{path}{k}.")
+    return out
+
+
 def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSpec | None, list[str], list[str]]:
     """Spec'i tamamlar (dataset'ler session'dan), yerleşimi düzeltir, doğrular."""
     s = ctx.session
     raw = copy.deepcopy(spec_raw)
+    ignored = _ignored_fields(ReportSpec, raw)
     known = {d.id: d for d in s.datasets}
     if s.spec:
         for d in s.spec.datasets:
@@ -383,6 +418,10 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
             raw["theme"].setdefault(k, v)
     notes = _layout_visuals([v for v in raw.get("visuals") or [] if isinstance(v, dict)], raw.get("pages")) \
         + _resolve_filters(ctx, raw)         + _fix_axes(raw)
+    if ignored:
+        notes.insert(0, f"{_IGNORED}: {', '.join(ignored[:12])}. Bu alanlar şemada yok ve UYGULANMADI. "
+                        "Görsel stil için yalnız options.color / background / textColor / valueSize / accentBar (kpi) "
+                        "ya da update_report ile theme kullanılabilir; yapılamayan değişikliği kullanıcıya açıkça söyle.")
     # para birimi belirtilmemiş tutar görsellerine kurum varsayılanını ver
     currency_fields = {f["name"] for d in raw["datasets"] for f in d.get("fields") or [] if f.get("format") == "currency"}
     for v in raw.get("visuals") or []:
@@ -597,10 +636,17 @@ def _fix_axes(raw: dict[str, Any]) -> list[str]:
 
 
 def _spec_ok(ctx: ToolContext, spec: ReportSpec, notes: list[str], what: str) -> ToolResult:
+    ignored = [n for n in notes if n.startswith(_IGNORED)]
+    prev = ctx.session.spec
+    if ignored and prev is not None and prev.model_dump() == spec.model_dump():
+        return ToolResult(False, {"ok": False, "errors": ignored + [
+            "Dashboard DEĞİŞMEDİ. Kullanıcıya değişiklik yapıldı deme: desteklenen bir alanla tekrar dene "
+            "ya da bunun yapılamadığını söyle."]}, "Değişiklik uygulanmadı (desteklenmeyen alan)")
     ctx.session.set_spec(spec)
     return ToolResult(True, {"ok": True, "spec_version": ctx.session.spec_version,
                              "visuals": [v.id for v in spec.visuals], "notes": notes},
-                      f"{what} (v{ctx.session.spec_version}, {len(spec.visuals)} görsel)", state_changed=True)
+                      f"{what} (v{ctx.session.spec_version}, {len(spec.visuals)} görsel)"
+                      + (" — bazı alanlar uygulanmadı" if ignored else ""), state_changed=True)
 
 
 # --------------------------------------------------------------------------- handler'lar
@@ -864,6 +910,9 @@ def h_update_report(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     spec, errs, notes = _validate_spec(ctx, base)
     if errs:
         return ToolResult(False, {"ok": False, "errors": errs}, "Güncelleme geçersiz")
+    extra = sorted(set(a) - {"title", "subtitle", "filters", "layout", "pages", "theme"})
+    if extra and not any(n.startswith(_IGNORED) for n in notes):
+        notes.insert(0, f"{_IGNORED}: {', '.join(extra)}. update_report yalnız title, subtitle, filters, layout, pages, theme alır.")
     return _spec_ok(ctx, spec, notes, "Rapor ayarları güncellendi")
 
 
@@ -885,7 +934,10 @@ _VISUAL = {
         "options": {"type": "object", "description": "stacked, horizontal, smooth, showLabels, showLegend, format(number|currency|percent|compact), "
                                                      "decimals, sort(asc|desc), limit, aggregate, deltaField (hazır değişim oranı kolonu), "
                                                      "compareField (kpi: önceki dönem değeri kolonu), deltaLabel, "
-                                                     "sparklineDatasetId, sparklineField, target, text, color, "
+                                                     "sparklineDatasetId, sparklineField, target, text, color (hex; kpi'da değer+şerit rengi), "
+                                                     "KPI kart stili: background (hex kart zemini), textColor (hex), "
+                                                     "valueSize(sm|md|lg|xl), accentBar (true: solda renkli şerit). "
+                                                     "Listede olmayan alan (ör. fontSize, labelPosition) DESTEKLENMEZ ve uygulanmaz; "
                                                      "ignoreFilters (true: görsel filtrelerden etkilenmez — YALNIZ kullanıcı "
                                                      "açıkça isterse; varsayılan: filtreler tüm görselleri etkiler)"},
         "position": _POSITION,

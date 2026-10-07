@@ -389,3 +389,26 @@ def network_instances(timeout: float = 1.5) -> list[str]:
     except OSError as e:
         log.info("Ağ taraması yapılamadı: %s", e)
     return found
+
+
+# ------------------------------------------------------------------ platform (Vitrin) meta veritabanı
+def meta_fields() -> dict[str, Any] | None:
+    """Bağlantı Ayarları → Platform Veritabanı (connections.json 'meta' bölümü)."""
+    return (load_connections() or {}).get("meta") or None
+
+
+def meta_odbc(settings: Settings) -> str | None:
+    """Arayüzden kaydedilen meta veritabanı, yoksa .env META_ODBC; ikisi de yoksa None (yerel SQLite)."""
+    m = meta_fields()
+    if m:
+        return build_odbc(m)
+    return settings.meta_odbc or None
+
+
+def meta_public(settings: Settings) -> dict[str, Any]:
+    m = meta_fields()
+    if m:
+        return {"source": "ui", **_public(m)}
+    if settings.meta_odbc:
+        return {"source": "env", **parse_odbc(settings.meta_odbc)}
+    return {"source": "default", "server": "", "database": "BI_Lens_Meta", "auth": "windows"}

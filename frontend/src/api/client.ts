@@ -1,5 +1,5 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
-import type { AccessInfo, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult, SuggestionsResponse } from "../types";
+import type { AccessInfo, AdminOverview, AuditEvent, Grant, PlatformRole, PlatformSettings, Publication, VitrinCard, VitrinReport, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult, SuggestionsResponse } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -60,6 +60,25 @@ export interface Api {
   searchDictionary(q: string): Promise<DictionaryHit[]>;
   dataModel(sessionId?: string): Promise<DataModel>;
   exportUrl(id: string): string;
+  // ---- Vitrin ----
+  publication(sessionId: string): Promise<Publication>;
+  publish(sessionId: string, body: { description?: string | null; notes?: string | null; grants?: Grant[] | null }): Promise<{ ok: boolean; report: VitrinCard; session: SessionState }>;
+  vitrin(): Promise<VitrinCard[]>;
+  vitrinReport(id: string): Promise<VitrinReport>;
+  vitrinData(id: string, selections?: Selection[]): Promise<DashboardData>;
+  vitrinExportUrl(id: string): string;
+  retireReport(id: string): Promise<{ ok: boolean }>;
+  getGrants(id: string): Promise<Grant[]>;
+  setGrants(id: string, grants: Grant[]): Promise<Grant[]>;
+  transferOwner(id: string, owner: string): Promise<{ ok: boolean }>;
+  // ---- yönetim ----
+  adminOverview(): Promise<AdminOverview>;
+  setAssignment(a: { principal_type: "user" | "group"; principal: string; platform_role: PlatformRole | null; data_role: string | null }): Promise<{ ok: boolean }>;
+  deleteAssignment(principal_type: string, principal: string): Promise<{ ok: boolean }>;
+  audit(q?: { limit?: number; user?: string; event?: string; report?: string }): Promise<AuditEvent[]>;
+  getPlatformSettings(): Promise<PlatformSettings>;
+  savePlatformSettings(meta: ConnFields): Promise<{ ok: boolean; error: string | null }>;
+  resetPlatformSettings(): Promise<{ ok: boolean; error: string | null }>;
 }
 
 /** FastAPI hata gövdesini okunur satırlara çevirir (string[] veya pydantic {loc,msg}[]). */
@@ -229,4 +248,24 @@ export const httpApi: Api = {
   searchDictionary: (q) => req<DictionaryHit[]>(`/api/dictionary/search?q=${encodeURIComponent(q)}`),
   dataModel: (sid) => req<DataModel>(`/api/dictionary/model${sid ? `?session=${encodeURIComponent(sid)}` : ""}`),
   exportUrl: (id) => `/api/sessions/${encodeURIComponent(id)}/export/html`,
+  publication: (sid) => req<Publication>(`/api/sessions/${encodeURIComponent(sid)}/publication`),
+  publish: (sid, body) => req(`/api/sessions/${encodeURIComponent(sid)}/publish`, { method: "POST", body: JSON.stringify(body) }),
+  vitrin: () => req<VitrinCard[]>("/api/vitrin"),
+  vitrinReport: (id) => req<VitrinReport>(`/api/vitrin/${encodeURIComponent(id)}`),
+  vitrinData: (id, selections) => req<DashboardData>(`/api/vitrin/${encodeURIComponent(id)}/data`, { method: "POST", body: JSON.stringify({ selections: selections ?? [] }) }),
+  vitrinExportUrl: (id) => `/api/vitrin/${encodeURIComponent(id)}/export/html`,
+  retireReport: (id) => req(`/api/vitrin/${encodeURIComponent(id)}/retire`, { method: "POST" }),
+  getGrants: (id) => req<Grant[]>(`/api/vitrin/${encodeURIComponent(id)}/grants`),
+  setGrants: (id, grants) => req<Grant[]>(`/api/vitrin/${encodeURIComponent(id)}/grants`, { method: "PUT", body: JSON.stringify(grants) }),
+  transferOwner: (id, owner) => req(`/api/vitrin/${encodeURIComponent(id)}/owner`, { method: "PUT", body: JSON.stringify({ owner }) }),
+  adminOverview: () => req<AdminOverview>("/api/admin/overview"),
+  setAssignment: (a) => req("/api/admin/assignments", { method: "PUT", body: JSON.stringify(a) }),
+  deleteAssignment: (t, p) => req(`/api/admin/assignments/${encodeURIComponent(t)}/${encodeURIComponent(p)}`, { method: "DELETE" }),
+  audit: (q = {}) => {
+    const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]));
+    return req<AuditEvent[]>(`/api/admin/audit${qs.toString() ? `?${qs}` : ""}`);
+  },
+  getPlatformSettings: () => req<PlatformSettings>("/api/settings/platform"),
+  savePlatformSettings: (meta) => req("/api/settings/platform", { method: "PUT", body: JSON.stringify({ meta }) }),
+  resetPlatformSettings: () => req("/api/settings/platform", { method: "DELETE" }),
 };

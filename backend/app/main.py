@@ -27,7 +27,7 @@ if os.environ.get("BI_SYSTEM_CERTS", "1") != "0":
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 from sqlglot import exp
 
 from app.config import BACKEND_DIR, get_settings, load_toml
@@ -36,7 +36,9 @@ from app.data.model_filters import ModelFilter, ModelFilterEngine, with_nolock
 from app.data.views import ViewRegistry, build_view_script, safe_view_name, select_from_view, view_columns
 from app.data.validator import RolePolicy, SqlValidator
 from app.dictionary.repository import DataDictionary
+from app import authz
 from app.identity import Identity, current_identity
+from app.meta.store import MetaStore
 from app.harness.agent import Agent, Audit, Event
 from app.harness.session import PHASES, Requirements, SessionStore, TranscriptItem, now_iso
 from app.harness.tools import Services, ToolContext, _build_dataset, _short_db_error, _validate_spec
@@ -46,7 +48,7 @@ from app.llm.gateway import LLMGateway
 def conns_llm_settings(settings):
     from app.data.connections import llm_settings
     return llm_settings(settings)
-from app.spec.models import DatasetField, ReportSpec
+from app.spec.models import Dataset, DatasetField, ReportSpec
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("bi-agent")
@@ -59,6 +61,8 @@ class AppState:
     store: SessionStore
     agent: Agent
     startup_error: str | None = None
+    meta: MetaStore | None = None          # platform kayıtları (Vitrin)
+    meta_error: str | None = None
 
 
 class _BrokenConnector:
@@ -110,6 +114,30 @@ def build_services() -> Services:
     return Services(settings, dictionary, connector, validator, policies)
 
 
+def build_meta() -> MetaStore | None:
+    """Platform meta deposu: SQL Server (META_ODBC ya da Bağlantı Ayarları → Platform Veritabanı), yoksa yerel SQLite."""
+    settings = get_settings()
+    state.meta_error = None
+    odbc = conns.meta_odbc(settings)
+    if odbc:
+        try:
+            st = MetaStore.sqlserver(odbc)
+            log.info("Platform veritabanı: SQL Server")
+            return st
+        except Exception as e:  # noqa: BLE001
+            from app.data.odbc import friendly_error
+            state.meta_error = f"Platform veritabanına bağlanılamadı: {friendly_error(str(e))[:300]}"
+            log.error(state.meta_error)
+            if settings.platform_mode == "server":
+                return None    # sunucuda sessizce yerel dosyaya düşme: kayıtlar bölünmesin
+    try:
+        return MetaStore.sqlite(settings.meta_sqlite)
+    except Exception as e:  # noqa: BLE001
+        state.meta_error = f"Platform kayıt dosyası açılamadı: {e}"
+        log.error(state.meta_error)
+        return None
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
@@ -120,6 +148,7 @@ async def lifespan(_: FastAPI):
     if removed:
         log.info("Aynı başlıklı %d eski rapor oturumu kaldırıldı (aynı isimle tek rapor).", removed)
     state.agent = Agent(state.gateway, state.services, state.store)
+    state.meta = build_meta()
     log.info("Sözlük: %d tablo, %d metrik | LLM: %s @ %s | vision: %s", len(state.services.dictionary.tables),
              len(state.services.dictionary.metrics), state.gateway.s.llm_model, state.gateway.s.llm_base_url,
              state.gateway.s.vision_model or "-")
@@ -160,11 +189,16 @@ def health() -> dict[str, Any]:
 
 # --------------------------------------------------------------------------- oturumlar
 @app.get("/api/sessions")
-def list_sessions() -> list[dict[str, Any]]:
-    items = state.store.list()
+def list_sessions(request: Request) -> list[dict[str, Any]]:
+    items = _visible(_need(request, "builder"), state.store.list())
+    published = {r["session_id"]: r for r in state.meta.reports()} if state.meta is not None else {}
     kinds = state.services.dictionary._table_kinds()
     for it in items:
         it["domains"] = _report_domains(it.get("source_tables") or [], kinds)
+        rep = published.get(it["id"])
+        if rep:
+            it["published"] = {"report_id": rep["report_id"], "version": rep["current_version"], "status": rep["status"],
+                               "updated_at": rep["updated_at"]}
     return items
 
 
@@ -193,12 +227,53 @@ def _report_domains(tables: list[str], kinds: dict[str, str]) -> list[str]:
 
 
 def _me(request: Request) -> Identity:
-    return current_identity(get_settings(), dict(request.headers))
+    """Bağlanan kullanıcı + platform rolü. Sunucu modunda kimlik yalnız ters proxy başlığından gelir."""
+    settings = get_settings()
+    if settings.platform_mode == "server" and not (request.headers.get("x-remote-user") or "").strip():
+        raise HTTPException(401, "Kimlik doğrulanamadı: uygulamaya kurumsal oturum açma (IIS / Windows kimlik doğrulaması) "
+                                 "üzerinden bağlanın.")
+    return authz.resolve(settings, state.meta, current_identity(settings, dict(request.headers)))
+
+
+def _need(request: Request, role: str) -> Identity:
+    """En az bu platform rolü (viewer < builder < admin)."""
+    ident = _me(request)
+    if not authz.at_least(ident, role):
+        names = {"builder": "rapor tasarımcısı (builder)", "admin": "yönetici (admin)"}
+        raise HTTPException(403, f"Bu işlem için {names.get(role, role)} yetkisi gerekiyor.")
+    return ident
+
+
+def _own_session(request: Request, sid: str):
+    """Tasarım oturumu: yalnız sahibi ya da admin (masaüstü modunda tek kullanıcı → hepsi)."""
+    ident = _need(request, "builder")
+    s = _session(sid)
+    if not authz.at_least(ident, "admin") and not authz.owns(ident, s.owner):
+        raise HTTPException(403, "Bu rapor başka bir kullanıcıya ait.")
+    return s, ident
+
+
+def _visible(ident: Identity, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Envanter: admin hepsini, builder yalnız kendi raporlarını görür."""
+    if authz.at_least(ident, "admin"):
+        return items
+    return [it for it in items if authz.owns(ident, it.get("owner"))]
+
+
+def _meta() -> MetaStore:
+    if state.meta is None:
+        raise HTTPException(503, state.meta_error or "Platform veritabanı yapılandırılmamış.")
+    return state.meta
+
+
+def _audit(ident: Identity, event: str, report_id: str | None = None, **details: Any) -> None:
+    if state.meta is not None:
+        state.meta.audit(ident.username, event, report_id, **details)
 
 
 @app.post("/api/sessions")
 def create_session(request: Request) -> dict[str, Any]:
-    me = _me(request)
+    me = _need(request, "builder")
     return state.store.create(me.role, owner=me.username, owner_name=me.display_name).public()
 
 
@@ -207,7 +282,9 @@ def me(request: Request) -> dict[str, Any]:
     """Bağlanan kullanıcı (Windows oturumu / LDAP) ve rol politikası."""
     ident = _me(request)
     pol = state.services.policy(ident.role)
-    return {**ident.public(), "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
+    caps = {"design": authz.at_least(ident, "builder"), "admin": authz.at_least(ident, "admin"),
+            "vitrin": state.meta is not None}
+    return {**ident.public(), "capabilities": caps, "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
                                           "allow_pii": pol.allow_pii, "max_rows": pol.max_rows}}
 
 
@@ -228,7 +305,7 @@ def my_access(request: Request) -> dict[str, Any]:
     """Kullanıcının yetkili olduğu nesneler — tek liste: tablo / view / dataset;
     her biri domain (konu alanı) ve erişim durumuyla (Veri Erişimim sayfası: domain ya da nesne tipine göre gruplanır)."""
     from app.harness.session import _source_tables
-    ident = _me(request)
+    ident = _need(request, "builder")
     pol = state.services.policy(ident.role)
     dd = state.services.dictionary
     kinds = dd._table_kinds()
@@ -253,7 +330,7 @@ def my_access(request: Request) -> dict[str, Any]:
             "pii_blocked": bool(pii) and not pol.allow_pii, "accessible": ok, "reason": reason,
             "documented": t.documented, **extra,
         })
-    for item in state.store.list():
+    for item in _visible(ident, state.store.list()):
         try:
             s = state.store.get(item["id"])
         except KeyError:
@@ -282,9 +359,10 @@ def _suggestion_items(request: Request, offset: int) -> list[dict[str, Any]]:
     """Kullanıcının yetkili olduğu veriden kural tabanlı öneriler (+ envanterde benzer rapor)."""
     from app import suggestions as sugg
     from app.harness.session import _source_tables
-    pol = state.services.policy(_me(request).role)
+    ident = _need(request, "builder")
+    pol = state.services.policy(ident.role)
     reports = []
-    for item in state.store.list():
+    for item in _visible(ident, state.store.list()):
         try:
             s = state.store.get(item["id"])
         except KeyError:
@@ -328,7 +406,7 @@ QUERY_MAX_ROWS = 1000
 @app.get("/api/query/schema")
 def query_schema(request: Request) -> dict[str, Any]:
     """Sorgu ekranı için yetkili nesneler (ağaç + otomatik tamamlama): tablolar, onaylı view'lar, kolonlar, rapor dataset'leri."""
-    ident = _me(request)
+    ident = _need(request, "builder")
     pol = state.services.policy(ident.role)
     dd = state.services.dictionary
     kinds = dd._table_kinds()
@@ -355,7 +433,7 @@ def query_schema(request: Request) -> dict[str, Any]:
         })
     objects.sort(key=lambda o: (o["kind"] == "view", o["subject_area"], o["name"].lower()))
     datasets = []
-    for item in state.store.list():
+    for item in _visible(ident, state.store.list()):
         try:
             s = state.store.get(item["id"])
         except KeyError:
@@ -378,7 +456,7 @@ class QueryIn(BaseModel):
 def run_query(body: QueryIn, request: Request) -> dict[str, Any]:
     """Kullanıcının yazdığı sorguyu rol yetkisi dahilinde, salt-okunur çalıştırır (en çok 1000 satır).
     Doğrulayıcı: tek SELECT, yetkili şema/tablo, PII, yasaklı fonksiyon; bağlantı readonly ve rollback."""
-    ident = _me(request)
+    ident = _need(request, "builder")
     pol = state.services.policy(ident.role)
     sql = (body.sql or "").strip()
     if len(sql) > 20000:
@@ -402,14 +480,18 @@ def run_query(body: QueryIn, request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/sessions/{sid}")
-def get_session(sid: str) -> dict[str, Any]:
-    return _session(sid).public()
+def get_session(sid: str, request: Request) -> dict[str, Any]:
+    return _own_session(request, sid)[0].public()
 
 
 @app.delete("/api/sessions/{sid}")
-def delete_session(sid: str) -> dict[str, Any]:
-    _session(sid)
+def delete_session(sid: str, request: Request) -> dict[str, Any]:
+    s, ident = _own_session(request, sid)
+    rep = state.meta.report_by_session(sid) if state.meta is not None else None
+    if rep and rep["status"] == "active":
+        raise HTTPException(409, "Bu rapor Vitrin'de yayında. Silmeden önce yayından kaldırın.")
     state.store.delete(sid)
+    _audit(ident, "session_delete", rep["report_id"] if rep else None, session=sid, title=s.title)
     return {"ok": True}
 
 
@@ -424,12 +506,13 @@ def _sse(events: Iterator[Event]) -> Iterator[str]:
 
 
 @app.post("/api/sessions/{sid}/messages")
-def post_message(sid: str, body: MessageIn) -> StreamingResponse:
-    _session(sid)
+def post_message(sid: str, body: MessageIn, request: Request) -> StreamingResponse:
+    _s, ident = _own_session(request, sid)
     if not body.content.strip() and not body.images:
         raise HTTPException(400, "Mesaj boş")
     images = [i for i in (body.images or []) if i.startswith("data:image/")][:3]
-    return StreamingResponse(_sse(state.agent.run_turn(sid, body.content, images)), media_type="text/event-stream",
+    return StreamingResponse(_sse(state.agent.run_turn(sid, body.content, images, user=ident.username, role=ident.role)),
+                             media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
@@ -439,7 +522,8 @@ class TitleIn(BaseModel):
 
 
 @app.put("/api/sessions/{sid}/title")
-def rename_session(sid: str, body: TitleIn) -> Any:
+def rename_session(sid: str, body: TitleIn, request: Request) -> Any:
+    _own_session(request, sid)
     title = " ".join(body.title.split())
     if not title:
         raise HTTPException(400, "Rapor adı boş olamaz.")
@@ -447,7 +531,7 @@ def rename_session(sid: str, body: TitleIn) -> Any:
         raise HTTPException(400, "Rapor adı en fazla 120 karakter olabilir.")
     with state.store.lock(sid):
         s = _session(sid)
-        other = state.store.title_taken(title, sid)
+        other = state.store.title_taken(title, sid, s.owner)
         if other and not body.overwrite:
             return JSONResponse({"detail": f"'{title}' adında başka bir rapor var.", "conflict_id": other}, status_code=409)
         s.title = title
@@ -466,16 +550,25 @@ class StatusIn(BaseModel):
 
 
 @app.put("/api/sessions/{sid}/status")
-def set_status(sid: str, body: StatusIn) -> dict[str, Any]:
-    """Rapor yaşam döngüsü: idea (fikir) → design (tasarım) → test → live (canlıda)."""
+def set_status(sid: str, body: StatusIn, request: Request) -> dict[str, Any]:
+    """Rapor yaşam döngüsü: idea (fikir) → design (tasarım) → test → live (canlıda).
+    'live' = Vitrin'de yayında: statü ancak Yayınla ile canlıya alınır; canlıdan geri alınca yayın kaldırılır."""
     if body.status not in ("idea", "design", "test", "live"):
         raise HTTPException(400, "Geçersiz statü. Seçenekler: idea, design, test, live")
+    _s, ident = _own_session(request, sid)
+    rep = state.meta.report_by_session(sid) if state.meta is not None else None
+    if body.status == "live" and state.meta is not None and not (rep and rep["status"] == "active"):
+        raise HTTPException(409, "Raporu canlıya almak için Yayınla'yı kullanın (Vitrin'e sürüm ve paylaşım ile).")
     with state.store.lock(sid):
         s = _session(sid)
         s.status = body.status  # type: ignore[assignment]
-        s.add(TranscriptItem(role="system", content=f"Rapor statüsü değişti: {body.status}"))
+        s.add(TranscriptItem(role="system", content=f"Rapor statüsü değişti: {body.status} ({ident.display_name})"))
         state.store.save(s)
-        return s.public()
+    if rep and rep["status"] == "active" and body.status != "live":
+        state.meta.set_status(rep["report_id"], "retired")
+        _audit(ident, "report_retire", rep["report_id"], reason=f"statü {body.status}")
+    _audit(ident, "status_change", rep["report_id"] if rep else None, session=sid, status=body.status)
+    return s.public()
 
 
 class PhaseIn(BaseModel):
@@ -483,7 +576,8 @@ class PhaseIn(BaseModel):
 
 
 @app.post("/api/sessions/{sid}/phase")
-def set_phase(sid: str, body: PhaseIn) -> dict[str, Any]:
+def set_phase(sid: str, body: PhaseIn, request: Request) -> dict[str, Any]:
+    _own_session(request, sid)
     if body.phase not in PHASES:
         raise HTTPException(400, f"Geçersiz faz. Seçenekler: {PHASES}")
     with state.store.lock(sid):
@@ -507,7 +601,8 @@ def set_phase(sid: str, body: PhaseIn) -> dict[str, Any]:
 
 
 @app.put("/api/sessions/{sid}/spec")
-def put_spec(sid: str, spec: dict[str, Any] = Body(...)) -> Any:
+def put_spec(sid: str, request: Request, spec: dict[str, Any] = Body(...)) -> Any:
+    _own_session(request, sid)
     with state.store.lock(sid):
         s = _session(sid)
         # Elle düzenlemede SQL değişmiş/yeni dataset'ler de doğrulanır.
@@ -528,7 +623,8 @@ def put_spec(sid: str, spec: dict[str, Any] = Body(...)) -> Any:
 
 
 @app.post("/api/sessions/{sid}/demo")
-def load_demo(sid: str) -> Any:
+def load_demo(sid: str, request: Request) -> Any:
+    _own_session(request, sid)
     with state.store.lock(sid):
         s = _session(sid)
         raw = json.loads(get_settings().demo_spec.read_text(encoding="utf-8"))
@@ -573,8 +669,8 @@ def _dataset_payload(sql: str, role: str) -> dict[str, Any]:
             return hit[1]
     pol = state.services.policy(role)
     v = state.services.validator.validate(sql, pol)
-    if not v.ok:
-        return {"columns": [], "rows": [], "error": "; ".join(v.errors)}
+    if not v.ok:   # rolün izin vermediği veri (şema / tablo / kişisel veri): görsel "yetkiniz yok" gösterir
+        return {"columns": [], "rows": [], "error": "; ".join(v.errors), "denied": True}
     try:
         r = state.services.connector.execute(v.sql, pol.max_rows)
     except QueryError as e:
@@ -730,8 +826,8 @@ def _data_date_info(s, role: str) -> dict[str, Any] | None:
 
 
 @app.get("/api/sessions/{sid}/dashboard-data")
-def dashboard_data(sid: str) -> dict[str, Any]:
-    return _dashboard_data(_session(sid))
+def dashboard_data(sid: str, request: Request) -> dict[str, Any]:
+    return _dashboard_data(_own_session(request, sid)[0])
 
 
 class SelectionIn(BaseModel):
@@ -745,15 +841,15 @@ class DashboardQuery(BaseModel):
 
 
 @app.post("/api/sessions/{sid}/dashboard-data")
-def dashboard_data_filtered(sid: str, body: DashboardQuery) -> dict[str, Any]:
+def dashboard_data_filtered(sid: str, body: DashboardQuery, request: Request) -> dict[str, Any]:
     """Model filtreleriyle dashboard verisi: seçimler ilişkiler üzerinden her dataset'e yayılır."""
-    return _dashboard_data(_session(sid), [sel.model_dump() for sel in body.selections])
+    return _dashboard_data(_own_session(request, sid)[0], [sel.model_dump() for sel in body.selections])
 
 
 @app.get("/api/sessions/{sid}/filters")
-def dashboard_filters(sid: str) -> dict[str, Any]:
+def dashboard_filters(sid: str, request: Request) -> dict[str, Any]:
     """Dilimleyici tanımları + seçenekleri ve dataset alanlarının model kökenleri."""
-    s = _session(sid)
+    s = _own_session(request, sid)[0]
     bindings = _bindings(s)
     defs = _filter_defs(s, bindings)
     for f in defs:
@@ -767,8 +863,8 @@ def dashboard_filters(sid: str) -> dict[str, Any]:
 
 
 @app.get("/api/sessions/{sid}/export/html")
-def export_html(sid: str) -> HTMLResponse:
-    s = _session(sid)
+def export_html(sid: str, request: Request) -> HTMLResponse:
+    s = _own_session(request, sid)[0]
     if not s.spec:
         raise HTTPException(409, "Henüz dashboard yok.")
     viewer = get_settings().viewer_html
@@ -800,9 +896,9 @@ def _find_dataset(s, did: str):
 
 
 @app.post("/api/sessions/{sid}/datasets/{did}/view-script")
-def dataset_view_script(sid: str, did: str, body: ViewIn) -> dict[str, Any]:
+def dataset_view_script(sid: str, did: str, body: ViewIn, request: Request) -> dict[str, Any]:
     """Dataset için inceleme amaçlı CREATE OR ALTER VIEW scripti üretir (çalıştırmaz)."""
-    s = _session(sid)
+    s = _own_session(request, sid)[0]
     ds = _find_dataset(s, did)
     settings = get_settings()
     name = (body.name or safe_view_name(did)).strip()
@@ -822,8 +918,9 @@ def dataset_view_script(sid: str, did: str, body: ViewIn) -> dict[str, Any]:
 
 
 @app.post("/api/sessions/{sid}/datasets/{did}/use-view")
-def dataset_use_view(sid: str, did: str, body: ViewIn) -> Any:
+def dataset_use_view(sid: str, did: str, body: ViewIn, request: Request) -> Any:
     """View oluşturulduysa: doğrular, sözlüğe ekler, dataset'i view'dan okuyacak şekilde değiştirir."""
+    _own_session(request, sid)
     settings = get_settings()
     name = (body.name or safe_view_name(did)).strip()
     with state.store.lock(sid):
@@ -866,25 +963,25 @@ def dataset_use_view(sid: str, did: str, body: ViewIn) -> Any:
 
 
 @app.get("/api/views")
-def list_views() -> list[dict[str, Any]]:
+def list_views(request: Request) -> list[dict[str, Any]]:
+    _need(request, "builder")
     return ViewRegistry(get_settings().views_registry).all()
 
 
 @app.get("/api/dictionary/search")
-def dictionary_search(q: str = "") -> list[dict[str, Any]]:
+def dictionary_search(request: Request, q: str = "") -> list[dict[str, Any]]:
+    _need(request, "builder")
     return state.services.dictionary.search(q, 10) if q.strip() else []
 
 
 @app.get("/api/dictionary/model")
-def dictionary_model(session: str | None = None) -> dict[str, Any]:
+def dictionary_model(request: Request, session: str | None = None) -> dict[str, Any]:
     """İlişkisel model; session verilirse o rapordaki dataset'lerin kullandığı tablolar da işaretlenir."""
+    _need(request, "builder")
     model = state.services.dictionary.model()
     used: dict[str, list[str]] = {}
     if session:
-        try:
-            s = state.store.get(session)
-        except KeyError:
-            raise HTTPException(404, "Oturum bulunamadı")
+        s = _own_session(request, session)[0]
         datasets = {d.id: d for d in s.datasets}
         if s.spec:
             datasets.update({d.id: d for d in s.spec.datasets})
@@ -898,7 +995,8 @@ def dictionary_model(session: str | None = None) -> dict[str, Any]:
 
 
 @app.post("/api/dictionary/reload")
-def dictionary_reload() -> dict[str, Any]:
+def dictionary_reload(request: Request) -> dict[str, Any]:
+    _need(request, "admin")
     state.services.dictionary.load()
     return {"ok": True, "tables": len(state.services.dictionary.tables)}
 
@@ -909,8 +1007,13 @@ from app.data.odbc import friendly_error  # noqa: E402
 
 
 def _require_settings_access(request: Request) -> Identity:
-    """Bağlantı ayarları: admin rolü ya da uygulamanın çalıştığı bilgisayarın kendisi (ağdan gelen kullanıcı değil)."""
+    """Bağlantı ayarları: admin rolü ya da uygulamanın çalıştığı bilgisayarın kendisi (ağdan gelen kullanıcı değil).
+    Sunucu modunda yalnız platform yöneticisi (admin)."""
     ident = _me(request)
+    if get_settings().platform_mode == "server":
+        if not authz.at_least(ident, "admin"):
+            raise HTTPException(403, "Bağlantı ayarlarını yalnızca platform yöneticisi (admin) değiştirebilir.")
+        return ident
     fwd = [x.strip() for x in (request.headers.get("x-forwarded-for") or "").split(",") if x.strip()]
     local = (request.client.host if request.client else "") in ("127.0.0.1", "::1", "localhost", "testclient") \
         and all(x in ("127.0.0.1", "::1", "::ffff:127.0.0.1") for x in fwd)
@@ -1085,12 +1188,32 @@ def dictionary_template(request: Request, layout: str = "multi") -> Response:
 
 
 # ---------------------------------------------------------------- dil modeli (LLM) bağlantısı
+def _clean_key(v: str | None) -> str | None:
+    """Yapıştırırken gelen boşluk / satır sonu / görünmez karakterleri atar (HTTP başlığını bozup 'bağlanılamadı' verir)."""
+    return None if v is None else "".join(ch for ch in v if ch.isprintable() and not ch.isspace())
+
+
+def _clean_url(v: str | None) -> str:
+    v = (v or "").strip().rstrip("/")
+    if v and "://" not in v:
+        v = "http://" + v
+    return v
+
+
 class VisionIn(BaseModel):
     enabled: bool = True
     same_as_main: bool = True
     base_url: str = ""
     api_key: str | None = None       # None → kayıtlı anahtar korunur
     model: str = ""
+
+    @field_validator("api_key")
+    @classmethod
+    def _k(cls, v): return _clean_key(v)
+
+    @field_validator("base_url")
+    @classmethod
+    def _u(cls, v): return _clean_url(v)
 
 
 class LlmIn(BaseModel):
@@ -1101,17 +1224,44 @@ class LlmIn(BaseModel):
     extra_body: dict[str, Any] | None = None
     vision: VisionIn = VisionIn()
 
+    @field_validator("api_key")
+    @classmethod
+    def _k(cls, v): return _clean_key(v)
+
+    @field_validator("base_url")
+    @classmethod
+    def _u(cls, v): return _clean_url(v)
+
 
 class LlmTestIn(BaseModel):
     target: str = "main"             # main | vision
     llm: LlmIn
 
 
+def _origin(url: str | None) -> str:
+    """Anahtarın ait olduğu sunucu: şema + host + port (yol farkı önemsiz)."""
+    from urllib.parse import urlsplit
+    try:
+        p = urlsplit((url or "").strip())
+        return f"{p.scheme.lower()}://{(p.hostname or '').lower()}:{p.port or (443 if p.scheme == 'https' else 80)}"
+    except ValueError:
+        return ""
+
+
 def _llm_keys(body: LlmIn) -> tuple[str, str]:
-    """Formdan gelen anahtar yoksa kayıtlı (connections.json ya da .env) anahtar kullanılır."""
+    """Formdan gelen anahtar yoksa kayıtlı (connections.json ya da .env) anahtar kullanılır — YALNIZ adres aynı sunucuyu
+    gösteriyorsa. Adres başka bir sunucuya değiştiyse kayıtlı anahtar yeni sunucuya gönderilmez (anahtar sızmasın)."""
     cur = conns.llm_settings(get_settings())
-    main = body.api_key if body.api_key is not None else (cur.llm_api_key or "")
-    vis = body.vision.api_key if body.vision.api_key is not None else (cur.vision_api_key or "")
+    same_main = _origin(body.base_url) == _origin(cur.llm_base_url)
+    main = body.api_key if body.api_key is not None else ((cur.llm_api_key or "") if same_main else "")
+    if body.vision.api_key is not None:
+        vis = body.vision.api_key
+    else:
+        cur_vis_url = cur.vision_base_url or cur.llm_base_url
+        # görsel model ayrı anahtar tutmuyorsa ana modelin anahtarını kullanıyordur (aynı sunucu)
+        cur_vis_key = cur.vision_api_key or ("" if cur.vision_base_url else cur.llm_api_key) or ""
+        new_vis_url = body.base_url if body.vision.same_as_main else body.vision.base_url
+        vis = cur_vis_key if _origin(new_vis_url) == _origin(cur_vis_url) else ""
     return main, vis
 
 
@@ -1184,7 +1334,13 @@ def _llm_error(e: Exception) -> str:
     if isinstance(e, openai.NotFoundError):
         return "Adres ya da model bulunamadı (404): API adresi genelde .../v1 ile biter; model adını kontrol edin."
     if isinstance(e, openai.APIConnectionError):
-        return "Sunucuya bağlanılamadı: adres doğru mu, kurumsal proxy / sertifika engeli var mı?"
+        why = type(e.__cause__).__name__ if e.__cause__ else ""
+        if why == "LocalProtocolError":
+            return "API anahtarında geçersiz karakter var (boşluk / satır sonu?). Anahtarı yeniden yapıştırın."
+        return ("Sunucuya bağlanılamadı: adres doğru mu (http/https, port — ör. http://100.121.208.108:1234/v1), "
+                "kurumsal proxy / sertifika engeli var mı?" + (f" [{why}]" if why else ""))
+    if isinstance(e, UnicodeEncodeError):
+        return "API anahtarında Türkçe ya da görünmez karakter var; anahtarı LM Studio'dan yeniden kopyalayın."
     if isinstance(e, openai.APITimeoutError):
         return "Sunucu zaman aşımına uğradı."
     if isinstance(e, openai.APIStatusError):
@@ -1550,6 +1706,366 @@ def _rebuild_services() -> None:
 @app.exception_handler(ValidationError)
 def _validation_handler(_: Request, exc: ValidationError) -> JSONResponse:
     return JSONResponse({"detail": [f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()]}, status_code=422)
+
+
+# --------------------------------------------------------------------------- Vitrin: yayınlama, paylaşım, izleme
+class _Snapshot:
+    """Yayınlanmış sürüm: dashboard verisi fonksiyonları tasarım oturumu gibi kullanır (spec + dataset'ler + rol).
+    Rol, raporu AÇAN kullanıcının veri rolüdür (yayınlayanınki değil)."""
+
+    def __init__(self, spec: ReportSpec, datasets: list[Dataset], role: str):
+        self.spec, self.datasets, self.user_role = spec, datasets, role
+
+
+def _snapshot(version: dict[str, Any], role: str) -> _Snapshot:
+    return _Snapshot(ReportSpec.model_validate(version["spec"]),
+                     [Dataset.model_validate(d) for d in version["datasets"]], role)
+
+
+def _public_spec(spec: ReportSpec) -> dict[str, Any]:
+    """İzleyiciye giden spec: SQL yok (dataset'lerden yalnız alan tanımları)."""
+    out = spec.model_dump(exclude_none=True)
+    out["datasets"] = [{"id": d.id, "description": d.description, "sql": "", "fields": [f.model_dump(exclude_none=True)
+                                                                                      for f in d.fields]}
+                       for d in spec.datasets]
+    return out
+
+
+def _report_card(rep: dict[str, Any], ident: Identity, grants: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"id": rep["report_id"], "title": rep["title"], "description": rep.get("description"),
+            "owner": rep["owner"], "owner_name": rep.get("owner_name") or rep["owner"], "version": rep["current_version"],
+            "status": rep["status"], "domains": rep.get("domains") or [], "created_at": rep["created_at"],
+            "updated_at": rep["updated_at"], "mine": authz.owns(ident, rep["owner"]),
+            "can_export": authz.can_export_report(ident, rep, grants),
+            "can_manage": authz.at_least(ident, "admin") or authz.owns(ident, rep["owner"]),
+            "shared_with": len(grants) if (authz.at_least(ident, "admin") or authz.owns(ident, rep["owner"])) else None}
+
+
+def _viewable(request: Request, report_id: str) -> tuple[dict[str, Any], Identity, list[dict[str, Any]]]:
+    ident = _me(request)
+    meta = _meta()
+    rep = meta.report(report_id)
+    grants = meta.grants(report_id) if rep else []
+    if not rep or not authz.can_view_report(ident, rep, grants):
+        raise HTTPException(404, "Rapor bulunamadı ya da görüntüleme yetkiniz yok.")
+    return rep, ident, grants
+
+
+def _manageable(request: Request, report_id: str) -> tuple[dict[str, Any], Identity]:
+    ident = _me(request)
+    rep = _meta().report(report_id)
+    if not rep:
+        raise HTTPException(404, "Rapor bulunamadı.")
+    if not (authz.at_least(ident, "admin") or authz.owns(ident, rep["owner"])):
+        raise HTTPException(403, "Bu yayını yalnızca sahibi ya da yönetici değiştirebilir.")
+    return rep, ident
+
+
+class GrantIn(BaseModel):
+    principal_type: str              # user | group
+    principal: str
+    can_export: bool = False
+
+    @field_validator("principal_type")
+    @classmethod
+    def _t(cls, v: str) -> str:
+        if v not in ("user", "group"):
+            raise ValueError("principal_type user ya da group olmalı")
+        return v
+
+    @field_validator("principal")
+    @classmethod
+    def _p(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v or len(v) > 256:
+            raise ValueError("kullanıcı / grup adı boş olamaz (en çok 256 karakter)")
+        return v
+
+
+class PublishIn(BaseModel):
+    description: str | None = None
+    notes: str | None = None             # sürüm notu
+    grants: list[GrantIn] | None = None  # None → mevcut paylaşım korunur
+
+
+@app.get("/api/sessions/{sid}/publication")
+def session_publication(sid: str, request: Request) -> dict[str, Any]:
+    """Tasarım oturumunun Vitrin durumu: yayında mı, hangi sürüm, kimlerle paylaşıldı, yayında olmayan değişiklik var mı."""
+    s, ident = _own_session(request, sid)
+    meta = _meta()
+    rep = meta.report_by_session(sid)
+    if not rep:
+        return {"published": False}
+    cur = meta.version(rep["report_id"])
+    changed = bool(s.spec) and cur is not None and (
+        cur["spec"] != s.spec.model_dump(mode="json")
+        or cur["datasets"] != [d.model_dump(mode="json") for d in s.datasets])
+    return {"published": True, "report": _report_card(rep, ident, meta.grants(rep["report_id"])),
+            "grants": meta.grants(rep["report_id"]), "versions": meta.versions(rep["report_id"]), "unpublished_changes": changed}
+
+
+@app.post("/api/sessions/{sid}/publish")
+def publish_session(sid: str, body: PublishIn, request: Request) -> dict[str, Any]:
+    """Tasarımın o anki halini Vitrin'e yeni sürüm olarak yayınlar (spec + dataset'ler değişmez kopya)."""
+    s, ident = _own_session(request, sid)
+    meta = _meta()
+    if not s.spec:
+        raise HTTPException(409, "Yayınlamak için önce dashboard oluşturun.")
+    kinds = state.services.dictionary._table_kinds()
+    from app.harness.session import _source_tables
+    domains = _report_domains(_source_tables([d.model_dump() for d in s.datasets]), kinds)
+    prev = meta.report_by_session(sid)
+    rep = meta.publish(session_id=sid, owner=(prev or {}).get("owner") or s.owner or ident.username,
+                       owner_name=(prev or {}).get("owner_name") or s.owner_name or ident.display_name,
+                       title=s.title, description=(body.description if body.description is not None
+                                                   else (prev or {}).get("description")),
+                       domains=domains, spec=s.spec.model_dump(mode="json"),
+                       datasets=[d.model_dump(mode="json") for d in s.datasets], notes=body.notes, by=ident.username)
+    if body.grants is not None:
+        meta.set_grants(rep["report_id"], [g.model_dump() for g in body.grants], ident.username)
+    with state.store.lock(sid):
+        s = _session(sid)
+        s.status = "live"
+        s.add(TranscriptItem(role="system", content=f"Vitrin'de yayınlandı: sürüm {rep['current_version']} ({ident.display_name})"))
+        state.store.save(s)
+    _audit(ident, "report_publish", rep["report_id"], version=rep["current_version"], session=sid,
+           grants=None if body.grants is None else len(body.grants))
+    return {"ok": True, "report": _report_card(rep, ident, meta.grants(rep["report_id"])), "session": s.public()}
+
+
+@app.post("/api/vitrin/{report_id}/retire")
+def retire_report(report_id: str, request: Request) -> dict[str, Any]:
+    rep, ident = _manageable(request, report_id)
+    _meta().set_status(report_id, "retired")
+    try:
+        with state.store.lock(rep["session_id"]):
+            s = state.store.get(rep["session_id"])
+            if s.status == "live":
+                s.status = "test"
+                s.add(TranscriptItem(role="system", content=f"Vitrin'den kaldırıldı ({ident.display_name})"))
+                state.store.save(s)
+    except KeyError:
+        pass
+    _audit(ident, "report_retire", report_id)
+    return {"ok": True}
+
+
+@app.get("/api/vitrin/{report_id}/grants")
+def get_grants(report_id: str, request: Request) -> list[dict[str, Any]]:
+    _manageable(request, report_id)
+    return _meta().grants(report_id)
+
+
+@app.put("/api/vitrin/{report_id}/grants")
+def put_grants(report_id: str, body: list[GrantIn], request: Request) -> list[dict[str, Any]]:
+    _rep, ident = _manageable(request, report_id)
+    meta = _meta()
+    before = meta.grants(report_id)
+    meta.set_grants(report_id, [g.model_dump() for g in body], ident.username)
+    after = meta.grants(report_id)
+    _audit(ident, "grants_change", report_id, before=[f"{g['principal_type']}:{g['principal']}" for g in before],
+           after=[f"{g['principal_type']}:{g['principal']}" for g in after])
+    return after
+
+
+class OwnerIn(BaseModel):
+    owner: str
+    owner_name: str | None = None
+
+
+@app.put("/api/vitrin/{report_id}/owner")
+def transfer_owner(report_id: str, body: OwnerIn, request: Request) -> dict[str, Any]:
+    """Sahiplik devri (yalnız admin): yayın + tasarım oturumu yeni sahibe geçer."""
+    ident = _need(request, "admin")
+    meta = _meta()
+    rep = meta.report(report_id)
+    if not rep:
+        raise HTTPException(404, "Rapor bulunamadı.")
+    owner = " ".join(body.owner.split())
+    if not owner:
+        raise HTTPException(400, "Yeni sahip boş olamaz.")
+    meta.set_owner(report_id, owner, body.owner_name or owner)
+    try:
+        with state.store.lock(rep["session_id"]):
+            s = state.store.get(rep["session_id"])
+            s.owner, s.owner_name = owner, body.owner_name or owner
+            state.store.save(s)
+    except KeyError:
+        pass
+    _audit(ident, "owner_transfer", report_id, old=rep["owner"], new=owner)
+    return {"ok": True}
+
+
+@app.get("/api/vitrin")
+def vitrin_list(request: Request) -> list[dict[str, Any]]:
+    """Vitrin: kullanıcının görebildiği yayınlar (izin verilen, kendisinin ya da admin için hepsi)."""
+    ident = _me(request)
+    meta = _meta()
+    grants = meta.all_grants()
+    out = []
+    for rep in meta.reports():
+        g = grants.get(rep["report_id"], [])
+        if authz.can_view_report(ident, rep, g):
+            out.append(_report_card(rep, ident, g))
+    return out
+
+
+@app.get("/api/vitrin/{report_id}")
+def vitrin_report(report_id: str, request: Request) -> dict[str, Any]:
+    """Yayınlanmış rapor: spec (SQL'siz), filtreler, veri tarihi — izleyicinin veri rolüyle."""
+    rep, ident, grants = _viewable(request, report_id)
+    ver = _meta().version(report_id)
+    if not ver:
+        raise HTTPException(404, "Yayın sürümü bulunamadı.")
+    snap = _snapshot(ver, ident.role)
+    bindings = _bindings(snap)
+    defs = _filter_defs(snap, bindings)
+    for f in defs:
+        f["options"] = _filter_options(f["key"], ident.role) if f["key"] else []
+    try:
+        data_date = _data_date_info(snap, ident.role)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Veri tarihi aralığı alınamadı: %s", e)
+        data_date = None
+    _audit(ident, "report_view", report_id, version=ver["version"])
+    return {"report": _report_card(rep, ident, grants), "spec": _public_spec(snap.spec),
+            "version": {"version": ver["version"], "notes": ver.get("notes"), "published_by": ver["published_by"],
+                        "published_at": ver["published_at"]},
+            "filters": {"filters": defs, "bindings": bindings, **({"data_date": data_date} if data_date else {})}}
+
+
+@app.post("/api/vitrin/{report_id}/data")
+def vitrin_data(report_id: str, body: DashboardQuery, request: Request) -> dict[str, Any]:
+    _rep, ident, _g = _viewable(request, report_id)
+    ver = _meta().version(report_id)
+    if not ver:
+        raise HTTPException(404, "Yayın sürümü bulunamadı.")
+    return _dashboard_data(_snapshot(ver, ident.role), [sel.model_dump() for sel in body.selections])
+
+
+@app.get("/api/vitrin/{report_id}/export/html")
+def vitrin_export(report_id: str, request: Request) -> HTMLResponse:
+    rep, ident, grants = _viewable(request, report_id)
+    if not authz.can_export_report(ident, rep, grants):
+        raise HTTPException(403, "Bu raporu dışa aktarma izniniz yok.")
+    ver = _meta().version(report_id)
+    if not ver:
+        raise HTTPException(404, "Yayın sürümü bulunamadı.")
+    viewer = get_settings().viewer_html
+    if not viewer.exists():
+        raise HTTPException(503, "Viewer derlenmemiş: frontend klasöründe `npm run build:viewer` çalıştırın.")
+    snap = _snapshot(ver, ident.role)
+    data = _dashboard_data(snap)
+    data["bindings"] = _bindings(snap)
+    data["filter_keys"] = {f["id"]: f["key"] for f in _filter_defs(snap, data["bindings"])}
+    payload = json.dumps({"spec": _public_spec(snap.spec), "data": data},
+                         ensure_ascii=False, default=str).replace("<", "\\u003c")
+    html = viewer.read_text(encoding="utf-8").replace("__REPORT_JSON__", payload, 1)
+    _audit(ident, "report_export", report_id, version=ver["version"])
+    title = rep["title"] or "dashboard"
+    ascii_name = "".join(c if c.isascii() and c.isalnum() else "_" for c in title)[:60] or "dashboard"
+    return HTMLResponse(html, headers={"Content-Disposition": f"attachment; filename=\"{ascii_name}.html\"; "
+                                                              f"filename*=UTF-8''{quote(title[:60])}.html"})
+
+
+# --------------------------------------------------------------------------- yönetim (admin)
+class AssignmentIn(BaseModel):
+    principal_type: str
+    principal: str
+    platform_role: str | None = None
+    data_role: str | None = None
+
+    @field_validator("principal_type")
+    @classmethod
+    def _t(cls, v: str) -> str:
+        if v not in ("user", "group"):
+            raise ValueError("principal_type user ya da group olmalı")
+        return v
+
+
+@app.get("/api/admin/overview")
+def admin_overview(request: Request) -> dict[str, Any]:
+    _need(request, "admin")
+    meta = _meta()
+    settings = get_settings()
+    grants = meta.all_grants()
+    return {"mode": settings.platform_mode, "store": meta.kind,
+            "platform_admins": [a.strip() for a in settings.platform_admins.split(",") if a.strip()],
+            "platform_roles": list(authz.RANK), "data_roles": sorted(state.services.policies),
+            "assignments": [a.__dict__ for a in meta.assignments()],
+            "reports": [{**r, "grants": grants.get(r["report_id"], [])} for r in meta.reports()]}
+
+
+@app.put("/api/admin/assignments")
+def put_assignment(body: AssignmentIn, request: Request) -> dict[str, Any]:
+    ident = _need(request, "admin")
+    if body.platform_role is not None and body.platform_role not in authz.RANK:
+        raise HTTPException(400, f"Platform rolü {list(authz.RANK)} olmalı.")
+    if body.data_role is not None and body.data_role not in state.services.policies:
+        raise HTTPException(400, f"Veri rolü policy.toml'da tanımlı olmalı: {sorted(state.services.policies)}")
+    principal = " ".join(body.principal.split())
+    if not principal:
+        raise HTTPException(400, "Kullanıcı / grup adı boş olamaz.")
+    _meta().set_assignment(body.principal_type, principal, body.platform_role, body.data_role, ident.username)
+    _audit(ident, "role_assign", None, principal_type=body.principal_type, principal=principal,
+           platform_role=body.platform_role, data_role=body.data_role)
+    return {"ok": True}
+
+
+@app.delete("/api/admin/assignments/{principal_type}/{principal:path}")
+def delete_assignment(principal_type: str, principal: str, request: Request) -> dict[str, Any]:
+    ident = _need(request, "admin")
+    ok = _meta().delete_assignment(principal_type, principal)
+    if ok:
+        _audit(ident, "role_unassign", None, principal_type=principal_type, principal=principal)
+    return {"ok": ok}
+
+
+@app.get("/api/admin/audit")
+def admin_audit(request: Request, limit: int = 200, user: str | None = None, event: str | None = None,
+                report: str | None = None) -> list[dict[str, Any]]:
+    _need(request, "admin")
+    return _meta().audit_events(limit, user or None, event or None, report or None)
+
+
+# --------------------------------------------------------------------------- platform veritabanı ayarı
+class MetaConnIn(BaseModel):
+    meta: ConnIn
+
+
+@app.get("/api/settings/platform")
+def get_platform_settings(request: Request) -> dict[str, Any]:
+    _require_settings_access(request)
+    settings = get_settings()
+    return {"mode": settings.platform_mode, "store": state.meta.kind if state.meta else None, "error": state.meta_error,
+            "meta": conns.meta_public(settings)}
+
+
+@app.put("/api/settings/platform")
+def save_platform_settings(body: MetaConnIn, request: Request) -> dict[str, Any]:
+    """Platform veritabanını kaydeder: önce bağlanıp tabloları hazırlar (yoksa oluşturur), başarılıysa kaydeder."""
+    ident = _require_settings_access(request)
+    saved = (conns.load_connections() or {}).get("meta")
+    f = _fields(body.meta, saved)
+    if not f["database"]:
+        raise HTTPException(400, "Platform veritabanı adını girin (ör. BI_Lens_Meta).")
+    try:
+        st = MetaStore.sqlserver(conns.build_odbc(f))
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": friendly_error(str(e))[:400]}
+    conns.save_connections({"meta": _store(f)})
+    state.meta, state.meta_error = st, None
+    log.info("Platform veritabanı güncellendi (%s): %s/%s", ident.username, f["server"], f["database"])
+    _audit(ident, "settings_platform_db", None, server=f["server"], database=f["database"])
+    return {"ok": True, "error": None}
+
+
+@app.delete("/api/settings/platform")
+def reset_platform_settings(request: Request) -> dict[str, Any]:
+    _require_settings_access(request)
+    conns.save_connections({"meta": None})
+    state.meta = build_meta()
+    return {"ok": state.meta is not None, "error": state.meta_error}
 
 
 # --------------------------------------------------------------------------- arayüz (derlenmiş)

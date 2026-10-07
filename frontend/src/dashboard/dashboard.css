@@ -256,6 +256,7 @@
 .db-tt-total span { opacity: .7; }
 
 /* hata / boş */
+.db-card--denied { border: 1px dashed var(--db-border) !important; box-shadow: none !important; color: var(--db-muted); }
 .db-card--error { border: 1px dashed color-mix(in srgb, var(--db-bad) 45%, var(--db-border)) !important; box-shadow: none !important; }
 .db-error { display: flex; gap: 10px; align-items: flex-start; color: var(--db-bad); padding: 4px 2px; margin: auto 0; }
 .db-error svg { flex: none; margin-top: 1px; }
@@ -279,6 +280,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.db-kpi.is-sm .db-kpi-value { font-size: clamp(18px, 9cqi, 24px); }
+.db-kpi.is-lg .db-kpi-value { font-size: clamp(26px, 15cqi, 40px); }
+.db-kpi.is-xl .db-kpi-value { font-size: clamp(30px, 18cqi, 52px); }
+.db-kpi.has-bar { padding-left: calc(var(--db-pad) + 4px); }
+.db-kpi.has-bar::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--db-kpi-bar); }
 .db-kpi-delta-row { display: flex; align-items: center; gap: 7px; margin-top: 8px; min-width: 0; }
 .db-delta {
   display: inline-flex;

@@ -6,6 +6,7 @@ import type { Api } from "../api/client";
 import type { CatalogMatch, SourceInfo, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole, LlmSettings } from "../types";
 import { LlmSettingsCard } from "./LlmSettingsCard";
 import { SettingsCardHead, useCardLayout } from "./SettingsCardHead";
+import { PlatformDbCard } from "./PlatformDbCard";
 import "./settings.css";
 
 type Target = "data" | "dictionary";
@@ -583,6 +584,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           </>}
         </section>
         <LlmSettingsCard api={api} imported={llmImport} onSaved={onSaved} layout={layout.llm} onLayout={(x) => setLayout("llm", x)} />
+        <PlatformDbCard api={api} />
       </div>
 
       <div className="st-info" role="note">

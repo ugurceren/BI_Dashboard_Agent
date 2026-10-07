@@ -34,3 +34,14 @@ default_role = "standart"
 users = { }
 # AD/LDAP grubu (CN) → rol, ör. { "BI_Admins" = "admin", "BI_Kullanicilar" = "standart" }
 groups = { }
+
+# Platform rolleri (Vitrin) — yalnız sunucu modunda (PLATFORM_MODE=server) geçerli; masaüstünde tek kullanıcı admin'dir.
+#   admin   : her yere erişir, rol ve paylaşım verir, ayarlar ve denetim kaydı
+#   builder : rapor tasarlar, yayınlar ve kendi raporlarını paylaşır
+#   viewer  : yalnız Vitrin'de kendisine açılan raporları görür
+# Asıl atama Yönetim sayfasından yapılır (platform veritabanında tutulur); burası başlangıç / yedek eşlemedir.
+# Ayrıca .env PLATFORM_ADMINS'teki kullanıcılar her zaman admin'dir.
+[platform]
+default_role = "viewer"
+users = { }     # ör. { "KURUM\ali" = "builder" }
+groups = { }    # AD grubu (CN) → platform rolü, ör. { "BI_Tasarimcilar" = "builder", "BI_Yonetim" = "admin" }

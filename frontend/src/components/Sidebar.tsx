@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { Me } from "../types";
 import "./sidebar.css";
 
-export type Page = "home" | "access" | "model" | "query" | "settings" | "designer" | "viewer";
+export type Page = "home" | "access" | "model" | "query" | "settings" | "designer" | "viewer" | "vitrin" | "vitrin-report" | "admin";
 
 const ICONS: Record<string, ReactNode> = {
   home: <path d="M2.5 7 8 2.5 13.5 7v6.5h-3.8V9.5H6.3v4H2.5z" />,
@@ -13,6 +13,8 @@ const ICONS: Record<string, ReactNode> = {
   query: <path d="M2.5 3.5h11v9h-11zM5 6.5l2 1.5-2 1.5M8.5 10h2.5" />,
   settings: <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />,
   model: <path d="M2.5 3.5h4v3h-4zM9.5 3.5h4v3h-4zM6 10h4v3H6zM4.5 6.5v2h7v-2M8 8.5V10" />,
+  vitrin: <path d="M2 6.5h12M3 6.5V13.5h10V6.5M2 6.5l1.5-4h9l1.5 4M6.5 13.5V10h3v3.5" />,
+  admin: <path d="M8 1.8 13.5 4v4c0 3-2.3 5.3-5.5 6.2C4.8 13.3 2.5 11 2.5 8V4zM5.8 8l1.6 1.6L10.5 6.5" />,
 };
 
 function Icon({ name }: { name: string }) {
@@ -22,6 +24,8 @@ function Icon({ name }: { name: string }) {
     </svg>
   );
 }
+
+const ROLE_LABEL: Record<string, string> = { admin: "Yönetici", builder: "Rapor tasarımcısı", viewer: "İzleyici" };
 
 const SOURCE: Record<string, string> = {
   ldap: "LDAP / Active Directory", windows: "Windows oturumu", header: "Kurumsal oturum açma (proxy)",
@@ -36,12 +40,14 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, curr
   page: Page;
   collapsed: boolean;
   onToggle: () => void;
-  onNavigate: (p: Exclude<Page, "designer" | "viewer">) => void;
+  onNavigate: (p: Exclude<Page, "designer" | "viewer" | "vitrin-report">) => void;
   onNew: () => void;
   me: Me | null;
   currentReport: { id: string; title: string } | null;
   busy: boolean;
 }) {
+  // yetkiler /api/me'den; yüklenene kadar bugünkü (masaüstü) menü — backend her uç noktada ayrıca kontrol eder
+  const caps = me?.capabilities ?? { design: true, admin: true, vitrin: true };
   const item = (key: string, label: string, active: boolean, onClick: () => void, disabled = false) => (
     <button type="button" className={`sb-item${active ? " is-on" : ""}`} onClick={onClick} disabled={disabled}
       title={collapsed ? label : undefined} aria-current={active ? "page" : undefined}>
@@ -63,18 +69,28 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, curr
         </button>
       </div>
 
-      <div className="sb-section sb-label">Raporlar</div>
-      {item("home", "Rapor Envanteri", page === "home", () => onNavigate("home"), busy)}
-      {item("new", "Yeni Rapor", false, onNew, busy)}
-      {currentReport ? item("designer", currentReport.title || "Açık rapor", page === "designer" || page === "viewer", () => { window.location.hash = `#/${page === "viewer" ? "v" : "r"}/${currentReport.id}`; }, busy) : null}
+      {caps.vitrin ? <>
+        <div className="sb-section sb-label">Vitrin</div>
+        {item("vitrin", "Vitrin", page === "vitrin" || page === "vitrin-report", () => onNavigate("vitrin"), busy)}
+      </> : null}
 
-      <div className="sb-section sb-label">Veri</div>
-      {item("access", "Veri Erişimim", page === "access", () => onNavigate("access"), busy)}
-      {item("query", "Sorgu Çalıştır", page === "query", () => onNavigate("query"), busy)}
-      {item("model", "Veri Modeli", page === "model", () => onNavigate("model"), busy)}
+      {caps.design ? <>
+        <div className="sb-section sb-label">Raporlar</div>
+        {item("home", "Rapor Envanteri", page === "home", () => onNavigate("home"), busy)}
+        {item("new", "Yeni Rapor", false, onNew, busy)}
+        {currentReport ? item("designer", currentReport.title || "Açık rapor", page === "designer" || page === "viewer", () => { window.location.hash = `#/${page === "viewer" ? "v" : "r"}/${currentReport.id}`; }, busy) : null}
 
-      <div className="sb-section sb-label">Sistem</div>
-      {item("settings", "Bağlantı Ayarları", page === "settings", () => onNavigate("settings"), busy)}
+        <div className="sb-section sb-label">Veri</div>
+        {item("access", "Veri Erişimim", page === "access", () => onNavigate("access"), busy)}
+        {item("query", "Sorgu Çalıştır", page === "query", () => onNavigate("query"), busy)}
+        {item("model", "Veri Modeli", page === "model", () => onNavigate("model"), busy)}
+      </> : null}
+
+      {caps.admin ? <>
+        <div className="sb-section sb-label">Sistem</div>
+        {item("admin", "Yönetim", page === "admin", () => onNavigate("admin"), busy)}
+        {item("settings", "Bağlantı Ayarları", page === "settings", () => onNavigate("settings"), busy)}
+      </> : null}
 
       <div className="sb-spacer" />
       <div className="sb-user" title={me ? [me.display_name, me.username, me.title, me.department,
@@ -82,7 +98,7 @@ export function Sidebar({ page, collapsed, onToggle, onNavigate, onNew, me, curr
         <span className="sb-avatar" aria-hidden="true">{me ? initials(me.display_name || me.username) : "…"}</span>
         <span className="sb-user-text sb-label">
           <span className="sb-user-name">{me?.display_name ?? "…"}</span>
-          <span className="sb-user-sub">{me ? me.username : ""}</span>
+          <span className="sb-user-sub">{me ? `${me.username}${me.platform_mode === "server" && me.platform_role ? ` · ${ROLE_LABEL[me.platform_role] ?? me.platform_role}` : ""}` : ""}</span>
         </span>
       </div>
     </nav>

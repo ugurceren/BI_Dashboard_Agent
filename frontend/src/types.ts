@@ -54,7 +54,13 @@ export interface VisualOptions {
   sparklineField?: string;
   target?: number;
   text?: string;
+  /** seri rengi; kpi'da değer + vurgu şeridi + sparkline rengi */
   color?: string;
+  // KPI kart stili
+  background?: string;
+  textColor?: string;
+  valueSize?: "sm" | "md" | "lg" | "xl";
+  accentBar?: boolean;
 }
 
 export interface Visual {
@@ -117,6 +123,8 @@ export interface DatasetData {
   columns: string[];
   rows: CellValue[][];
   error?: string;
+  /** izleyicinin veri rolü bu veriye izin vermiyor (Vitrin) */
+  denied?: boolean;
 }
 
 export interface DashboardData {
@@ -256,6 +264,8 @@ export interface SessionSummary {
   source_tables?: string[];
   status?: "idea" | "design" | "test" | "live";
   status_explicit?: boolean;
+  /** Vitrin'de yayın durumu */
+  published?: { report_id: string; version: number; status: "active" | "retired"; updated_at: string };
 }
 
 export interface Health {
@@ -345,6 +355,90 @@ export interface Me {
   source: "windows" | "ldap" | "header" | string;
   domain_joined: boolean;
   policy?: Policy;
+  /** platform rolü (Vitrin): admin | builder | viewer */
+  platform_role?: PlatformRole;
+  platform_mode?: "desktop" | "server";
+  capabilities?: { design: boolean; admin: boolean; vitrin: boolean };
+}
+
+// ---- Vitrin (yayınlanmış raporlar, paylaşım, yönetim) ----
+export type PlatformRole = "admin" | "builder" | "viewer";
+
+export interface Grant {
+  principal_type: "user" | "group";
+  principal: string;
+  can_export: boolean;
+  granted_by?: string;
+  granted_at?: string;
+}
+
+export interface VitrinCard {
+  id: string;
+  title: string;
+  description?: string | null;
+  owner: string;
+  owner_name: string;
+  version: number;
+  status: "active" | "retired";
+  domains: string[];
+  created_at: string;
+  updated_at: string;
+  mine: boolean;
+  can_export: boolean;
+  can_manage: boolean;
+  shared_with: number | null;
+}
+
+export interface VitrinReport {
+  report: VitrinCard;
+  spec: ReportSpec;
+  version: { version: number; notes?: string | null; published_by: string; published_at: string };
+  filters: FiltersResponse;
+}
+
+export interface PublishedVersion { version: number; notes?: string | null; published_by: string; published_at: string }
+
+export interface Publication {
+  published: boolean;
+  report?: VitrinCard;
+  grants?: Grant[];
+  versions?: PublishedVersion[];
+  unpublished_changes?: boolean;
+}
+
+export interface RoleAssignment {
+  principal_type: "user" | "group";
+  principal: string;
+  platform_role: PlatformRole | null;
+  data_role: string | null;
+  granted_by: string;
+  granted_at: string;
+}
+
+export interface AdminReport {
+  report_id: string; session_id: string; owner: string; owner_name?: string | null; title: string;
+  description?: string | null; current_version: number; status: "active" | "retired"; updated_at: string; grants: Grant[];
+}
+
+export interface AdminOverview {
+  mode: "desktop" | "server";
+  store: "sqlite" | "sqlserver";
+  platform_admins: string[];
+  platform_roles: PlatformRole[];
+  data_roles: string[];
+  assignments: RoleAssignment[];
+  reports: AdminReport[];
+}
+
+export interface AuditEvent {
+  id: number; ts: string; username: string; event: string; report_id: string | null; details: Record<string, unknown> | null;
+}
+
+export interface PlatformSettings {
+  mode: "desktop" | "server";
+  store: "sqlite" | "sqlserver" | null;
+  error: string | null;
+  meta: ConnFields & { source: "ui" | "env" | "default"; has_password?: boolean };
 }
 
 /** Veri Erişimim: tek nesne listesi (tablo / view / dataset), domain ve erişim durumuyla */

@@ -16,3 +16,4 @@ wheelhouse/
 pip.ini
 frontend/dist/.prebuilt
 *.tsbuildinfo
+backend/config/platform.db

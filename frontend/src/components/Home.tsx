@@ -210,6 +210,7 @@ function ReportCard({ r, ...a }: Actions & { r: SessionSummary }) {
         ) : null}
 
         <div className="rc-meta muted small">
+          {r.published?.status === "active" ? <span className="pill pill-ok" title="Vitrin'de yayında olan sürüm">Vitrin'de · v{r.published.version}</span> : null}
           {r.visual_count ? <span title={r.visual_types?.map((t) => VISUAL_LABEL[t] ?? t).join(", ")}>{r.visual_count} görsel</span> : null}
           {r.dataset_count ? <span>{r.dataset_count} veri kümesi</span> : null}
           {r.views?.length ? <span title={r.views.join(", ")}>{r.views.length} onaylı view</span> : null}

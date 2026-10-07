@@ -206,9 +206,15 @@ class SessionStore:
     def _norm_title(t: str | None) -> str:
         return " ".join((t or "").replace("İ", "i").replace("I", "ı").lower().split())
 
+    @staticmethod
+    def _owner_key(owner: str | None) -> str:
+        return (owner or "").strip().lower()
+
     def _enforce_unique_title(self, s: Session) -> None:
-        """Aynı isimle tek rapor: bu oturum bir başlığı aldıysa aynı başlıklı diğer oturumlar silinir (üstüne yazma)."""
+        """Aynı isimle tek rapor (aynı sahip içinde): bu oturum bir başlığı aldıysa sahibin aynı başlıklı diğer
+        oturumları silinir (üstüne yazma). Başka kullanıcıların raporlarına dokunulmaz."""
         key = self._norm_title(s.title)
+        owner = self._owner_key(s.owner)
         if not key or key == self._norm_title(DEFAULT_TITLE):
             return
         for p in self.dir.glob("*.json"):
@@ -218,24 +224,26 @@ class SessionStore:
                 d = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            if self._norm_title(d.get("title")) == key and not self.lock(p.stem).locked():
+            if self._norm_title(d.get("title")) == key and self._owner_key(d.get("owner")) == owner \
+                    and not self.lock(p.stem).locked():
                 p.unlink(missing_ok=True)
 
-    def title_taken(self, title: str, except_id: str) -> str | None:
-        """Başka bir raporda bu isim kullanılıyorsa o raporun id'si."""
+    def title_taken(self, title: str, except_id: str, owner: str | None = None) -> str | None:
+        """Aynı sahibin başka bir raporunda bu isim kullanılıyorsa o raporun id'si."""
         key = self._norm_title(title)
         for item in self.list():
-            if item["id"] != except_id and self._norm_title(item["title"]) == key:
+            if item["id"] != except_id and self._norm_title(item["title"]) == key \
+                    and self._owner_key(item.get("owner")) == self._owner_key(owner):
                 return item["id"]
         return None
 
     def dedupe_titles(self) -> int:
-        """Başlangıçta: aynı başlıklı eski oturumlardan yalnız en son güncelleneni bırakır."""
-        seen: set[str] = set()
+        """Başlangıçta: her sahibin aynı başlıklı eski oturumlarından yalnız en son güncelleneni bırakır."""
+        seen: set[tuple[str, str]] = set()
         removed = 0
         for item in self.list():  # en yeni önce
-            key = self._norm_title(item["title"])
-            if not key or key == self._norm_title(DEFAULT_TITLE):
+            key = (self._owner_key(item.get("owner")), self._norm_title(item["title"]))
+            if not key[1] or key[1] == self._norm_title(DEFAULT_TITLE):
                 continue
             if key in seen:
                 self._path(item["id"]).unlink(missing_ok=True)

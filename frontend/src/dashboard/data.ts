@@ -137,11 +137,11 @@ export function pivot(rows: Row[], x: string, y: string[], seriesField?: string,
 
 /** Spec'in tüm dataset'lerini filtrelenmiş satırlara çevirir. */
 export function buildTables(spec: ReportSpec, data: DashboardData, state: FilterState) {
-  const out: Record<string, { all: Row[]; rows: Row[]; columns: string[]; error?: string; filterFields?: (string | null)[] }> = {};
+  const out: Record<string, { all: Row[]; rows: Row[]; columns: string[]; error?: string; denied?: boolean; filterFields?: (string | null)[] }> = {};
   for (const [id, ds] of Object.entries(data.datasets ?? {})) {
     if (!ds) continue;
     if (ds.error) {
-      out[id] = { all: [], rows: [], columns: ds.columns ?? [], error: ds.error };
+      out[id] = { all: [], rows: [], columns: ds.columns ?? [], error: ds.error, denied: ds.denied };
       continue;
     }
     const all = toRows(ds);

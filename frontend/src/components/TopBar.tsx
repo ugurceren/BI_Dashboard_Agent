@@ -21,10 +21,14 @@ function relTime(iso: string): string {
 const PAGE_CRUMBS: Record<string, [string, string]> = {
   home: ["Raporlar", "Rapor Envanteri"], designer: ["Raporlar", "Rapor Envanteri"], viewer: ["Raporlar", "Rapor Envanteri"],
   access: ["Veri", "Veri Erişimim"], query: ["Veri", "Sorgu Çalıştır"], model: ["Veri", "Veri Modeli"],
-  settings: ["Sistem", "Bağlantı Ayarları"],
+  settings: ["Sistem", "Bağlantı Ayarları"], admin: ["Sistem", "Yönetim"],
+  vitrin: ["Vitrin", "Yayınlanmış raporlar"], "vitrin-report": ["Vitrin", "Yayınlanmış raporlar"],
 };
 
-export function TopBar({ onMode, canView, page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme, health, healthError, onHealthClick }: {
+export function TopBar({ onMode, canView, page, mock, sessions, currentId, currentTitle, onSelect, onDelete, busy, view, onHome, onRename, status, onStatus, theme, onTheme, health, healthError, onHealthClick, onPublish, published }: {
+  /** Vitrin'e yayınla (rapor açıkken, dashboard varsa) */
+  onPublish?: () => void;
+  published?: SessionSummary["published"];
   health: Health | null;
   healthError: string | null;
   onHealthClick: () => void;
@@ -156,6 +160,13 @@ export function TopBar({ onMode, canView, page, mock, sessions, currentId, curre
       ) : null}
       <div className="topbar-spacer" />
       {inReport && currentId ? <StatusPicker value={status} onChange={(s) => onStatus(s)} disabled={busy} align="right" /> : null}
+      {inReport && currentId && onPublish ? (
+        <button type="button" className="btn btn-primary btn-sm topbar-publish" onClick={onPublish} disabled={busy || !canView}
+          title={!canView ? "Önce dashboard oluşturun" : published?.status === "active" ? `Vitrin'de yayında (sürüm ${published.version}) — yeni sürüm yayınla / paylaşımı düzenle` : "Vitrin'e yayınla ve paylaş"}>
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M8 10.5V2.5M4.5 6 8 2.5 11.5 6M3 10v3.5h10V10" /></svg>
+          <span>{published?.status === "active" ? `Yayında · v${published.version}` : "Yayınla"}</span>
+        </button>
+      ) : null}
       <HealthBadge health={health} healthError={healthError} inline onClick={onHealthClick} />
       <div className="theme-seg" role="group" aria-label="Görünüm">
         {([["light", "Gündüz modu", <path key="l" d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6ZM8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />],

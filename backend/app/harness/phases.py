@@ -100,6 +100,10 @@ Kurallar:
 - Yerleşim 12 kolonluk ızgara: KPI'lar üst satırda (w=3, h=2), ana grafikler h=4, tablolar w=12. position verilmezse sistem otomatik yerleştirir; çakışmaları sistem düzeltir.
 - Tema: tasarım özeti varsa renkleri, açık/koyu modu ve yoğunluğu ona uydur. Yoksa sade, kurumsal açık tema kullan.
   Koyu temada background/surface koyu, text açık renk olmalı. palette en az 3 hex renk.
+- Stil değişiklikleri: tüm dashboard için update_report ile theme (accent, surface, cardStyle, radius…). Tek bir KPI kartı için
+  update_visual ile options.color (değer ve vurgu rengi), background (kart zemini), textColor, valueSize (sm|md|lg|xl),
+  accentBar (true: solda renkli şerit) — renkler hex. Bunların dışında stil alanı YOK (fontSize, labelPosition, valueColor vb.
+  uydurma). Araç sonucunda "UYGULANMADI" görürsen değişiklik yapılmamıştır: kullanıcıya yapıldı deme.
 - Para birimi alanları için options.format "currency" veya büyük sayılar için "compact"; oranlar için "percent".
 - Filtreler (dilimleyiciler) Power BI gibi MODEL üzerinden çalışır: filters[].table + filters[].column bir boyut tablosunun
   kolonu olmalı (ör. {"id":"f_bolge","label":"Bölge","table":"dbo.DimSalesTerritory","column":"SalesTerritoryGroup"}).

@@ -58,8 +58,14 @@ interface Visual {
     // combo: y[0] bar, geri kalanı line (ikinci eksen)
     // text
     text?: string;         // markdown değil, düz metin (\n satır sonu)
-    color?: string;        // tek seri rengi (hex) — yoksa theme.palette
+    color?: string;        // tek seri rengi (hex) — yoksa theme.palette; kpi'da değer + şerit + sparkline rengi
+    // kpi kart stili
+    background?: string;   // kart zemini (hex)
+    textColor?: string;    // yazı rengi (hex); yoksa zemine göre okunur renk
+    valueSize?: "sm" | "md" | "lg" | "xl";
+    accentBar?: boolean;   // solda renkli şerit (color ya da theme.accent)
   };
+  // Şemada olmayan alanlar atılır ve araç sonucunda "UYGULANMADI" olarak modele bildirilir.
   position: { x: number; y: number; w: number; h: number }; // 12 kolon ızgara, h satır birimi
 }
 

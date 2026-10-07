@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     ldap_bind_password: str | None = None
     ldap_user_filter: str = "(sAMAccountName={user})"
     trust_remote_user_header: bool = False  # IIS/nginx Windows kimlik doğrulaması arkasında X-Remote-User'a güven
+    # --- Platform (Vitrin): desktop = tek kullanıcı, herkes admin (bugünkü davranış);
+    #     server = ortak sunucu: kimlik yalnız ters proxy başlığından (X-Remote-User), roller ve yetkiler devrede
+    platform_mode: Literal["desktop", "server"] = "desktop"
+    platform_admins: str = ""              # virgülle: "KURUM\ali, veli" — her zaman admin (ilk kurulumda kilitlenmemek için)
+    meta_odbc: str | None = None           # platform kayıtları (roller, yayınlar, izinler, denetim) — SQL Server
+    meta_sqlite: Path = BACKEND_DIR / "config" / "platform.db"   # meta_odbc yoksa yerel SQLite
     default_currency: str = "TRY"  # tutar görsellerinde para birimi belirtilmemişse (AdventureWorks: USD)
 
     # --- Harness
@@ -83,7 +89,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     @field_validator("dictionary_config", "policy_config", "sessions_dir", "audit_log", "cache_dir", "views_registry",
-                     "view_scripts_dir",
+                     "view_scripts_dir", "meta_sqlite",
                      "viewer_html", "demo_spec", mode="after")
     @classmethod
     def _relative_to_backend(cls, v: Path) -> Path:

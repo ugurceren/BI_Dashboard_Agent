@@ -1,0 +1,62 @@
+/* Vitrin, yayınla / paylaş diyalogları, yayın görüntüleme ve yönetim */
+.vt-input {
+  height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface);
+  color: var(--text); font: inherit; font-size: 13px; outline: none; min-width: 0;
+}
+textarea.vt-input { height: auto; padding: 8px 10px; resize: vertical; line-height: 1.45; }
+.vt-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.vt-hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.vt-scope { margin-bottom: 18px; align-items: center; }
+.vt-sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+.vt-domain.is-on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.vt-card .rc-strip { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 40%, #14b8a6)); }
+.vt-card .rc-top .pill { flex: none; }
+
+/* paylaşım düzenleyici */
+.share { display: flex; flex-direction: column; gap: 8px; }
+.share-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.share-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.share-row:last-child { border-bottom: 0; }
+.share-kind { flex: none; font-size: 11px; font-weight: 650; padding: 2px 8px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); }
+.share-kind.is-group { background: var(--accent-soft); color: var(--accent); }
+.share-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
+.share-export { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.share-empty { margin: 0; }
+.share-add { display: flex; gap: 6px; }
+.share-add input { flex: 1; }
+
+/* yayınla diyaloğu */
+.pd-box {
+  width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-md); padding: 20px 22px 16px;
+  display: flex; flex-direction: column; gap: 12px; text-align: left; animation: cd-pop .14s ease-out;
+}
+.pd-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pd-head h2 { margin: 0; font-size: 17px; font-weight: 700; }
+.pd-lead { margin: 0; line-height: 1.5; }
+.pd-note { font-size: 12.5px; padding: 7px 10px; border-radius: 8px; background: rgba(245, 158, 11, .12); color: var(--warn); }
+.pd-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
+.pd-field > span { font-weight: 600; color: var(--text-2); }
+.pd-versions { font-size: 12.5px; color: var(--text-2); }
+.pd-versions summary { cursor: pointer; font-weight: 600; }
+.pd-versions ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.pd-actions { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+.pd-spacer { flex: 1; }
+
+/* yayın görüntüleme */
+.rv { display: flex; flex-direction: column; }
+.rv-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex: none; }
+.rv-meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.rv-bar a.btn { text-decoration: none; }
+
+/* yönetim */
+.adm-section { display: flex; flex-direction: column; gap: 12px; }
+.adm-section > p { margin: 0; max-width: 900px; line-height: 1.5; }
+.adm-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.adm-form input { width: 260px; }
+.adm-table td { vertical-align: top; }
+.adm-actions { white-space: nowrap; text-align: right; }
+.adm-link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+.adm-link:hover { text-decoration: underline; }
+.adm-details { max-width: 420px; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
