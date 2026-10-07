@@ -782,7 +782,7 @@ class DataDictionary:
 
     # ------------------------------------------------------------------ sorgular
     # ------------------------------------------------------------------ günlük anlık görüntüler
-    SNAPSHOT_NOTE = 'GÜNLÜK ANLIK GÖRÜNTÜ: her kayıt her gün için ayrı satır olarak tekrarlanır ({col}). Toplam / sayı için tek gün seç: WHERE {col} = (SELECT MAX({col}) FROM {table}) (son gün). Trendde her dönemin tek gününü al (ör. ay sonu); başka bir anlık görüntüyle birleştirirken {col} kolonlarını da eşle.'
+    SNAPSHOT_NOTE = 'GÜNLÜK ANLIK GÖRÜNTÜ: her kayıt her gün için ayrı satır olarak tekrarlanır ({col}). HER sorguda — toplam / sayı kadar MAX / MIN / AVG, TOP örnek satır ve DISTINCT değer listesi de — tek gün seç: WHERE {col} = (SELECT MAX({col}) FROM {table}) (son gün); seçmeyen sorgu reddedilir. Yalnız tarih kolonunu okuyan sorgu (SELECT MIN({col}), MAX({col})) serbesttir. Trendde her dönemin tek gününü al (ör. ay sonu); başka bir anlık görüntüyle birleştirirken {col} kolonlarını da eşle.'
 
     def snapshot_columns(self) -> list[str]:
         """Günlük anlık görüntü tarih kolonları (dictionary.toml: snapshot_date_columns; varsayılan DataDate)."""

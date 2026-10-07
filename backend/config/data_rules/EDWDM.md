@@ -54,7 +54,11 @@ Yetki seviyesi seçimi:
   maskelenmeyen anahtarları kullan (ör. CustomerPartyId); bir kolonun maskelenip maskelenmediğinden emin değilsen
   join'de kullanma ve kullanıcıya Veri Yönetimi servisinden teyit almasını öner.
 
-DataDate kuralları (sistem SUM / COUNT sorgularında bunu otomatik kontrol eder ve uymayanı reddeder):
+DataDate kuralları (sistem bunu HER sorguda otomatik kontrol eder ve uymayanı reddeder):
+- DataDate'i sabitlemeden hiçbir sorgu atma: SUM / COUNT kadar MAX / MIN / AVG / COUNT(DISTINCT), `TOP n *` örnek
+  satır, `DISTINCT` / `GROUP BY` ile değer listesi de YASAK — takvimle çoğaltılmış view'ın tamamını tarar ve günleri
+  tekrarlar. Keşif / örnek veri için bile `WHERE v.DataDate = (SELECT MAX(DataDate) FROM <aynı view> WITH (NOLOCK))` ekle.
+  Tek istisna yalnız tarih kolonunu okuyan sorgu: `SELECT MIN(DataDate), MAX(DataDate) …`.
 - Güncel durum / KPI: tek gün seç →
   `WHERE v.DataDate = (SELECT MAX(DataDate) FROM <aynı view> WITH (NOLOCK))` ve kullanıcıya hangi gün itibarıyla olduğunu söyle.
 - Önce `SELECT MIN(DataDate), MAX(DataDate) FROM <view> WITH (NOLOCK) WHERE DataDate IS NOT NULL` ile veri aralığını

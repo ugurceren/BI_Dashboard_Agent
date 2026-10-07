@@ -80,7 +80,9 @@ def test_rules_follow_each_objects_own_database(multi):
     ("SELECT g.CustomerPartyId, SUM(l.Balance) FROM CLT.vGuarantee g JOIN EDW.dbo.FactLoan l "
      "ON l.CustomerPartyId = g.CustomerPartyId WHERE g.DataDate = (SELECT MAX(DataDate) FROM CLT.vGuarantee) "
      "GROUP BY g.CustomerPartyId", True),                                                      # veritabanları arası join
-    ("SELECT TOP 5 CustomerPartyId FROM EDWDM.CLT.vGuarantee WHERE CustomerPartyId > 0", True),  # birincil öneki atılır
+    ("SELECT TOP 5 CustomerPartyId FROM EDWDM.CLT.vGuarantee WHERE DataDate = "
+     "(SELECT MAX(DataDate) FROM EDWDM.CLT.vGuarantee)", True),                                 # birincil öneki atılır
+    ("SELECT TOP 5 CustomerPartyId FROM EDWDM.CLT.vGuarantee WHERE CustomerPartyId > 0", False),  # anlık görüntü: gün yok
     ("SELECT TOP 5 X FROM EDW.dbo.Secret WHERE X > 0", False),                                 # yetkisiz nesne
     ("SELECT TOP 5 name FROM master.sys.objects WHERE object_id > 0", False),                  # seçili olmayan veritabanı
     ("SELECT TOP 5 Balance FROM SRV.EDW.dbo.FactLoan WHERE Balance > 0", False),               # sunucu adı

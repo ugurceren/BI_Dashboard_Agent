@@ -729,7 +729,12 @@ def _filter_options(key: str, role: str) -> list[Any]:
         return []
     dialect = state.services.connector.dialect
     c = exp.column(col.display_name or column)
-    sql = exp.select(c).distinct().from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd)).where(c.is_(exp.null()).not_())         .order_by(c).limit(500).sql(dialect=dialect)
+    where = c.is_(exp.null()).not_()
+    if t.snapshot_date:   # günlük anlık görüntü: seçenekler son günden (takvimle çoğaltılmış view'ın tamamı taranmaz)
+        d = exp.column(t.snapshot_date)
+        last = exp.select(exp.Max(this=d.copy())).from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd))
+        where = exp.and_(where, exp.EQ(this=d.copy(), expression=exp.Subquery(this=last)))
+    sql = exp.select(c).distinct().from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd)).where(where)         .order_by(c).limit(500).sql(dialect=dialect)
     payload = _dataset_payload(sql, role)  # validator: izinli şema + PII kontrolü burada da geçerli
     values = [r[0] for r in payload.get("rows", [])]
     _options_cache[f"{role}|{key}"] = (time.time(), values)

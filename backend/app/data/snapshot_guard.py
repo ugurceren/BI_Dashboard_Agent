@@ -8,10 +8,14 @@ hatasız çalışır, sonuç makul görünür ama YANLIŞTIR. Bu modül her SELE
       WHERE x.DataDate = ...  |  IN (...)  |  BETWEEN (tek gün değil, uyarı)  — ya da GROUP BY x.DataDate (günlük seri)
     Ay / yıl bazında gruplama (MONTH(DataDate), EOMONTH(DataDate) …) her ayın TÜM günlerini toplar: dönem başına
     tek gün seçilmeli (ör. WHERE x.DataDate = EOMONTH(x.DataDate)).
-  * AVG / MIN / MAX / COUNT(DISTINCT …) gün seçilmeden kullanılırsa: tüm günler üzerinden hesaplanır — uyarı.
+  * AVG / MIN / MAX / COUNT(DISTINCT …) gün seçilmeden kullanılırsa: tüm günler üzerinden hesaplanır — REDDEDİLİR
+    (yalnız dönem bazında gruplanmış ortalama, ör. aylık AVG, uyarıyla geçer).
+  * Toplama yoksa (detay satırları, TOP n *, DISTINCT / GROUP BY ile değer listesi) ve gün seçilmemişse: her gün için
+    satır döner ve takvimle çoğaltılmış view tümüyle taranır — REDDEDİLİR.
+  * Yalnız tarih kolonunu okuyan sorgu serbesttir (ör. SELECT MAX(DataDate) — son günü bulmak için).
   * İki anlık görüntü aynı kapsamda birleştiriliyorsa tarih kolonları eşlenmeli (a.DataDate = b.DataDate) ya da
     ikisi de ayrı ayrı sabitlenmeli; yoksa satırlar gün × gün çoğalır.
-  * Toplama yoksa (detay satırları) ve gün seçilmemişse: her gün için satır döner — uyarı.
+Sorgu konsolunda (kullanıcının kendi sorgusu, strict_joins=False) hatalar engellemez, uyarı olarak gösterilir.
 """
 
 from __future__ import annotations
@@ -154,9 +158,20 @@ class SnapshotGuard:
             for a in agg_alias(f):
                 target.setdefault(a, []).append(f.sql()[:60])
 
+        def date_only(a: str, dc: str) -> bool:
+            """Bu kapsam anlık görüntüden yalnız tarih kolonunu okuyor mu (SELECT MAX(DataDate), DISTINCT DataDate …)?"""
+            if any(isinstance(e, exp.Star) or e.find(exp.Star) for e in select.expressions):
+                return False
+            refs = [c for e in select.expressions for c in e.find_all(exp.Column) if _own(c, select)
+                    and (c.table.lower() == a if c.table else single)]
+            if any(isinstance(f, exp.Count) and not list(f.find_all(exp.Column)) for f in aggs):   # COUNT(*)
+                return False
+            return bool(refs) and all(c.name.lower() == dc.lower() for c in refs)
+
         for a, (t, dc) in snaps.items():
             disp = self.dictionary.tables[t].display_name or t
             fix = f"WHERE {a}.{dc} = (SELECT MAX({dc}) FROM {disp})"
+            day_ok = pinned.get(a) == "day" or a in grouped_raw
             if a in additive:
                 if pinned.get(a) == "day" or a in grouped_raw:
                     pass
@@ -174,13 +189,23 @@ class SnapshotGuard:
                         f"'{disp}' günlük anlık görüntüdür ({dc}): her kayıt her gün için tekrarlanır; gün seçilmeden "
                         f"{', '.join(additive[a][:2])} gün sayısıyla çarpılmış sonuç verir. Tek gün seçin: {fix} (son gün) "
                         f"ya da günlük seri için GROUP BY {a}.{dc}.")
-            elif a in other and pinned.get(a) != "day" and a not in grouped_raw:
+            elif day_ok or date_only(a, dc):
+                pass
+            elif a in other and a in grouped_period:   # dönem ortalaması (ör. aylık AVG bakiye): anlamlı, uyarı
                 res.warnings.append(
-                    f"'{disp}' günlük anlık görüntüdür ({dc}): {', '.join(other[a][:2])} seçilmeyen günlerin hepsi üzerinden "
-                    f"hesaplanır. Belirli bir gün içinse {fix} ekleyin.")
-            elif not aggs and pinned.get(a) != "day" and not select.args.get("group"):
-                res.warnings.append(f"'{disp}' günlük anlık görüntüdür ({dc}): her kayıt her gün için ayrı satır döner. "
-                                    f"Tek gün için {fix} ekleyin.")
+                    f"'{disp}' günlük anlık görüntüdür ({dc}): {', '.join(other[a][:2])} dönemin tüm günleri üzerinden hesaplanır "
+                    f"(dönem ortalaması). Dönem sonu değeri isteniyorsa her dönemden tek gün seçin.")
+            elif a in other:
+                res.errors.append(
+                    f"'{disp}' günlük anlık görüntüdür ({dc}): takvimle çoğaltıldığı için gün seçilmeden "
+                    f"{', '.join(other[a][:2])} tüm günler üzerinden hesaplanır ve view'ın tamamı taranır. Tek gün seçin: "
+                    f"{fix} (son gün) ya da günlük seri için GROUP BY {a}.{dc}.")
+            else:
+                res.errors.append(
+                    f"'{disp}' günlük anlık görüntüdür ({dc}): gün seçilmeden her kayıt her gün için ayrı satır döner ve "
+                    f"takvimle çoğaltılmış view'ın tamamı taranır (TOP / DISTINCT / GROUP BY da bunu önlemez). Keşif ya da "
+                    f"örnek veri için bile tek gün seçin: {fix}. Hangi günlerin olduğunu görmek için yalnız "
+                    f"SELECT MIN({dc}), MAX({dc}) FROM {disp} sorgulanabilir.")
 
         # iki anlık görüntünün birleştirilmesi: tarih eşlenmeli ya da ikisi de sabitlenmeli
         aliases = sorted(snaps)

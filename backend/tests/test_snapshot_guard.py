@@ -1,5 +1,5 @@
 """Günlük anlık görüntü (DataDate) koruması: EDWDM view'ları takvimle joinlendiği için her kayıt her gün tekrarlanır;
-gün seçilmeden SUM / COUNT ve tarih eşlenmeden join reddedilir, doğru kalıplar geçer."""
+gün seçilmeden SUM / COUNT, MAX / MIN / AVG, TOP / detay sorguları ve tarih eşlenmeden join reddedilir; doğru kalıplar geçer."""
 
 import pytest
 
@@ -63,13 +63,43 @@ def test_unsafe_snapshot_queries_rejected(snap, sql, needle):
 
 
 @pytest.mark.parametrize("sql", [
-    "SELECT AVG(Amount) FROM CLT.vGuarantee",                             # dönem ortalaması: geçerli ama uyarı
+    "SELECT AVG(Amount) FROM CLT.vGuarantee",                             # tüm günler üzerinden ortalama
     "SELECT COUNT(DISTINCT CustomerId) FROM CLT.vGuarantee",
-    "SELECT TOP 100 * FROM CLT.vGuarantee",                               # detay satırları: her gün tekrarlanır
+    "SELECT TOP 100 * FROM CLT.vGuarantee",                               # örnek satır bile: her gün tekrarlanır
+    "SELECT TOP 100 MAX(Amount) FROM CLT.vGuarantee",                     # LLM'in attığı kalıp
+    "SELECT TOP 100 Branch, MAX(Amount) FROM CLT.vGuarantee GROUP BY Branch",
+    "SELECT DISTINCT Branch FROM CLT.vGuarantee",                         # değer listesi de tüm günleri tarar
+    "SELECT Branch FROM CLT.vGuarantee GROUP BY Branch",
+    "SELECT MAX(g.Amount) FROM CLT.vGuarantee g WHERE g.DataDate BETWEEN '2026-01-01' AND '2026-09-30'",
+    "SELECT TOP 10 Branch, MAX(DataDate) FROM CLT.vGuarantee GROUP BY Branch",
 ])
-def test_non_additive_and_detail_queries_warn(snap, sql):
+def test_unpinned_non_additive_and_detail_queries_rejected(snap, sql):
     r = snap.validator.validate(sql, POL)
-    assert r.ok and any("günlük anlık görüntü" in w for w in r.warnings), r.warnings
+    assert not r.ok and any("günlük anlık görüntü" in e and "DataDate" in e for e in r.errors), r.errors
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT MAX(DataDate) FROM CLT.vGuarantee",                           # son günü bulmak: yalnız tarih kolonu
+    "SELECT MIN(g.DataDate), MAX(g.DataDate) FROM CLT.vGuarantee g",
+    "SELECT DISTINCT TOP 30 DataDate FROM CLT.vGuarantee ORDER BY DataDate DESC",
+    f"SELECT TOP 100 * FROM CLT.vGuarantee WHERE DataDate = {LAST}",      # örnek satır: tek gün
+    f"SELECT TOP 100 Branch, MAX(Amount) FROM CLT.vGuarantee WHERE DataDate = {LAST} GROUP BY Branch",
+    "SELECT g.DataDate, MAX(g.Amount) FROM CLT.vGuarantee g GROUP BY g.DataDate",
+])
+def test_pinned_or_date_only_queries_pass(snap, sql):
+    r = snap.validator.validate(sql, POL)
+    assert r.ok, r.errors
+
+
+def test_period_average_only_warns(snap):
+    """Dönem ortalaması (ör. aylık ortalama bakiye) anlamlı bir metrik: engellenmez, uyarılır."""
+    r = snap.validator.validate("SELECT MONTH(g.DataDate) m, AVG(g.Amount) FROM CLT.vGuarantee g GROUP BY MONTH(g.DataDate)", POL)
+    assert r.ok and any("dönem ortalaması" in w for w in r.warnings), r.warnings
+
+
+def test_query_console_still_runs_but_warns(snap):
+    r = snap.validator.validate("SELECT TOP 100 MAX(Amount) FROM CLT.vGuarantee", POL, strict_joins=False)
+    assert r.ok and any("günlük anlık görüntü" in w for w in r.warnings)
 
 
 def test_query_console_only_warns(snap):
@@ -135,3 +165,14 @@ def test_dashboard_data_and_filters_with_as_of(snap, monkeypatch):
     from fastapi import HTTPException
     with _pt.raises(HTTPException):
         m._dashboard_data(sess, [{"key": m.AS_OF_KEY, "values": ["30.06.2026'; DROP"]}])
+
+
+def test_filter_options_on_snapshot_read_latest_day(snap, monkeypatch):
+    """Dilimleyici seçenekleri anlık görüntü view'ında son günden okunur (koruma kuralından geçer)."""
+    import app.main as m
+    monkeypatch.setattr(m.state, "services", snap, raising=False)
+    m._options_cache.clear()
+    seen = []
+    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role: seen.append(sql) or {"rows": [["Ankara"]]})
+    assert m._filter_options("clt.vguarantee.branch", "standart") == ["Ankara"]
+    assert "MAX(DataDate)" in seen[0] and snap.validator.validate(seen[0], POL).ok
