@@ -87,3 +87,48 @@ def test_moved_or_removed_visual_leaves_no_gap(ctx):
     assert h_remove_visual(ctx, {"ids": ["k1"]}).ok
     k2 = next(v for v in ctx.session.spec.visuals if v.id == "k2")
     assert k2.position.y == 0                                                        # üstteki boşluk kapandı
+
+
+def test_add_page_moves_existing_visuals(ctx):
+    r = h_add_page(ctx, {"id": "detay", "title": "Detay", "move_visuals": ["r1"]})
+    assert r.ok, r.content
+    spec = ctx.session.spec
+    assert spec.page_of(next(v for v in spec.visuals if v.id == "r1")) == "detay"
+    assert next(v for v in spec.visuals if v.id == "r1").position.y == 0
+    assert not h_add_page(ctx, {"id": "x", "title": "X", "move_visuals": ["yok"]}).ok
+
+
+def test_rename_pages_with_unknown_ids_matches_by_order(ctx):
+    """Model ilk sayfanın kimliğini bilmeden 'page1' yazdı: sıraya göre eşleştirilir, görseller sahipsiz kalmaz."""
+    assert h_add_page(ctx, {"id": "detay", "title": "Detay", "move_visuals": ["r1"]}).ok
+    r = h_update_report(ctx, {"pages": [{"id": "page1", "title": "Genel Özet"}, {"id": "detay", "title": "Detay"}]})
+    assert r.ok, r.content
+    assert [(p.id, p.title) for p in ctx.session.spec.pages] == [("genel", "Genel Özet"), ("detay", "Detay")]
+
+
+def test_renaming_one_page_keeps_the_others(ctx):
+    """Model yalnız ilk sayfayı yazdı: diğer sayfa silinmemeli."""
+    assert h_add_page(ctx, {"id": "detay", "title": "Detay", "visuals": ["r1"]}).ok      # id metni = taşı
+    assert ctx.session.spec.page_of(next(v for v in ctx.session.spec.visuals if v.id == "r1")) == "detay"
+    r = h_update_report(ctx, {"pages": [{"id": "genel", "title": "Genel Özet"}]})
+    assert r.ok, r.content
+    assert [(p.id, p.title) for p in ctx.session.spec.pages] == [("genel", "Genel Özet"), ("detay", "Detay")]
+
+
+def test_update_visual_many_ids_and_move_reminder(ctx):
+    assert h_add_visual(ctx, {"visual": {"id": "k2", "type": "kpi", "title": "T2", "datasetId": "kpi", "encoding": {"value": "amount"}}}).ok
+    r = h_update_visual(ctx, {"ids": ["k1", "k2"], "changes": {"options": {"color": "mavi"}}})
+    assert r.ok, r.content
+    assert {v.id: v.options.color for v in ctx.session.spec.visuals if v.type == "kpi"} == {"k1": "#2563eb", "k2": "#2563eb"}
+    r = h_add_page(ctx, {"id": "detay", "title": "Detay"})
+    assert r.ok and "taşınmadı" in str(r.content)
+
+
+def test_add_page_with_existing_visual_definitions_moves_them(ctx):
+    """Model taşınacak görselin tam tanımını visuals'a yazdı ve first_title'a yeni sayfanın adını verdi."""
+    r1 = next(v for v in ctx.session.spec.model_dump(exclude_none=True)["visuals"] if v["id"] == "r1")
+    r = h_add_page(ctx, {"id": "urun", "title": "Ürün Detayı", "first_title": "Ürün Detayı", "visuals": [r1]})
+    assert r.ok, r.content
+    spec = ctx.session.spec
+    assert [p.title for p in spec.pages] == ["Genel Bakış", "Ürün Detayı"]
+    assert spec.page_of(next(v for v in spec.visuals if v.id == "r1")) == "urun" and len(spec.visuals) == 2

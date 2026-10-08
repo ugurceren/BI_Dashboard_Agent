@@ -4,8 +4,8 @@ import { expect, test, setSql } from "./fixtures";
 test.describe("Sorgu Çalıştır", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await expect(page).toHaveURL(/#?\/?$|#\/vitrin/);                      // açılış: Vitrin
-    await page.getByRole("button", { name: "Tasarım", exact: true }).click(); // mod anahtarı
+    await expect(page.getByTestId("landing")).toBeVisible();                 // açılış: giriş sayfası (seçim yok)
+    await page.getByRole("button", { name: /^Tasarım/ }).click();            // Tasarım kutusu
     await page.getByRole("button", { name: "Sorgu Çalıştır" }).click();
     await expect(page).toHaveURL(/#\/query/);
     await expect(page.getByRole("complementary", { name: "Yetkili nesneler" })).toBeVisible();

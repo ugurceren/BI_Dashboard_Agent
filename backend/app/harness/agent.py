@@ -121,7 +121,11 @@ def _trim(messages: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
 
 _CLAIM_WORDS = ("oluşturdum", "oluşturuldu", "oluşturuluyor", "hazırladım", "hazırlandı", "tamamlandı", "tamamladım",
                 "eklendi", "ekledim", "güncellendi", "güncelledim", "değiştirdim", "değiştirildi", "kaydedildi", "kaydettim",
-                "dashboard hazır", "rapor hazır")
+                "dashboard hazır", "rapor hazır",
+                # stil isteklerinde sık görülen "yapmadan yaptım" ifadeleri (ör. "40 punto olarak ayarlandı")
+                "ayarlandı", "ayarladım", "uygulandı", "uyguladım", "yapıldı", "yaptım", "hale geldi", "hale getirildi",
+                "değişti", "olarak güncellen", "kaldırıldı", "kaldırdım", "taşındı", "taşıdım",
+                "ayarlanmış", "uygulanmış", "güncellenmiş", "değiştirilmiş", "yapılmış", "eklenmiş")
 
 
 def _unfulfilled_claim(s: Session, text: str, start_version: int, start_datasets: int) -> str | None:
@@ -130,9 +134,10 @@ def _unfulfilled_claim(s: Session, text: str, start_version: int, start_datasets
     if not any(w in t for w in _CLAIM_WORDS):
         return None
     if s.phase == "design" and s.spec_version == start_version and s.datasets:
-        return ("[HARNESS] Dashboard'u oluşturduğunu/güncellediğini yazdın ama hiçbir araç çağırmadın; dashboard değişmedi. "
-                "Metin yazma: ŞİMDİ " + ("create_report_spec" if not s.spec else "update_visual / add_visual / update_report")
-                + " aracını çağır.")
+        return ("[HARNESS] Dashboard'u oluşturduğunu / güncellediğini yazdın ama dashboard bu turda DEĞİŞMEDİ. "
+                "İstenen şey yapılabiliyorsa metin yazma, ŞİMDİ " + ("create_report_spec" if not s.spec else
+                "update_visual / add_visual / update_report") + " aracını çağır. Yapılamıyorsa (ör. desteklenmeyen yazı tipi "
+                "boyutu) ya da zaten öyleyse kullanıcıya bunu AÇIKÇA söyle; yapılmamış bir şeyi yapıldı diye anlatma.")
     if s.phase == "data" and len(s.datasets) == start_datasets:
         return "[HARNESS] Dataset'leri kaydettiğini yazdın ama save_datasets çağırmadın. ŞİMDİ save_datasets aracını çağır."
     return None
@@ -255,8 +260,12 @@ class Agent:
                     break
                 except ContextOverflow as e:
                     if attempt == 2:
-                        raise LLMError("Model bağlam penceresi çok küçük: geçmiş kısaltılsa da talimat ve araçlar sığmıyor. "
-                                       "Daha geniş bağlamlı bir model seçin ya da LLM_MAX_TOKENS'ı düşürün.") from e
+                        fixed = int((len(sys_prompt) + len(json.dumps(schemas, ensure_ascii=False))) / CHARS_PER_TOKEN)
+                        raise LLMError(
+                            f"Modelin bağlam penceresi çok küçük ({e.context or '?'} token): geçmiş kısaltılsa da bu fazın "
+                            f"talimatı ve araç tanımları (~{fixed} token) yanıt payıyla birlikte sığmıyor. Model sunucusunda "
+                            "bağlam uzunluğunu artırın (LM Studio: modeli yüklerken Context Length en az 32768; vLLM: "
+                            "--max-model-len) ya da daha geniş bağlamlı bir model seçin.") from e
                     fresh, max_out = self._budget(sys_prompt, schemas)
                     budget = max(1500, min(fresh, budget // 2))
                     log.info("Bağlam sığmadı (pencere %s, girdi %s token); geçmiş %d karaktere kısaltılıp yeniden deneniyor.",

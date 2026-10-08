@@ -19,6 +19,43 @@ VisualType = Literal["kpi", "line", "area", "bar", "pie", "donut", "table", "sca
 _ID = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{0,63}$")
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 
+# Renk adı → hex: yerel modeller sık sık "lacivert", "koyu mavi" gibi adlar yazıyor. Tarayıcı Türkçe adları tanımaz
+# (kart sessizce eski renkte kalır); bilinen adlar hex'e çevrilir, bilinmeyen ad reddedilir (model hex ile yeniden dener).
+COLOR_NAMES = {
+    "lacivert": "#1e3a8a", "koyu lacivert": "#0f172a", "koyu mavi": "#1e40af", "mavi": "#2563eb", "açık mavi": "#60a5fa",
+    "gök mavisi": "#38bdf8", "turkuaz": "#14b8a6", "camgöbeği": "#06b6d4", "yeşil": "#16a34a", "koyu yeşil": "#166534",
+    "açık yeşil": "#4ade80", "zümrüt": "#059669", "kırmızı": "#dc2626", "koyu kırmızı": "#991b1b", "bordo": "#7f1d1d",
+    "turuncu": "#ea580c", "sarı": "#eab308", "altın": "#ca8a04", "mor": "#7c3aed", "eflatun": "#a855f7", "pembe": "#db2777",
+    "gri": "#64748b", "açık gri": "#e2e8f0", "koyu gri": "#334155", "füme": "#374151", "siyah": "#000000", "beyaz": "#ffffff",
+    "kahverengi": "#92400e", "bej": "#f5f5dc", "krem": "#fef3c7",
+}
+# CSS adları (eski spec'lerde olabilir; tarayıcı tanır)
+_CSS_NAMES = set("""aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood
+cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen
+darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray
+darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia
+gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender
+lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink
+lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta
+maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise
+mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid
+palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red
+rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow
+springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen""".split())
+
+
+def to_hex_color(v: str) -> str:
+    """'#2563eb' olduğu gibi; 'lacivert' / 'Koyu Mavi' → hex; CSS adı ('navy') olduğu gibi; diğerleri ValueError."""
+    t = str(v).strip()
+    if _HEX.match(t):
+        return t
+    key = " ".join(t.replace("İ", "i").replace("I", "ı").lower().replace("_", " ").replace("-", " ").split())
+    if key in COLOR_NAMES:
+        return COLOR_NAMES[key]
+    if key.replace(" ", "") in _CSS_NAMES:
+        return key.replace(" ", "")
+    raise ValueError(f"hex renk olmalı (ör. #2563eb) ya da bilinen bir renk adı ({', '.join(list(COLOR_NAMES)[:8])}…): {v}")
+
 
 class _Base(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -94,10 +131,7 @@ class VisualOptions(_Base):
     @field_validator("color", "background", "textColor")
     @classmethod
     def _color(cls, v: str | None) -> str | None:
-        # eski spec'lerde 'red' gibi CSS renk adları olabilir: yüklenebilsin (yalnız harf → enjeksiyon riski yok)
-        if v is not None and not (_HEX.match(v) or re.fullmatch(r"[a-zA-Z]{3,20}", v)):
-            raise ValueError(f"hex renk olmalı (ör. #2563eb): {v}")
-        return v
+        return None if v is None else to_hex_color(v)
 
 
 class Position(_Base):
@@ -174,6 +208,10 @@ class Theme(_Base):
     @field_validator("palette")
     @classmethod
     def _palette(cls, v: list[str]) -> list[str]:
+        try:
+            v = [to_hex_color(c) for c in v]
+        except ValueError:
+            pass
         bad = [c for c in v if not _HEX.match(c)]
         if bad:
             raise ValueError(f"palette hex renk olmalı: {bad}")
@@ -184,6 +222,7 @@ class Theme(_Base):
     @field_validator("background", "surface", "text", "mutedText", "accent", "border")
     @classmethod
     def _hex(cls, v: str) -> str:
+        v = to_hex_color(v)
         if not _HEX.match(v):
             raise ValueError(f"hex renk olmalı: {v}")
         return v
@@ -269,7 +308,10 @@ def semantic_errors(spec: ReportSpec) -> list[str]:
             refs.append(v.options.compareField)
         missing = [r for r in refs if avail and r not in avail]
         if missing:
-            errors.append(f"{where}: '{v.datasetId}' dataset'inde olmayan alan(lar): {missing}. Mevcut: {sorted(avail)}")
+            # alan başka bir dataset'te varsa söyle (ör. subcategory → top_products): model yanlış dataset'te ısrar ediyordu
+            elsewhere = sorted({d.id for d in spec.datasets if d.id != v.datasetId and set(missing) <= fields_of(d)})
+            hint = f" Bu alan(lar) şu dataset'lerde var: {elsewhere} (datasetId'yi değiştir)." if elsewhere else ""
+            errors.append(f"{where}: '{v.datasetId}' dataset'inde olmayan alan(lar): {missing}. Mevcut: {sorted(avail)}.{hint}")
         if enc.series and enc.y and len(enc.y) > 1:
             errors.append(f"{where}: series kullanılırken y tek alan olmalı.")
         if v.options.sparklineDatasetId:

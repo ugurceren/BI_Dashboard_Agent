@@ -67,3 +67,29 @@ def test_update_report_mode_switch_resets_surface_colors(ctx):
     assert r.ok, r.content
     t = ctx.session.spec.theme
     assert t.background == "#fafafa" and t.text == "#0f172a" and t.surface == "#ffffff"
+
+
+def test_color_names_become_hex(ctx):
+    """Yerel model 'lacivert' yazınca tarayıcı tanımıyor, kart eski renkte kalıyordu: adlar hex'e çevrilir."""
+    r = h_update_visual(ctx, {"id": "k1", "changes": {"options": {"background": "Lacivert", "textColor": "beyaz", "color": "koyu mavi"}}})
+    assert r.ok, r.content
+    o = _kpi(ctx)
+    assert (o.background, o.textColor, o.color) == ("#1e3a8a", "#ffffff", "#1e40af")
+    r = h_update_report(ctx, {"theme": {"accent": "turuncu"}})
+    assert r.ok, r.content and ctx.session.spec.theme.accent == "#ea580c"
+
+
+def test_unknown_color_name_is_rejected(ctx):
+    v = ctx.session.spec_version
+    r = h_update_visual(ctx, {"id": "k1", "changes": {"options": {"background": "gecemavisi"}}})
+    assert not r.ok and "hex" in str(r.content) and ctx.session.spec_version == v
+
+
+def test_repeating_an_applied_change_is_not_a_failure(ctx):
+    """İkinci kez aynı (zaten uygulanmış) değişiklik + uydurma alan: 'başarısız' denirse model döngüye giriyordu."""
+    assert h_update_visual(ctx, {"id": "k1", "changes": {"options": {"valueSize": "xl", "type": "x"}}}).ok
+    v = ctx.session.spec_version
+    r = h_update_visual(ctx, {"id": "k1", "changes": {"options": {"valueSize": "xl", "type": "x"}}})
+    assert r.ok and r.content.get("unchanged") and "TEKRARLAMA" in r.content["note"] and ctx.session.spec_version == v
+    r = h_update_visual(ctx, {"id": "k1", "changes": {"options": {"fontSize": 40}}})    # yalnız uydurma alan: hâlâ başarısız
+    assert not r.ok

@@ -10,6 +10,10 @@
 .sidebar.is-collapsed { width: 60px; }
 .sb-brand { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 4px; margin-bottom: 10px; }
 .sb-brand .brand-mark { flex: none; }
+.sb-brand-home { display: flex; align-items: center; gap: 9px; min-width: 0; color: inherit; text-decoration: none; border-radius: 8px; }
+.sb-brand-home:hover .brand-name { color: var(--accent); }
+.sb-brand-home:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sidebar.is-collapsed .sb-brand-home { flex-direction: column; }
 .sb-toggle {
   margin-left: auto; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border);
   background: var(--surface-2); color: var(--muted); display: grid; place-items: center; cursor: pointer; flex: none;

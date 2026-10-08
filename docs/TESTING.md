@@ -26,17 +26,20 @@ npx playwright install chromium
 | `npx playwright test e2e/query.spec.ts` | Tek dosya |
 | `npm run e2e:ui` | Playwright arayüzü: adım adım izleme / hata ayıklama |
 | `npm run e2e:report` | Son koşunun HTML raporu (başarısız testlerde ekran görüntüsü + iz) |
-| `npm run e2e:llm` | **Gerçek LLM** duman testi: bu PC'nin Bağlantı Ayarları'ndaki model (ör. Spark) ile; yavaş, isteğe bağlı |
+| `npm run e2e:llm` | **Gerçek LLM** testleri: bu PC'nin Bağlantı Ayarları'ndaki model (ör. Spark) ile; yavaş, isteğe bağlı. `E2E_LLM_SOURCE=env` ile LLM `.env`'den alınır (ör. EVREN), `E2E_LLM_MODEL` modeli seçer; yalnız geçici test backend'i etkilenir. Tasarım fazı en az ~16k token bağlam ister |
 
 ### Ne test ediliyor
 | Dosya | Akış |
 |---|---|
+| `e2e/landing.spec.ts` | Giriş sayfası: seçim yokken açılış, Vitrin / Tasarım kutuları, seçimin hatırlanması, logodan dönüş, klavye ile seçim, dar ekranda kutular alt alta (sunucu modunda izleyici için Tasarım kutusu kilitli: `vitrin.spec.ts`) |
 | `e2e/query.spec.ts` | Sorgu Çalıştır: nesne ağacı ve arama, SELECT ve sonuç tablosu, Ctrl+Enter, yazma sorgusu reddi, kişisel veri kontrolü, "ilk 100 satır" |
 | `e2e/dashboard.spec.ts` | Sohbetle dashboard: İhtiyaç → Veri (tablo ve ilişki önerisi, **onay olmadan kayıt yok**) → rapora özel ilişki → SQL / dataset → Tasarım → 4 görsel gerçek veriyle → Bölge Grubu filtresi KPI'yı değiştirir → HTML dışa aktarma → Canlı görünüm → "KPI'yı yeşil yap" |
 | `e2e/demo.spec.ts` | LLM'siz: demo dashboard, görselden çapraz filtre, temizle |
+| `e2e/flow.spec.ts` | Hata ve ret yolları (sahte LLM'in "[detay]" senaryosu, model bilerek hata yapar): KPI'sız gereksinim reddedilir ve faz ilerlemez (API 409), kullanıcının verdiği rapor adı agent tarafından değiştirilmez, onaysız ilişki kaydı reddedilir, kullanıcı reddedince yeni öneri, ortak modele kayıt, hatalı kolon ve DELETE sorgusu reddedilir, kısmen hatalı dataset kaydında faz ilerlemez, Veri sekmesi (taslak, SQL, önizleme, sözlük araması), Model sekmesi (onaylı ve SQL JOIN'den ilişkiler), faz adımlarıyla geri / ileri, bilinmeyen kolonlu spec reddedilir, tasarımda dataset + görsel + filtre eklenir, sayfa yenilenince her şey korunur |
 | `e2e/design.spec.ts` | Dashboard tasarımı: 14 görsel türünün hepsi gerçek veriyle ve tablo görünümüyle, geniş / dar ekranda ve ekleme / silme sonrası görseller üst üste binmez, sayfa sekmeleri (her sayfa üstten başlar, filtre korunur, Canlı ve HTML), Spec sekmesi (hatalı JSON, şemaya aykırı spec, ızgaraya sığdırma, Ctrl+S), koyu tema, KPI zemininde okunur yazı, Türkçe sayı biçimleri; sohbetle düzenleme: grafik türü, yeni sayfa ve taşıma, koyu tema, desteklenmeyen stil alanı bildirilir, KPI kart stili, görsel kaldırma. Her testte tarayıcı konsol hatası testi düşürür |
 | `e2e/vitrin.spec.ts` | Sunucu modu: kimliksiz 401 → admin rol atar → tasarımcı yayınlar ve **Satis** grubuyla paylaşır → izleyici yalnız Vitrin'i görür, raporu SQL'siz ve kendi yetkisiyle açar, tasarım adresine gidemez → grupta olmayan göremez → denetim kaydı |
 | `e2e/llm-smoke.spec.ts` | (`npm run e2e:llm`) gerçek LLM ile ihtiyaçtan model onayına |
+| `e2e/llm-design.spec.ts` | (`npm run e2e:llm`) gerçek LLM ile demo dashboard üzerinde doğal dilde istekler: pasta, alan, yığılmış çubuk, ısı haritası, gösterge (hedefli), huni, dağılım, ağaç haritası, combo, metin; tablo (ilk 10, sıralı, kolon seçimi); sayfa ekleme / taşıma / ad değiştirme ve sekme geçişleri; KPI kart stili (lacivert zemin, mavi tonları), desteklenmeyen istek "yaptım" diye anlatılmaz; koyu tema. Yumuşak doğrulama: tutmayan istekler raporda listelenir |
 
 ### Nasıl çalışıyor
 - `playwright.config.ts` testlerden önce üç sunucu başlatır:

@@ -41,9 +41,12 @@ class ContextOverflow(LLMError):
 
 
 # vLLM: "...the model's context length is only 16384 tokens..." / OpenAI: "maximum context length is 16384 tokens"
-_CTX_RE = re.compile(r"(?:context length is only|context length of only|maximum context length is|max_model_len[^0-9]{0,20})"
-                     r"\s*(\d{3,7})", re.I)
-_IN_RE = re.compile(r"passed (\d+) input tokens|resulted in (\d+) tokens|messages resulted in (\d+)", re.I)
+# llama.cpp / LM Studio: "request (8645 tokens) exceeds the available context size (8192 tokens)" + "n_ctx":8192
+_CTX_RE = re.compile(r"(?:context length is only|context length of only|maximum context length is|max_model_len[^0-9]{0,20}"
+                     r"|available context size \(|n_ctx\W{0,4})\s*(\d{3,7})", re.I)
+_IN_RE = re.compile(r"passed (\d+) input tokens|resulted in (\d+) tokens|messages resulted in (\d+)|request \((\d+) tokens\)"
+                    r"|n_prompt_tokens\W{0,4}(\d+)", re.I)
+_OVERFLOW_HINTS = ("context length", "context size", "too long", "exceed_context")
 
 
 @dataclass
@@ -54,6 +57,7 @@ class ToolCall:
     parse_error: str | None = None
 
 
+SILENT_CUT_TOKENS = 64          # sınırsız istekte bundan kısa kesilen yanıt: pencere doldu
 TRUNCATED_NOTE = "\n\n_(Yanıt uzunluk sınırında kesildi.)_"
 
 
@@ -230,6 +234,13 @@ class LLMGateway:
         # yanıt boş kesildiyse bir kez iki kat sınırla yeniden istenir (bağlam penceresinin dörtte birini aşmadan).
         if turn.truncated and not turn.content.replace(TRUNCATED_NOTE.strip(), "").strip() and not turn.tool_calls and not _retried:
             limit = max_tokens or self.max_output_tokens()
+            p, c = turn.usage.get("prompt", 0), turn.usage.get("completion", 0)
+            if not limit and p and c < SILENT_CUT_TOKENS:
+                # sınır göndermedik ama yanıt birkaç token'da kesildi: sunucu bağlam penceresi dolunca hata vermeden
+                # kesiyor (llama.cpp / bazı ağ geçitleri; ör. 8183 + 9 = 8192). Pencere öğrenilir, geçmiş kısaltılıp yeniden denenir.
+                self._ctx = p + c
+                log.warning("LLM yanıtı %d token'da sessizce kesildi (girdi %d): bağlam penceresi %d kabul ediliyor", c, p, p + c)
+                raise ContextOverflow(f"Yanıt bağlam penceresi dolduğu için kesildi (girdi {p} + yanıt {c} token).", p + c, p)
             if not limit:               # sınır göndermedik: kesen sunucunun kendi sınırı, yeniden denemek anlamsız
                 return turn
             ctx = self.context_window()
@@ -254,7 +265,7 @@ class LLMGateway:
                 return self._chat(messages, tools, max_tokens)
             text = _err_text(e)
             ctx = _CTX_RE.search(text)
-            if ctx or "context length" in text.lower() or "too long" in text.lower():
+            if ctx or any(h in text.lower() for h in _OVERFLOW_HINTS):
                 if ctx:
                     self._ctx = int(ctx.group(1))   # öğrenildi: sonraki istekler buna göre kırpılır
                 m = _IN_RE.search(text)

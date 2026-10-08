@@ -8,6 +8,7 @@ Tek süreç (uvicorn bu süreçte çalışır): Playwright kapatınca geride sun
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -51,11 +52,20 @@ def main() -> None:
         # bu PC'deki SQL Server ilk (soğuk) sorguda yavaş; iki backend aynı anda açılırken 30 sn sınırı aşılabiliyor
         "QUERY_TIMEOUT_S": "180",
     }
-    if real_llm:
+    if real_llm and os.environ.get("E2E_LLM_SOURCE") == "env":
+        # LLM .env'den (ör. EVREN, geniş bağlam): Bağlantı Ayarları (Spark) yok sayılır; E2E_LLM_MODEL modeli seçer
+        env["BI_CONNECTIONS_FILE"] = str(tmp / "connections.json")       # yok: .env geçerli
+        if os.environ.get("E2E_LLM_MODEL"):
+            env["LLM_MODEL"] = os.environ["E2E_LLM_MODEL"]
+    elif real_llm:
         src = BACKEND / "config" / "connections.json"   # gerçek LLM ayarı (yalnız okunur kopya)
         if src.exists():
             shutil.copy(src, tmp / "connections.json")
             env["BI_CONNECTIONS_FILE"] = str(tmp / "connections.json")
+            if os.environ.get("E2E_LLM_MODEL"):   # ör. Spark'ta daha geniş bağlamlı model: yalnız geçici kopyada değişir
+                conf = json.loads((tmp / "connections.json").read_text(encoding="utf-8"))
+                conf.setdefault("llm", {})["model"] = os.environ["E2E_LLM_MODEL"]
+                (tmp / "connections.json").write_text(json.dumps(conf, ensure_ascii=False, indent=2), encoding="utf-8")
     else:
         env |= {"BI_CONNECTIONS_FILE": str(tmp / "connections.json"),     # yok: veri bağlantısı .env (AdventureWorksDW)
                 "LLM_BASE_URL": "http://127.0.0.1:8091/v1", "LLM_MODEL": "e2e-senaryo", "LLM_API_KEY": "e2e",

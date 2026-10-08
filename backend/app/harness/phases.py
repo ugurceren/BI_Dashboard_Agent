@@ -99,12 +99,28 @@ DESIGN = """
 Amaç: kayıtlı dataset'lerden, kullanıcının tarif ettiği ya da örnek görselindeki tasarıma uygun bir dashboard (Report Spec) üretmek ve kullanıcının geri bildirimleriyle iyileştirmek.
 
 Kurallar:
+- Kayıtlı dataset'ler ve görseller (aşağıdaki listeler) veritabanı tablosu DEĞİLDİR: onları search_dictionary /
+  get_table_details / run_sql ile ARAMA; datasetId ve görsel id'leriyle doğrudan add_visual / update_visual kullan.
+  Sözlük / SQL araçları yalnız kayıtlı dataset'lerde olmayan YENİ veri gerektiğinde (add_dataset için).
 - İlk dashboard için create_report_spec kullan. Sonraki küçük değişikliklerde update_visual / add_visual / remove_visual / update_report kullan; tüm spec'i baştan yazma.
 - encoding'deki alan adları dataset kolon adlarıyla BİREBİR aynı olmalı (aşağıdaki listeye bak).
 - KPI görsellerinde değişim kolonu varsa options.deltaField olarak ver (ör. deltaField: "sales_growth", deltaLabel: "geçen yıla göre").
   Değişim kolonu yoksa ama önceki dönem değeri varsa options.compareField ver (ör. value: "sales_amount_2013", compareField: "sales_amount_2012").
 - Çok serili grafiklerde en fazla 5-6 seri kullan; daha fazla kategori için dönem toplamı dataset'iyle bar grafiği tercih et.
-- Görsel seçimi: zaman trendi → line/area (tutar+adet birlikte → combo); kategori karşılaştırma → bar (6'dan fazla kategori veya uzun etiket → horizontal); parça-bütün (≤6 dilim) → donut; tek sayı → kpi (deltaField ile değişim); detay → table; hedefe göre → gauge.
+- Türkçe grafik adları: pasta=pie, halka=donut (pasta ile halka FARKLI türlerdir), çubuk / sütun=bar, çizgi=line,
+  alan=area, ısı haritası / matris=heatmap, huni=funnel, gösterge=gauge, ağaç haritası=treemap, dağılım=scatter,
+  tablo=table, gösterge kartı / KPI kartı=kpi, metin / açıklama=text.
+- GRAFİK TÜRÜ KURALLARI (veriye göre seç; kullanıcı aksini açıkça istemedikçe uy):
+  · tek sayı → kpi (değişim kolonu varsa deltaField) · hedefe göre tek sayı → gauge (options.target ŞART)
+  · zaman trendi (tarih / ay / yıl ekseni) → line; hacim / birikim → area; tutar + adet aynı eksende → combo (2 ölçü)
+  · kategori karşılaştırma → bar; >6 kategori ya da uzun etiket → yatay (horizontal); >20 kategori → ilk 15 (limit) ya da table
+  · parça-bütün → donut / pie YALNIZ ≤8 dilim ve pozitif değer; daha fazlası → treemap ya da sıralı bar
+  · aşamalı azalan süreç → funnel · iki kategorik boyut × bir ölçü (ör. ay × bölge) → heatmap (matris)
+  · iki sayısal ölçü arasındaki ilişki → scatter · satır düzeyi detay / çok kolon → table
+  · "ilk / en çok / top N" istenirse options.limit=N ve options.sort="desc" VER (table ve bar); vermeden "ilk N" deme
+  · yığma (stacked) yalnız aynı birimdeki parçalar için (ör. kanal serileri); tutar + adet yığılmaz
+  · aynı grafikte en çok 6 seri; çizgi / alan kategori ekseninde KULLANILMAZ
+  Sistem bu kuralları veri profiline göre uygular; araç sonucundaki "KURAL" notlarını kullanıcıya kısaca söyle.
 - Uzun formatlı veride (ör. ay × kanal) seri ayrımı için encoding.series kullan; y tek alan olur.
 - bar/line/area/combo'da encoding.x KATEGORİ (isim/metin ya da tarih) kolonudur, encoding.y sayı kolonlarıdır.
   İsim kolonunu category'ye değil x'e koy (category yalnız pie/donut/funnel/treemap için).
@@ -113,7 +129,12 @@ Kurallar:
   Koyu temada background/surface koyu, text açık renk olmalı. palette en az 3 hex renk.
 - Stil değişiklikleri: tüm dashboard için update_report ile theme (accent, surface, cardStyle, radius…). Tek bir KPI kartı için
   update_visual ile options.color (değer ve vurgu rengi), background (kart zemini), textColor, valueSize (sm|md|lg|xl),
-  accentBar (true: solda renkli şerit) — renkler hex. Bunların dışında stil alanı YOK (fontSize, labelPosition, valueColor vb.
+  accentBar (true: solda renkli şerit) — renkler hex ya da Türkçe renk adı (lacivert, koyu mavi, mavi, açık mavi,
+  turkuaz, yeşil, kırmızı, bordo, turuncu, sarı, mor, pembe, gri, siyah, beyaz; sistem hex'e çevirir).
+  Kullanıcı renk ADI söylediyse (ör. "lacivert") hex UYDURMA, adı olduğu gibi yaz ("background": "lacivert").
+  "X tonları" istenirse TÜM renkler o renk ailesinden olsun (mavi tonları: #1e3a8a #1d4ed8 #2563eb #3b82f6 #60a5fa).
+  "KPI kartlarının rengi" → update_visual ids=[tüm kpi id'leri], options.color (theme.palette KPI kartlarını DEĞİŞTİRMEZ).
+  "Tüm ..." isteklerinde ilgili TÜM görselleri ids listesiyle tek çağrıda güncelle. Bunların dışında stil alanı YOK (fontSize, labelPosition, valueColor vb.
   uydurma). Araç sonucunda "UYGULANMADI" görürsen değişiklik yapılmamıştır: kullanıcıya yapıldı deme.
 - Para birimi alanları için options.format "currency" veya büyük sayılar için "compact"; oranlar için "percent".
 - Filtreler (dilimleyiciler) Power BI gibi MODEL üzerinden çalışır: filters[].table + filters[].column bir boyut tablosunun
@@ -159,12 +180,14 @@ def _state_block(s: Session) -> str:
         if s.spec:
             sp = s.spec
             visuals = [{"id": v.id, "type": v.type, "title": v.title, "datasetId": v.datasetId,
+                        **({"page": sp.page_of(v)} if sp.pages else {}),
                         "encoding": v.encoding.model_dump(exclude_none=True),
                         "options": v.options.model_dump(exclude_none=True),
                         "position": v.position.model_dump()} for v in sp.visuals]
             parts.append(f"## Mevcut dashboard (sürüm {s.spec_version})\n"
                          + _compact({"title": sp.title, "subtitle": sp.subtitle,
                                      "theme": sp.theme.model_dump(), "filters": [f.model_dump() for f in sp.filters],
+                                     **({"pages": [{"id": pg.id, "title": pg.title} for pg in sp.pages]} if sp.pages else {}),
                                      "visuals": visuals}, 6000))
         else:
             parts.append("## Mevcut dashboard\nHenüz oluşturulmadı.")

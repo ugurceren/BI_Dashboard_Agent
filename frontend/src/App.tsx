@@ -10,6 +10,7 @@ import { Composer, EmptyChat, PHASES, PhaseStepper, Transcript } from "./compone
 import { RightPanel, type Tab } from "./components/RightPanel";
 import { Home } from "./components/Home";
 import { Sidebar, type Page } from "./components/Sidebar";
+import { Landing } from "./components/Landing";
 import { AccessPage } from "./components/AccessPage";
 import { ModelTab } from "./components/ModelTab";
 import { Vitrin } from "./components/Vitrin";
@@ -21,13 +22,14 @@ import type { VitrinFilter } from "./lib/vitrin";
 import type { ThemePref } from "./components/TopBar";
 import { ApiError } from "./api/client";
 
-/** #/ Vitrin (açılış) · #/envanter rapor envanteri · #/access veri erişimi · #/model veri modeli · #/query sorgu · #/r/<id> rapor tasarımı · #/v/<id> canlı görünüm
+/** #/ son seçilen mod ya da giriş sayfası · #/giris giriş sayfası (Vitrin · Tasarım kutuları) · #/vitrin Vitrin · #/envanter rapor envanteri · #/access veri erişimi · #/model veri modeli · #/query sorgu · #/r/<id> rapor tasarımı · #/v/<id> canlı görünüm
  *  #/vitrin yayınlanmış raporlar · #/vitrin/<id> yayın görüntüleme · #/admin yönetim */
 function parseRoute(): { view: Page; id: string | null } {
   const h = window.location.hash;
   const vr = /^#\/vitrin\/([A-Za-z0-9]+)/.exec(h);
   if (vr) return { view: "vitrin-report", id: vr[1] };
   if (h.startsWith("#/vitrin")) return { view: "vitrin", id: null };
+  if (h.startsWith("#/giris")) return { view: "landing", id: null };
   if (h.startsWith("#/admin")) return { view: "admin", id: null };
   if (h.startsWith("#/envanter")) return { view: "home", id: null };
   const m = /^#\/r\/([A-Za-z0-9]+)/.exec(h);
@@ -38,9 +40,12 @@ function parseRoute(): { view: Page; id: string | null } {
   if (h.startsWith("#/model")) return { view: "model", id: null };
   if (h.startsWith("#/query")) return { view: "query", id: null };
   if (h.startsWith("#/settings")) return { view: "settings", id: null };
-  return { view: "vitrin", id: null };   // açılış: Vitrin
+  // açılış: son seçim (giriş sayfasında hatırlanır) ya da giriş sayfası. Tasarım yetkisi yoksa izleyici yönlendirmesi Vitrin'e alır.
+  const choice = lsGet(LS_LANDING);
+  return choice === "design" ? { view: "home", id: null } : choice === "vitrin" ? { view: "vitrin", id: null } : { view: "landing", id: null };
 }
 const LS_SIDEBAR = "bi.sidebarCollapsed";
+const LS_LANDING = "bi.landingChoice";
 const LS_THEME = "bi.theme";
 
 const MOCK = new URLSearchParams(window.location.search).has("mock");
@@ -103,7 +108,7 @@ export default function App() {
     try { setVitrinItems(await api.vitrin()); setVitrinError(null); }
     catch (e) { setVitrinError(errMsg(e)); setVitrinItems((cur) => cur ?? []); }
   }, [api]);
-  useEffect(() => { if (appMode === "vitrin") void loadVitrin(); }, [appMode, loadVitrin]);
+  useEffect(() => { if (appMode === "vitrin" || route.view === "landing") void loadVitrin(); }, [appMode, route.view, loadVitrin]);
   const openDesign = (sid: string) => { window.location.hash = `#/r/${sid}`; };
   const [chatWidth, setChatWidth] = useState(() => Math.min(640, Math.max(320, Number(lsGet(LS_WIDTH)) || 400)));
   const chatRef = useRef<HTMLElement>(null);
@@ -192,7 +197,7 @@ export default function App() {
     if (!me) return;
     if (me.capabilities && !me.capabilities.design) {
       setSessionsLoading(false);
-      if (!["vitrin", "vitrin-report"].includes(parseRoute().view)) window.location.hash = "#/vitrin";
+      if (!["vitrin", "vitrin-report", "landing"].includes(parseRoute().view)) window.location.hash = "#/vitrin";
     } else {
       void refreshSessions();
     }
@@ -200,7 +205,7 @@ export default function App() {
   }, [me]);
   // izleyici uygulama içinde bir tasarım adresine giderse (#/envanter, #/r/…, #/query …) Vitrin'e döner
   useEffect(() => {
-    if (me?.capabilities && !me.capabilities.design && !["vitrin", "vitrin-report"].includes(route.view)) {
+    if (me?.capabilities && !me.capabilities.design && !["vitrin", "vitrin-report", "landing"].includes(route.view)) {
       window.location.hash = "#/vitrin";
     }
   }, [me, route.view]);
@@ -482,6 +487,14 @@ export default function App() {
     if (pending) all.push(pending);
     return all;
   }, [state?.transcript, localItems, pending]);
+
+  if (route.view === "landing") {
+    return (
+      <Landing me={me} vitrin={vitrinItems} sessions={canDesign ? (sessionsLoading ? null : sessions) : null}
+        onChoose={(c) => { lsSet(LS_LANDING, c); window.location.hash = c === "vitrin" ? "#/vitrin" : "#/envanter"; }}
+        onAdmin={me?.capabilities?.admin && me.platform_mode === "server" ? () => { window.location.hash = "#/admin"; } : undefined} />
+    );
+  }
 
   return (
     <div className="shell">

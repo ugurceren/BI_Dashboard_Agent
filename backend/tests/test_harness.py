@@ -51,9 +51,8 @@ def test_full_flow(settings, services):
                 {"id": "t", "type": "line", "title": "Trend", "datasetId": "monthly_trend", "encoding": {"x": "year_month", "y": ["sales_amount"]}},
             ]})]),
         AssistantTurn("Koyu temalı dashboard hazır."),
-        # iterasyon: bölge grafiğini donut yap (önce hatalı encoding, sonra düzeltme)
+        # iterasyon: bölge grafiğini donut yap — yalnız tür verilir; x / y alanlarını sistem category / value'ya yerleştirir
         AssistantTurn("", [call("update_visual", id="r", changes={"type": "donut"})]),
-        AssistantTurn("", [call("update_visual", id="r", changes={"type": "donut", "encoding": {"category": "region", "value": "sales_amount", "x": None, "y": None}})]),
         AssistantTurn("Bölge grafiği donut oldu."),
     ]
     llm = FakeLLM(script, settings)
@@ -96,8 +95,9 @@ def test_full_flow(settings, services):
     s = store.get(s.id)
     r = next(v for v in s.spec.visuals if v.id == "r")
     assert r.type == "donut" and r.encoding.category == "region" and s.spec_version == 2
+    assert r.encoding.value == "sales_amount" and r.encoding.x is None
     failed = [t.tool for t in s.transcript if t.role == "tool" and t.tool.name == "update_visual" and not t.tool.ok]
-    assert failed, "eksik encoding'li ilk güncelleme reddedilmeli"
+    assert not failed, "x / y verilmiş donut reddedilmemeli (model aynı hatayla döngüye giriyordu)"
     assert not s.busy
 
 
@@ -414,3 +414,30 @@ def test_cross_filter_reaches_view_backed_dataset(settings, services):
     key = "dbo.dimproductcategory.englishproductcategoryname"
     out = m._dashboard_data(s, [{"key": key, "values": ["Bikes"]}])
     assert out["applied"]["region_sales"] == [key]
+
+
+
+def test_style_claim_without_tool_is_nudged(settings, services):
+    """'KPI yazı tipini 40 punto yap' → model araç çağırmadan 'ayarlandı' dedi: metin kullanıcıya gösterilmez, araç
+    çağırtılır; desteklenmeyen alan "UYGULANMADI" döner ve model bunu söyler."""
+    from app.harness.tools import ToolContext, h_create_report_spec
+    from app.spec.models import Dataset, DatasetField
+
+    store = SessionStore(settings.sessions_dir)
+    s = store.create("standart")
+    s.set_phase("design")
+    s.datasets = [Dataset(id="kpi", sql="SELECT 1 AS amount", fields=[DatasetField(name="amount", type="number")])]
+    assert h_create_report_spec(ToolContext(s, services), {"spec": {"title": "T", "visuals": [
+        {"id": "k1", "type": "kpi", "title": "Tutar", "datasetId": "kpi", "encoding": {"value": "amount"}}]}}).ok
+    store.save(s)
+    llm = FakeLLM([
+        AssistantTurn("KPI yazı tipi boyutu 40 punto olarak ayarlandı."),          # yalan: araç yok
+        AssistantTurn("", [call("update_visual", id="k1", changes={"options": {"fontSize": 40}})]),
+        AssistantTurn("Yazı tipi boyutu desteklenmiyor; değer boyutunu xl yapabilirim."),
+    ], settings)
+    _run(Agent(llm, services, store), s.id, "KPI yazı tipini 40 punto yap")
+    s = store.get(s.id)
+    shown = [t.content for t in s.transcript if t.role == "assistant"]
+    assert "KPI yazı tipi boyutu 40 punto olarak ayarlandı." not in shown
+    assert shown[-1].startswith("Yazı tipi boyutu desteklenmiyor")
+    assert any(t.tool and t.tool.name == "update_visual" for t in s.transcript)

@@ -96,3 +96,33 @@ def test_overflow_retries_with_shorter_history(settings, services):
     assert len(llm.sizes) == 2 and llm.sizes[1] < llm.sizes[0]            # ikinci deneme daha kısa
     assert not [e for e in events if e.type == "error"]
     assert any(e.type == "status" and "kısaltılıp" in e.data.get("text", "") for e in events)
+
+
+LMSTUDIO_MSG = ("Engine protocol predict request returned 400: {\"error\":{\"code\":400,\"message\":\"request (8645 tokens) "
+                "exceeds the available context size (8192 tokens), try increasing it\",\"type\":\"exceed_context_size_error\","
+                "\"n_prompt_tokens\":8645,\"n_ctx\":8192}}")
+
+
+def test_gateway_learns_context_from_lmstudio_error(settings, monkeypatch):
+    """LM Studio / llama.cpp: /v1/models modelin azami bağlamını (262144) verir, yüklü bağlam (8192) yalnız hatada görünür."""
+    gw = LLMGateway(settings)
+
+    def create(**kw):
+        raise _bad_request(LMSTUDIO_MSG)
+    monkeypatch.setattr(gw.client.chat.completions, "create", create)
+    with pytest.raises(ContextOverflow) as ei:
+        gw.chat([{"role": "user", "content": "x"}])
+    assert ei.value.context == 8192 and ei.value.input_tokens == 8645
+    assert gw.context_window() == 8192
+
+
+def test_gateway_detects_silent_cut_as_overflow(settings, monkeypatch):
+    """Bazı sunucular pencere dolunca hata vermez, yanıtı birkaç token'da keser (8183 + 9 = 8192):
+    bu bağlam taşması sayılır (agent geçmişi kısaltıp yeniden dener), kullanıcıya boş "kesildi" yanıtı gitmez."""
+    gw = LLMGateway(settings)
+    resp = SimpleNamespace(choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="", tool_calls=None))],
+                           usage=SimpleNamespace(prompt_tokens=8183, completion_tokens=9))
+    monkeypatch.setattr(gw.client.chat.completions, "create", lambda **kw: resp)
+    with pytest.raises(ContextOverflow) as ei:
+        gw.chat([{"role": "user", "content": "x"}])
+    assert ei.value.context == 8192 and gw.context_window() == 8192

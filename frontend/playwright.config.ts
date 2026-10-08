@@ -33,9 +33,10 @@ export default defineConfig({
     video: "off",
   },
   projects: [
-    ...(want("desktop") ? [{ name: "masaustu", testMatch: /(query|dashboard|demo|design)\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8090" } }] : []),
+    ...(want("desktop") ? [{ name: "masaustu", testMatch: /(^|[\\/])(landing|query|dashboard|demo|design|flow)\.spec\.ts$/, use: { baseURL: "http://127.0.0.1:8090" } }] : []),
     ...(want("server") ? [{ name: "sunucu", testMatch: /vitrin\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8092" } }] : []),
-    ...(LLM ? [{ name: "gercek-llm", testMatch: /llm-smoke\.spec\.ts/, timeout: 900_000, use: { baseURL: "http://127.0.0.1:8093" } }] : []),
+    ...(LLM ? [{ name: "gercek-llm", testMatch: /llm-(smoke|design)\.spec\.ts/, timeout: 900_000,
+      use: { baseURL: "http://127.0.0.1:8093", actionTimeout: 30_000 } }] : []),
   ],
   webServer: [
     { command: `${PY} -X utf8 e2e/fake_llm.py 8091`, url: "http://127.0.0.1:8091/v1/models", reuseExistingServer: false, timeout: 30_000 },

@@ -53,7 +53,16 @@ test("admin → tasarımcı → izleyici: yayın, paylaşım ve yetki", async ({
   await test.step("veli (Satis) yalnız Vitrin'i görür, raporu kendi yetkisiyle açar", async () => {
     const p = veli.page;
     await p.goto("/");
-    await expect(p.locator(".home.vitrin")).toBeVisible();                                 // açılış: Vitrin
+    const landing = p.getByTestId("landing");                                              // açılış: giriş sayfası
+    await expect(landing).toBeVisible();
+    const design = landing.getByRole("button", { name: /^Tasarım/ });
+    await expect(design).toHaveAttribute("aria-disabled", "true");                        // tasarım yetkisi yok: kilitli
+    await expect(design).toContainText("Tasarım yetkiniz yok");
+    await design.click({ force: true });                                                  // aria-disabled: Playwright normalde beklerdi
+    await expect(landing).toBeVisible();                                                   // kilitli kutu bir yere götürmez
+    await expect(landing.getByRole("button", { name: /^Vitrin/ })).toContainText("1 rapor yayında");
+    await landing.getByRole("button", { name: /^Vitrin/ }).click();
+    await expect(p.locator(".home.vitrin")).toBeVisible();
     await expect(p.getByRole("navigation", { name: "Vitrin menüsü" })).toBeVisible();
     await expect(p.getByRole("button", { name: "Tasarım", exact: true })).toHaveCount(0);   // mod anahtarı yok
     await expect(p.getByRole("button", { name: "Rapor Envanteri" })).toHaveCount(0);

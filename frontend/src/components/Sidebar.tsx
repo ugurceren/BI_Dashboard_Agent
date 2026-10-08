@@ -4,7 +4,7 @@ import type { Me, VitrinCard } from "../types";
 import { counts, SCOPE_LABEL, type VitrinFilter, type VitrinScope } from "../lib/vitrin";
 import "./sidebar.css";
 
-export type Page = "home" | "access" | "model" | "query" | "settings" | "designer" | "viewer" | "vitrin" | "vitrin-report" | "admin";
+export type Page = "home" | "access" | "model" | "query" | "settings" | "designer" | "viewer" | "vitrin" | "vitrin-report" | "admin" | "landing";
 
 const ICONS: Record<string, ReactNode> = {
   home: <path d="M2.5 7 8 2.5 13.5 7v6.5h-3.8V9.5H6.3v4H2.5z" />,
@@ -78,10 +78,12 @@ export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, curre
   );
   const brand = (
     <div className="sb-brand">
+      <a className="sb-brand-home" href="#/giris" title="Giriş sayfası (Vitrin · Tasarım)" aria-label="BI Lens giriş sayfası">
       <span className="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeLinecap="round"><circle cx="7" cy="7" r="5" strokeWidth="1.7" /><path d="M5 9V7.5M7 9V5M9 9V6.5" strokeWidth="1.5" /><path d="M10.8 10.8 14 14" strokeWidth="2" /></svg>
       </span>
       <span className="brand-name sb-label">BI Lens{mode === "vitrin" ? <span className="sb-brand-sub"> · Vitrin</span> : null}</span>
+      </a>
       <button type="button" className="sb-toggle" onClick={onToggle} title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"} aria-label="Menüyü daralt/genişlet">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           {collapsed ? <path d="M6 3.5 10.5 8 6 12.5" /> : <path d="M10 3.5 5.5 8 10 12.5" />}

@@ -60,7 +60,128 @@ def last_user(messages: list[dict]) -> str:
     return next((str(m.get("content") or "") for m in reversed(messages) if m.get("role") == "user"), "")
 
 
+# ---------------------------------------------------------------- [detay] senaryosu: hata ve ret yolları
+# İlk mesajda "[detay]" geçen raporda model sık yapılan hataları sırayla yapar; harness'in bunları yakalayıp
+# kullanıcıya doğru yansıttığı test edilir. Faz değişince LLM geçmişi sıfırlandığı için sonraki fazlarda senaryo,
+# sistem talimatındaki kayıtlı gereksinimlerden tanınır.
+DETAIL_TITLE = "E2E Detay Raporu"
+DETAIL_MARK = "E2E-DETAY"      # iş hedefinde: rapor adı kullanıcı tarafından değiştirilebilir
+REL_DUE = {"from_table": "dbo.FactResellerSales", "to_table": "dbo.DimDate", "columns": [["DueDate", "FullDateAlternateKey"]],
+           "cardinality": "N:1", "description": "Vade tarihi (tarih)"}
+BAD_COL_SQL = "SELECT SUM(f.SalesAmountX) AS sales_amount FROM dbo.FactResellerSales f"
+DELETE_SQL = "DELETE FROM dbo.FactResellerSales WHERE 1 = 0"
+REGION_BAD_SQL = REGION_SQL.replace("SUM(f.SalesAmount)", "SUM(f.OlmayanKolon)")
+YEAR_SQL = ("SELECT d.CalendarYear AS sales_year, SUM(f.SalesAmount) AS sales_amount FROM dbo.FactResellerSales f "
+            "JOIN dbo.DimDate d ON d.FullDateAlternateKey = f.OrderDate GROUP BY d.CalendarYear")
+TYPE_SQL = ("SELECT r.BusinessType AS business_type, SUM(f.SalesAmount) AS sales_amount FROM dbo.FactResellerSales f "
+            "JOIN dbo.DimReseller r ON r.ResellerKey = f.ResellerKey GROUP BY r.BusinessType")
+MONEY = {"name": "sales_amount", "label": "Satış Tutarı", "format": "currency"}
+DETAIL_FILTERS = [{"id": "f_region", "label": "Bölge Grubu", "table": "dbo.DimSalesTerritory", "column": "SalesTerritoryGroup"}]
+
+
+def detail_spec(bad: bool) -> dict:
+    return {"title": DETAIL_TITLE, "filters": DETAIL_FILTERS, "visuals": [
+        {"id": "d_sales", "type": "kpi", "title": "Satış Tutarı", "datasetId": "kpi", "encoding": {"value": "sales_amount"},
+         "options": {"format": "compact"}},
+        {"id": "d_orders", "type": "kpi", "title": "Sipariş Sayısı", "datasetId": "kpi", "encoding": {"value": "order_count"}},
+        {"id": "d_region", "type": "bar", "title": "Bölgeye Göre", "datasetId": "region",
+         "encoding": {"x": "region_group", "y": ["sales_amount"]}},
+        {"id": "d_year", "type": "line", "title": "Yıllık Satış", "datasetId": "yearly",
+         "encoding": {"x": "olmayan_kolon" if bad else "sales_year", "y": ["sales_amount"]}}]}
+
+
+def tool_results(messages: list[dict]) -> list[tuple[str, bool]]:
+    """Bu fazdaki araç sonuçları: (araç adı, başarılı mı)."""
+    out = []
+    for m in messages:
+        if m.get("role") == "tool":
+            c = str(m.get("content") or "")
+            out.append((m.get("name") or "", not ('"error' in c or '"ok": false' in c)))
+    return out
+
+
+def is_detail(messages: list[dict]) -> bool:
+    sys_text = next((m.get("content") or "" for m in messages if m.get("role") == "system"), "")
+    return DETAIL_MARK in sys_text or any("[detay]" in str(m.get("content") or "") for m in messages if m.get("role") == "user")
+
+
+def decide_detail(messages: list[dict]) -> dict:
+    phase, last = phase_of(messages), messages[-1]
+    res = tool_results(messages)
+    calls = lambda n: sum(1 for t, _ in res if t == n)            # noqa: E731
+    fresh = last.get("role") == "user" and not str(last.get("content") or "").startswith("[HARNESS]")
+    u = str(last.get("content") or "").lower() if fresh else ""
+    prev, prev_ok = (res[-1] if res and last.get("role") == "tool" else ("", True))
+
+    if phase == "requirements":
+        if prev == "save_requirements" and not prev_ok:
+            return say("Hangi KPI'ları görmek istersiniz? Örneğin satış tutarı, sipariş sayısı.")
+        if fresh:
+            req = {"report_title": DETAIL_TITLE, "business_goal": f"Bayi satışlarını izlemek ({DETAIL_MARK})", "audience": "Satış yönetimi",
+                   "dimensions": ["Bölge grubu", "Yıl"], "time_range": "Tüm dönem"}
+            # ilk turda KPI'sız kayıt (harness reddetmeli), kullanıcı KPI'ları söyleyince tam kayıt
+            return call("save_requirements", {**req, "kpis": [] if calls("save_requirements") == 0 else ["Satış tutarı", "Sipariş sayısı"]})
+        return say("Gereksinimler tamam.")
+
+    if phase == "data":
+        if "hayır" in u:
+            return call("propose_model", {"tables": ["dbo.FactResellerSales", "dbo.DimSalesTerritory", "dbo.DimDate", "dbo.DimReseller"]})
+        if "evet" in u:
+            return call("save_relationships", {"scope": "global" if "ortak" in u else "report", "relationships": [REL_DUE]})
+        if "düzelt" in u:
+            return call("save_datasets", {"datasets": [
+                {"id": "region", "description": "Bölge grubu kırılımı", "sql": REGION_SQL,
+                 "fields": [{"name": "region_group", "label": "Bölge Grubu"}, MONEY]},
+                {"id": "yearly", "description": "Yıllık trend", "sql": YEAR_SQL,
+                 "fields": [{"name": "sales_year", "label": "Yıl"}, MONEY]}]})
+        if calls("search_dictionary") == 0:
+            return call("search_dictionary", {"query": "bayi satış bölge"})
+        if calls("propose_model") == 0:
+            return call("propose_model", {"tables": ["dbo.FactResellerSales", "dbo.DimSalesTerritory", "dbo.DimDate"]})
+        if prev == "propose_model" and calls("save_relationships") == 0:
+            return call("save_relationships", {"scope": "global", "relationships": [REL_DUE]})   # onaysız: reddedilmeli
+        if prev in ("propose_model", "save_relationships") and not prev_ok or prev == "propose_model":
+            return say("Önerdiğim tablolar: dbo.FactResellerSales, dbo.DimSalesTerritory, dbo.DimDate. Yeni ilişki: "
+                       "FactResellerSales.DueDate → DimDate (N:1). Bu tablolarla devam edeyim mi? İlişki ortak modele mi, "
+                       "yalnız bu rapora mı kaydedilsin?")
+        if prev == "save_relationships" and prev_ok:
+            return call("run_sql", {"sql": BAD_COL_SQL, "purpose": "toplam satış"})
+        if prev == "run_sql" and not prev_ok:
+            return call("run_sql", {"sql": DELETE_SQL if calls("run_sql") == 1 else REGION_SQL, "purpose": "deneme"})
+        if prev == "run_sql" and prev_ok:
+            return call("save_datasets", {"datasets": [
+                {"id": "kpi", "description": "KPI özeti", "sql": KPI_SQL,
+                 "fields": [MONEY, {"name": "order_count", "label": "Sipariş Sayısı", "format": "number"}]},
+                {"id": "region", "description": "Bölge grubu kırılımı", "sql": REGION_BAD_SQL,
+                 "fields": [{"name": "region_group", "label": "Bölge Grubu"}, MONEY]}]})
+        if prev == "save_datasets" and not prev_ok:
+            return say("KPI veri kümesi kaydedildi; bölge kırılımı hatalı kolon nedeniyle kaydedilemedi. Düzeltip yıllık trendle "
+                       "birlikte kaydedeyim mi?")
+        return say("Veri hazır.")
+
+    # tasarım
+    if "varsayılan" in u:
+        return call("create_report_spec", {"spec": detail_spec(bad=True)})        # bilinmeyen kolon: reddedilmeli
+    if prev == "create_report_spec" and not prev_ok:
+        return call("create_report_spec", {"spec": detail_spec(bad=False)})
+    if "bayi türü" in u and "filtre" in u:
+        return call("update_report", {"filters": [*DETAIL_FILTERS, {"id": "f_type", "label": "Bayi Türü", "table": "dbo.DimReseller",
+                                                                    "column": "BusinessType"}]})
+    if "bayi türü" in u:
+        return call("add_dataset", {"id": "by_type", "description": "Bayi türü kırılımı", "sql": TYPE_SQL,
+                                    "fields": [{"name": "business_type", "label": "Bayi Türü"}, MONEY]})
+    if prev == "add_dataset" and prev_ok:
+        return call("add_visual", {"visual": {"id": "d_type", "type": "bar", "title": "Bayi Türüne Göre", "datasetId": "by_type",
+                                              "encoding": {"x": "business_type", "y": ["sales_amount"]}}})
+    if prev:
+        return say("İsteğiniz işlendi; sonucu sağdaki panelde görebilirsiniz.")
+    return say("Veriler hazır: kpi, region ve yearly veri kümeleri. Nasıl bir tasarım istersiniz? Tarif edebilir ya da "
+               "'varsayılan tasarımla başla' diyebilirsiniz.")
+
+
 def decide(messages: list[dict]) -> dict:
+    if is_detail(messages):
+        return decide_detail(messages)
     phase, tools, last = phase_of(messages), done_tools(messages), messages[-1]
     user = last_user(messages)
     if phase == "requirements":

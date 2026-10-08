@@ -403,6 +403,9 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
             known.setdefault(d.id, d)
     # Model dataset'leri tekrar yazmak zorunda değil: visual'larda kullanılanları session'dan ekle.
     visuals = [v for v in raw.get("visuals") or [] if isinstance(v, dict)]
+    for v in visuals:   # metin görseli: model boş datasetId ("") yazabiliyor
+        if not v.get("datasetId"):
+            v.pop("datasetId", None)
     wanted = {d.get("id") for d in raw.get("datasets") or [] if isinstance(d, dict)}
     wanted |= {v.get("datasetId") for v in visuals}
     wanted |= {(v.get("options") or {}).get("sparklineDatasetId") for v in visuals if isinstance(v.get("options"), dict)}
@@ -430,7 +433,7 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
                      "border": "#1f2a44"}.items():
             raw["theme"].setdefault(k, v)
     notes = _layout_visuals([v for v in raw.get("visuals") or [] if isinstance(v, dict)], raw.get("pages")) \
-        + _resolve_filters(ctx, raw)         + _fix_axes(raw)
+        + _resolve_filters(ctx, raw)         + _fix_axes(raw) + _chart_rules(ctx, raw)
     if ignored:
         notes.insert(0, f"{_IGNORED}: {', '.join(ignored[:12])}. Bu alanlar şemada yok ve UYGULANMADI. "
                         "Görsel stil için yalnız options.color / background / textColor / valueSize / accentBar (kpi) "
@@ -609,6 +612,124 @@ def _filter_errors(ctx: ToolContext, spec: ReportSpec) -> list[str]:
     return errs
 
 
+# ---------------------------------------------------------------- grafik türü kuralları
+# Seçim kuralları (talimatta da var; burada veri profiline göre UYGULANIR):
+#   pasta / halka en çok PIE_MAX dilim ve yalnız pozitif değer → aksi halde sıralı yatay çubuk;
+#   çubukta çok kategori (>6) ya da uzun etiket → yatay; >BAR_MAX kategori → ilk 15 (büyükten küçüğe);
+#   çizgi / alan zaman ekseni ister; çok seride (>6) okunabilirlik uyarısı; gösterge hedef ister; dağılım iki sayı ister.
+PIE_MAX, BAR_MAX, SERIES_MAX, LABEL_LONG = 8, 20, 6, 14
+_TOP_N = re.compile(r"(?:\b(?:ilk|top)\s*|\ben\s+(?:çok|fazla|yüksek|iyi|büyük|düşük|az)\b\D{0,25}?)(\d{1,3})\b", re.I)
+_TIME_NAME = re.compile(r"(date|tarih|month|year|yil|yıl|donem|dönem|period|week|hafta|quarter|ceyrek|çeyrek|(^|_)ay($|_)|gun|gün)", re.I)
+_TIME_VALUE = re.compile(r"^\d{4}([-/.]\d{1,2}([-/.]\d{1,2})?)?([ T].*)?$|^\d{4}\s*[-/ ]?\s*[QÇ]\d$|^\d{1,2}[-/.]\d{4}$", re.I)
+
+
+def _chart_rules(ctx: ToolContext, raw: dict[str, Any]) -> list[str]:
+    notes: list[str] = []
+    profiles = ctx.session.dataset_profiles
+    for v in raw.get("visuals") or []:
+        if not isinstance(v, dict):
+            continue
+        cols = (profiles.get(v.get("datasetId")) or {}).get("columns") or {}
+        if not cols:
+            continue
+        typ, vid = v.get("type"), v.get("id")
+        enc = v.get("encoding") if isinstance(v.get("encoding"), dict) else {}
+        opts = v.setdefault("options", {}) if isinstance(v.get("options"), dict) or v.get("options") is None else {}
+        ys = enc.get("y") if isinstance(enc.get("y"), list) else ([enc["y"]] if enc.get("y") else [])
+
+        def info(c: Any) -> dict[str, Any]:
+            return cols.get(c) or {} if isinstance(c, str) else {}
+
+        def is_time(c: Any) -> bool:
+            i = info(c)
+            return i.get("type") == "date" or bool(isinstance(c, str) and _TIME_NAME.search(c)) \
+                or bool(i.get("top")) and all(_TIME_VALUE.match(str(t)) for t in i["top"])
+
+        def long_labels(c: Any) -> bool:
+            return any(len(str(t)) > LABEL_LONG for t in info(c).get("top") or [])
+
+        if typ in ("pie", "donut"):
+            cat, val = enc.get("category") or enc.get("x"), enc.get("value") or (ys[0] if ys else None)
+            n, neg = info(cat).get("distinct") or 0, (info(val).get("min") or 0) < 0
+            if cat and val and (n > PIE_MAX or neg):
+                v["type"] = "bar"
+                v["encoding"] = {**enc, "x": cat, "y": [val], "category": None, "value": None}
+                opts.update(horizontal=True, sort="desc")
+                why = f"{n} dilim okunmaz (en çok {PIE_MAX})" if n > PIE_MAX else "negatif değerler pasta / halkada gösterilemez"
+                notes.append(f"KURAL '{vid}': {why}; sıralı yatay çubuk grafiğe çevrildi. Kullanıcıya bunu söyle.")
+            continue
+        x = enc.get("x")
+        n = info(x).get("distinct") or 0
+        if typ == "bar" and x and not is_time(x):
+            if opts.get("horizontal") is None and (n > 6 or long_labels(x)):
+                opts["horizontal"] = True
+                notes.append(f"KURAL '{vid}': {n} kategori / uzun etiket → yatay çubuk.")
+            if n > BAR_MAX and not opts.get("limit"):
+                opts.update(limit=15, sort=opts.get("sort") or "desc")
+                notes.append(f"KURAL '{vid}': {n} kategori çok fazla; en büyük 15 gösteriliyor (tamamı için tablo önerilir).")
+        top_n = _TOP_N.search(str(v.get("title") or ""))
+        if typ in ("table", "bar") and top_n and not opts.get("limit") and not (x and is_time(x)):
+            # başlık "En Çok Satan 10 Ürün" diyor ama limit / sort verilmemiş: model "10 ürün sıralı" diye anlatıyordu
+            opts.update(limit=int(top_n.group(1)), sort=opts.get("sort") or "desc")
+            notes.append(f"KURAL '{vid}': başlıktaki 'ilk {top_n.group(1)}' için limit={top_n.group(1)} ve büyükten küçüğe sıralama verildi.")
+        if typ in ("bar", "line", "area", "combo") and x and is_time(x) and opts.get("sort"):
+            opts["sort"] = None
+            notes.append(f"KURAL '{vid}': zaman ekseni ({x}) değere göre sıralanmaz; sıralama kaldırıldı (dönemler sırasıyla).")
+        if typ in ("line", "area") and x and not is_time(x):
+            notes.append(f"KURAL '{vid}': x ekseni ({x}) zaman değil; çizgi / alan zaman trendi içindir, kategori "
+                         "karşılaştırması için bar kullan.")
+        if enc.get("series") and (info(enc["series"]).get("distinct") or 0) > SERIES_MAX:
+            notes.append(f"KURAL '{vid}': {info(enc['series'])['distinct']} seri okunmaz (en çok {SERIES_MAX}); seri "
+                         "sayısını azalt ya da bar / tablo kullan.")
+        fmts = {f.get("name"): f.get("format") or f.get("type") for d in raw.get("datasets") or [] if d.get("id") == v.get("datasetId")
+                for f in d.get("fields") or []}
+        if opts.get("stacked") and not enc.get("series") and len(ys) >= 2 and len({fmts.get(y) for y in ys}) > 1:
+            opts["stacked"] = None
+            notes.append(f"KURAL '{vid}': farklı birimdeki ölçüler ({', '.join(ys)}) üst üste yığılmaz; yığma kaldırıldı "
+                         "(tutar + adet için combo kullan).")
+        if typ == "combo" and len(ys) < 2:
+            notes.append(f"KURAL '{vid}': combo iki ölçü içindir (ör. tutar + adet); tek ölçüde line / bar kullan.")
+        if typ == "gauge" and opts.get("target") is None:
+            notes.append(f"KURAL '{vid}': gösterge (gauge) hedef değer ister (options.target); hedef yoksa kpi kullan.")
+        if typ == "scatter" and (info(x).get("type") != "number" or not ys or info(ys[0]).get("type") != "number"):
+            notes.append(f"KURAL '{vid}': dağılım (scatter) iki sayısal ölçü ister (x ve y); kategori için bar kullan.")
+    return notes
+
+
+_PART_TYPES = ("pie", "donut", "funnel", "treemap")
+
+
+def _normalize_encoding(typ: Any, enc: dict[str, Any], ys: list[str], types: dict[str, Any]) -> str:
+    """Küçük modeller her türe x / y yazıyor (huni, ısı haritası, pasta category / value ister): alanlar türün beklediği
+    yere taşınır. Aksi halde araç aynı hatayla tekrar tekrar reddediliyor ve model döngüye giriyordu."""
+    done = []
+    if typ in _PART_TYPES:
+        if not enc.get("category") and enc.get("x"):
+            enc["category"], enc["x"] = enc["x"], None
+            done.append(f"x→category={enc['category']}")
+        if not enc.get("value") and ys:
+            enc["value"], enc["y"] = ys[0], None
+            done.append(f"y→value={enc['value']}")
+    elif typ == "heatmap":
+        nums = [y for y in ys if types.get(y) == "number"]
+        cats = [y for y in ys if y not in nums]
+        if not enc.get("category") and cats:
+            enc["category"] = cats[0]
+            done.append(f"y→category={cats[0]}")
+        elif not enc.get("category") and enc.get("series"):
+            enc["category"], enc["series"] = enc["series"], None
+            done.append(f"series→category={enc['category']}")
+        if not enc.get("value") and nums:
+            enc["value"] = nums[0]
+            done.append(f"y→value={nums[0]}")
+        if done:
+            enc["y"] = None
+    elif typ in ("kpi", "gauge") and not enc.get("value") and ys:
+        enc["value"] = ys[0]
+        done.append(f"y→value={ys[0]}")
+    return ", ".join(done)
+
+
 def _fix_axes(raw: dict[str, Any]) -> list[str]:
     """Ters verilmiş eksenleri ve anlamsız alan eşleşmelerini düzeltir (küçük modellerin tipik hataları)."""
     types = {d.get("id"): {f.get("name"): f.get("type") for f in d.get("fields") or []} for d in raw.get("datasets") or []}
@@ -618,6 +739,11 @@ def _fix_axes(raw: dict[str, Any]) -> list[str]:
             continue
         t, enc = types.get(v.get("datasetId"), {}), v.get("encoding") or {}
         ys = enc.get("y") if isinstance(enc.get("y"), list) else ([enc["y"]] if enc.get("y") else [])
+        moved = _normalize_encoding(v.get("type"), enc, ys, t)
+        if moved:
+            v["encoding"] = enc
+            ys = enc.get("y") or []
+            notes.append(f"'{v.get('id')}': {v.get('type')} için alanlar yerleştirildi ({moved}).")
         opts = v.get("options") if isinstance(v.get("options"), dict) else {}
         if enc.get("series") and (enc["series"] in ys or t.get(enc["series"]) == "number"):
             notes.append(f"'{v.get('id')}': series='{enc['series']}' bir ölçü alanı; seri ayrımı kaldırıldı.")
@@ -675,8 +801,33 @@ def _usable(ctx: ToolContext):
 SEARCH_LIMIT_BEFORE_MODEL = 6   # veri fazında model önerisinden önce en çok bu kadar sözlük araması
 
 
+def _session_id_hint(ctx: ToolContext, *texts: Any) -> str | None:
+    """Tasarım fazında model kayıtlı dataset / görsel kimliklerini (channel_monthly, kpi_sales) veritabanı tablosu sanıp
+    sözlükte / SQL'de arıyor ve döngüye giriyordu: bu kimlikler yakalanır, model doğru araca yönlendirilir."""
+    s = ctx.session
+    if s.phase != "design":
+        return None
+    hay = " ".join(str(t) for t in texts if t).lower().replace("[", " ").replace("]", " ")
+    words = " " + re.sub(r"[^0-9a-zçğıöşü_]+", " ", hay).replace("dbo ", " ") + " "
+    loose = words.replace("_", " ")
+    def hit(i: str) -> bool:
+        return f" {i.lower()} " in words or (" " in i.replace("_", " ") and f" {i.lower().replace('_', ' ')} " in loose)
+    ds = next((d for d in s.datasets if hit(d.id)), None)
+    if ds:
+        return (f"'{ds.id}' veritabanı tablosu DEĞİL: bu raporda kayıtlı bir DATASET (alanlar: "
+                f"{', '.join(f.name for f in ds.fields)}). Sözlükte / SQL'de arama yapma; doğrudan add_visual / update_visual "
+                f"içinde datasetId='{ds.id}' olarak kullan.")
+    vis = next((v for v in (s.spec.visuals if s.spec else []) if hit(v.id)), None)
+    if vis:
+        return (f"'{vis.id}' bir GÖRSEL kimliği ({vis.type}, '{vis.title}'); veri araması gerekmez. Değiştirmek için "
+                f"update_visual (id='{vis.id}') kullan.")
+    return None
+
+
 def h_search_dictionary(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     q = str(a.get("query") or "")
+    if (hint := _session_id_hint(ctx, q)):
+        return ToolResult(False, {"error": hint}, "Bu bir dataset / görsel kimliği")
     s = ctx.session
     mem = s.phase_memory
     # yerel modeller "2–4 arama yeterli" talimatına rağmen aramayı sürdürebiliyor: veri fazında, model önerisi
@@ -716,6 +867,8 @@ def h_get_table_details(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     names = a.get("tables") or ([a["table"]] if a.get("table") else [])
     if isinstance(names, str):
         names = [names]
+    if (hint := _session_id_hint(ctx, *names)):
+        return ToolResult(False, {"error": hint}, "Bu bir dataset / görsel kimliği")
     pol = ctx.services.policy(ctx.session.user_role)
     ok = _usable(ctx)
     out, missing = [], []
@@ -752,6 +905,8 @@ def h_discover_object(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
         names = [names]
     if not names:
         return ToolResult(False, {"error": "objects listesi gerekli (ör. ['dbo.FactResellerSales'])."}, "Nesne adı yok")
+    if (hint := _session_id_hint(ctx, *names)):
+        return ToolResult(False, {"error": hint}, "Bu bir dataset / görsel kimliği")
     if ctx.services.connector.dialect != "tsql":
         return ToolResult(False, {"error": "Nesne keşfi yalnız SQL Server'da çalışır; get_table_details kullanın."}, "Desteklenmiyor")
     dd = ctx.services.dictionary
@@ -877,6 +1032,8 @@ def h_run_sql(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     sql = str(a.get("sql") or "")
     res, errors, _, warnings = _run_validated(ctx, sql, ctx.services.settings.preview_rows)
     if errors or res is None:
+        if (hint := _session_id_hint(ctx, sql)):
+            return ToolResult(False, {"ok": False, "errors": errors[:1], "hint": hint}, "Bu bir dataset / görsel kimliği")
         return ToolResult(False, {"ok": False, "errors": errors, "hint": "Hatayı düzeltip tekrar deneyin."},
                           "SQL reddedildi / hata: " + errors[0][:80])
     out = {"ok": True, "profile": profile(res), "rows": _rows_preview(res, 20), "elapsed_ms": res.elapsed_ms}
@@ -1022,19 +1179,42 @@ def _require_spec(ctx: ToolContext) -> ToolResult | None:
 def h_update_visual(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     if (r := _require_spec(ctx)):
         return r
-    vid, changes = a.get("id"), a.get("changes") or {}
+    changes = a.get("changes") or {}
+    # "tüm KPI kartları" gibi isteklerde aynı değişiklik birden çok görsele: ids (model tek tek çağırmayı unutuyordu)
+    ids = [str(x) for x in (a.get("ids") or []) if x] or [a.get("id")]
     base = ctx.session.spec.model_dump(exclude_none=True)
-    idx = next((i for i, v in enumerate(base["visuals"]) if v["id"] == vid), None)
-    if idx is None:
-        return ToolResult(False, {"error": f"Visual '{vid}' yok. Mevcut: {[v['id'] for v in base['visuals']]}"}, "Visual yok")
-    if "type" in changes and changes["type"] != base["visuals"][idx]["type"]:
-        # tip değişince tipe özgü eski encoding'ler kafa karıştırmasın
-        changes.setdefault("encoding", {})
-    base["visuals"][idx] = _deep_merge(base["visuals"][idx], changes)
+    missing = [i for i in ids if not any(v["id"] == i for v in base["visuals"])]
+    if missing:
+        return ToolResult(False, {"error": f"Visual {missing} yok. Mevcut: {[v['id'] for v in base['visuals']]}"}, "Visual yok")
+    for vid in ids:
+        idx = next(i for i, v in enumerate(base["visuals"]) if v["id"] == vid)
+        ch = copy.deepcopy(changes)
+        if "type" in ch and ch["type"] != base["visuals"][idx]["type"]:
+            # tip değişince tipe özgü eski encoding'ler kafa karıştırmasın
+            ch.setdefault("encoding", {})
+        base["visuals"][idx] = _deep_merge(base["visuals"][idx], ch)
     spec, errs, notes = _validate_spec(ctx, base)
     if errs:
         return ToolResult(False, {"ok": False, "errors": errs}, "Güncelleme geçersiz")
-    return _spec_ok(ctx, spec, notes, f"'{vid}' güncellendi")
+    prev = ctx.session.spec
+    if prev is not None and prev.model_dump() == spec.model_dump() and _has_supported(changes) \
+            and not any(n.startswith("KURAL") for n in notes):
+        # istenen (desteklenen) değişiklik zaten uygulanmış: başarısız deme — model "olmadı" sanıp aynı çağrıyı her turda
+        # tekrarlıyor ve sonraki istekleri de bozuyordu
+        ignored = [n for n in notes if n.startswith(_IGNORED)]
+        return ToolResult(True, {"ok": True, "unchanged": True, "note": (
+            f"Görsel(ler) ZATEN istenen durumda ({', '.join(ids)}); dashboard değişmedi çünkü değiştirilecek bir şey yoktu. "
+            "Bu çağrıyı TEKRARLAMA; kullanıcıya mevcut durumu söyle." + (" " + " ".join(ignored) if ignored else ""))},
+            f"Zaten uygulanmış — değişiklik yok ({', '.join(ids)})")
+    return _spec_ok(ctx, spec, notes, f"'{', '.join(ids)}' güncellendi")
+
+
+def _has_supported(changes: dict[str, Any]) -> bool:
+    """Değişiklikte şemada olan (uygulanabilir) en az bir alan var mı? (yalnız uydurma alan varsa False)"""
+    from app.spec.models import Visual, VisualOptions
+    top = {k for k in changes if k != "options" and k in Visual.model_fields}
+    opts = changes.get("options") if isinstance(changes.get("options"), dict) else {}
+    return bool(top or {k for k in opts if k in VisualOptions.model_fields})
 
 
 def h_add_visual(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
@@ -1075,20 +1255,41 @@ def h_add_page(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     pages = list(base.get("pages") or [])
     if not pages:   # tek sayfalı rapor: mevcut görseller ilk sayfa olur
         first = "genel" if pid != "genel" else "ozet"
-        pages = [{"id": first, "title": str(a.get("first_title") or "Genel Bakış")}]
+        # model yeni sayfanın adını first_title'a da yazabiliyor: iki sekme aynı adı taşımasın
+        first_title = str(a.get("first_title") or "").strip()
+        if not first_title or first_title.casefold() == (title or pid).casefold():
+            first_title = "Genel Bakış"
+        pages = [{"id": first, "title": first_title}]
         for v in base["visuals"]:
             v["page"] = first
     if any(p["id"] == pid for p in pages):
         return ToolResult(False, {"error": f"'{pid}' sayfası zaten var. Mevcut: {[p['id'] for p in pages]}"}, "Tekrarlanan sayfa")
     pages.append({"id": pid, "title": title or pid})
     base["pages"] = pages
+    existing = {v["id"] for v in base["visuals"]}
     for v in a.get("visuals") or []:   # isteğe bağlı: sayfanın görselleri birlikte
-        if isinstance(v, dict):
+        if isinstance(v, dict) and v.get("id") in existing:
+            a.setdefault("move_visuals", []).append(v["id"])   # mevcut görselin tanımı verilmiş: taşıma sayılır
+        elif isinstance(v, dict):
             base["visuals"].append({**v, "page": pid})
+    # isteğe bağlı: mevcut görselleri yeni sayfaya taşı ("yeni sayfa ekle ve X'i oraya taşı" tek adımda)
+    # model taşınacak görselleri "visuals": ["product_table", …] diye de verebiliyor: metinler taşıma sayılır
+    move = [str(x) for x in [*(a.get("move_visuals") or []), *[x for x in (a.get("visuals") or []) if isinstance(x, str)]] if x]
+    unknown = [x for x in move if not any(v["id"] == x for v in base["visuals"])]
+    if unknown:
+        return ToolResult(False, {"error": f"Görsel bulunamadı: {unknown}. Mevcut: {[v['id'] for v in base['visuals']]}"},
+                          "Taşınacak görsel yok")
+    for v in base["visuals"]:
+        if v["id"] in move:
+            v["page"] = pid
     spec, errs, notes = _validate_spec(ctx, base)
     if errs:
         return ToolResult(False, {"ok": False, "errors": errs}, "Sayfa eklenemedi")
-    return _spec_ok(ctx, spec, notes, f"'{title or pid}' sayfası eklendi")
+    moved = f"; taşınan: {', '.join(move)}" if move else ""
+    if not move:
+        notes.append("Bu sayfaya hiçbir görsel taşınmadı. Kullanıcı görsel taşımak istediyse ŞİMDİ update_visual "
+                     "(ids=[...], changes={'page': '" + pid + "'}) çağır; taşımadan 'taşındı' deme.")
+    return _spec_ok(ctx, spec, notes, f"'{title or pid}' sayfası eklendi{moved}")
 
 
 def h_remove_page(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
@@ -1125,10 +1326,41 @@ def h_remove_page(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
 _MODE_COLORS = ("background", "surface", "text", "mutedText", "border")
 
 
+def _match_pages(current: list[dict[str, Any]], a: dict[str, Any]) -> str | None:
+    """update_report(pages): model sayfa kimliğini bilmeden yazabiliyor (ör. ilk sayfa 'genel' iken 'page1'). Aynı sayıda
+    sayfa verildiyse bilinmeyen kimlikler sıraya göre mevcut sayfalarla eşleştirilir (yeniden adlandırma / sıralama)."""
+    new = a.get("pages")
+    if not isinstance(new, list) or not current or len(new) != len(current):
+        return None
+    ids = {p["id"] for p in current}
+    fixed = []
+    for i, p in enumerate(new):
+        if isinstance(p, dict) and p.get("id") not in ids and current[i]["id"] not in {q.get("id") for q in new if isinstance(q, dict)}:
+            fixed.append(f"{p.get('id')}→{current[i]['id']}")
+            p["id"] = current[i]["id"]
+    return f"Sayfa kimlikleri sıraya göre eşleştirildi ({', '.join(fixed)}); mevcut kimlikleri kullan." if fixed else None
+
+
+def _merge_pages(current: list[dict[str, Any]], a: dict[str, Any]) -> str | None:
+    """update_report(pages) listeyi değiştirir; model yalnız adını değiştireceği sayfayı yazınca diğer sayfalar sessizce
+    siliniyordu. Verilmeyen sayfalar korunur (sayfa silmek remove_page ile)."""
+    new = a.get("pages")
+    if not isinstance(new, list) or not current:
+        return None
+    given = {p.get("id") for p in new if isinstance(p, dict)}
+    kept = [p for p in current if p["id"] not in given]
+    if not kept:
+        return None
+    a["pages"] = [*new, *kept]
+    return (f"Listede olmayan sayfalar korundu ({', '.join(p['title'] for p in kept)}); sayfa silmek için remove_page kullan.")
+
+
 def h_update_report(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     if (r := _require_spec(ctx)):
         return r
     base = ctx.session.spec.model_dump(exclude_none=True)
+    renamed = _match_pages(base.get("pages") or [], a)
+    kept = _merge_pages(base.get("pages") or [], a)
     for k in ("title", "subtitle", "filters", "layout", "pages"):
         if k in a:
             base[k] = _deep_merge(base.get(k) or {}, a[k]) if k == "layout" else a[k]
@@ -1141,6 +1373,7 @@ def h_update_report(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     spec, errs, notes = _validate_spec(ctx, base)
     if errs:
         return ToolResult(False, {"ok": False, "errors": errs}, "Güncelleme geçersiz")
+    notes += [n for n in (renamed, kept) if n]
     extra = sorted(set(a) - {"title", "subtitle", "filters", "layout", "pages", "theme"})
     if extra and not any(n.startswith(_IGNORED) for n in notes):
         notes.insert(0, f"{_IGNORED}: {', '.join(extra)}. update_report yalnız title, subtitle, filters, layout, pages, theme alır.")
@@ -1165,8 +1398,9 @@ _VISUAL = {
         "options": {"type": "object", "description": "stacked, horizontal, smooth, showLabels, showLegend, format(number|currency|percent|compact), "
                                                      "decimals, sort(asc|desc), limit, aggregate, deltaField (hazır değişim oranı kolonu), "
                                                      "compareField (kpi: önceki dönem değeri kolonu), deltaLabel, "
-                                                     "sparklineDatasetId, sparklineField, target, text, color (hex; kpi'da değer+şerit rengi), "
-                                                     "KPI kart stili: background (hex kart zemini), textColor (hex), "
+                                                     "sparklineDatasetId, sparklineField, target, text, color (hex ya da renk adı; kpi'da değer+şerit rengi), "
+                                                     "KPI kart stili: background (kart zemini), textColor — kullanıcı renk ADI "
+                                                     "söylediyse (lacivert, mavi…) adı olduğu gibi yaz, sistem hex'e çevirir; "
                                                      "valueSize(sm|md|lg|xl), accentBar (true: solda renkli şerit). "
                                                      "Listede olmayan alan (ör. fontSize, labelPosition) DESTEKLENMEZ ve uygulanmaz; "
                                                      "ignoreFilters (true: görsel filtrelerden etkilenmez — YALNIZ kullanıcı "
@@ -1253,8 +1487,10 @@ TOOLS: list[Tool] = [
                             "layout": {"type": "object", "properties": {"rowHeight": {"type": "integer"}}},
                             "pages": _PAGES, "visuals": {"type": "array", "items": _VISUAL}}}}},
          ("design",), h_create_report_spec, status="Dashboard tasarlanıyor…"),
-    Tool("update_visual", "Tek bir görseli kısmi olarak günceller (tip, başlık, encoding, options, position). Sadece değişen alanları gönder; bir alanı silmek için null ver.",
-         {"type": "object", "required": ["id", "changes"], "properties": {"id": _STR, "changes": {"type": "object"}}},
+    Tool("update_visual", "Görseli kısmi olarak günceller (tip, başlık, encoding, options, position, page). Sadece değişen alanları "
+                          "gönder; bir alanı silmek için null ver. Aynı değişikliği birden çok görsele uygulamak için (ör. tüm KPI "
+                          "kartları) id yerine ids listesi ver.",
+         {"type": "object", "required": ["changes"], "properties": {"id": _STR, "ids": _STRS, "changes": {"type": "object"}}},
          ("design",), h_update_visual, status="Görsel güncelleniyor…"),
     Tool("add_visual", "Dashboard'a yeni görsel ekler.", {"type": "object", "required": ["visual"], "properties": {"visual": _VISUAL}},
          ("design",), h_add_visual, status="Görsel ekleniyor…"),
@@ -1272,10 +1508,11 @@ TOOLS: list[Tool] = [
          {"type": "object", "required": ["query"], "properties": {"query": {"type": "string", "description": "ör. bölge, şube, kanal"}}},
          ("design",), h_find_filter_column, status="Filtre alanı aranıyor…"),
     Tool("add_page", "Dashboard'a yeni sayfa (sekme) ekler; isteğe bağlı olarak görselleriyle birlikte. Rapor tek sayfalıysa "
-                     "mevcut görseller ilk sayfada ('Genel Bakış', first_title ile değiştirilebilir) kalır. Görselleri sonradan "
-                     "add_visual (page) ile ekleyebilir, update_visual (changes.page) ile sayfalar arasında taşıyabilirsin.",
+                     "mevcut görseller ilk sayfada ('Genel Bakış', first_title ile değiştirilebilir) kalır. Mevcut görselleri yeni sayfaya "
+                     "taşımak için move_visuals (görsel id listesi) ver; sonradan update_visual (changes.page) ile de taşınabilir.",
          {"type": "object", "required": ["id", "title"],
-          "properties": {"id": _STR, "title": _STR, "first_title": _STR, "visuals": {"type": "array", "items": _VISUAL}}},
+          "properties": {"id": _STR, "title": _STR, "first_title": _STR, "visuals": {"type": "array", "items": _VISUAL},
+                         "move_visuals": {"type": "array", "items": _STR}}},
          ("design",), h_add_page, status="Sayfa ekleniyor…"),
     Tool("remove_page", "Sayfayı siler. move_to verilirse görselleri o sayfaya taşınır, verilmezse görselleri de silinir.",
          {"type": "object", "required": ["id"], "properties": {"id": _STR, "move_to": _STR}},
