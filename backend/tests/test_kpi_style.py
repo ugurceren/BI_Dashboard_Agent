@@ -55,3 +55,15 @@ def test_bad_color_is_rejected(ctx):
 def test_unknown_theme_field_reported(ctx):
     r = h_update_report(ctx, {"theme": {"accent": "#7c3aed", "kpiGlow": True}})
     assert "theme.kpiGlow" in str(r.content)
+
+
+def test_update_report_mode_switch_resets_surface_colors(ctx):
+    """Açık temadaki rapor "koyu yap" isteğiyle gerçekten koyulaşır; tekrar açığa dönünce açık renkler gelir."""
+    r = h_update_report(ctx, {"theme": {"mode": "dark"}})
+    assert r.ok, r.content
+    t = ctx.session.spec.theme
+    assert t.mode == "dark" and t.background == "#0b1220" and t.text == "#e5e7eb"
+    r = h_update_report(ctx, {"theme": {"mode": "light", "background": "#fafafa"}})
+    assert r.ok, r.content
+    t = ctx.session.spec.theme
+    assert t.background == "#fafafa" and t.text == "#0f172a" and t.surface == "#ffffff"

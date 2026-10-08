@@ -34,6 +34,7 @@ npx playwright install chromium
 | `e2e/query.spec.ts` | Sorgu Çalıştır: nesne ağacı ve arama, SELECT ve sonuç tablosu, Ctrl+Enter, yazma sorgusu reddi, kişisel veri kontrolü, "ilk 100 satır" |
 | `e2e/dashboard.spec.ts` | Sohbetle dashboard: İhtiyaç → Veri (tablo ve ilişki önerisi, **onay olmadan kayıt yok**) → rapora özel ilişki → SQL / dataset → Tasarım → 4 görsel gerçek veriyle → Bölge Grubu filtresi KPI'yı değiştirir → HTML dışa aktarma → Canlı görünüm → "KPI'yı yeşil yap" |
 | `e2e/demo.spec.ts` | LLM'siz: demo dashboard, görselden çapraz filtre, temizle |
+| `e2e/design.spec.ts` | Dashboard tasarımı: 14 görsel türünün hepsi gerçek veriyle ve tablo görünümüyle, geniş / dar ekranda ve ekleme / silme sonrası görseller üst üste binmez, sayfa sekmeleri (her sayfa üstten başlar, filtre korunur, Canlı ve HTML), Spec sekmesi (hatalı JSON, şemaya aykırı spec, ızgaraya sığdırma, Ctrl+S), koyu tema, KPI zemininde okunur yazı, Türkçe sayı biçimleri; sohbetle düzenleme: grafik türü, yeni sayfa ve taşıma, koyu tema, desteklenmeyen stil alanı bildirilir, KPI kart stili, görsel kaldırma. Her testte tarayıcı konsol hatası testi düşürür |
 | `e2e/vitrin.spec.ts` | Sunucu modu: kimliksiz 401 → admin rol atar → tasarımcı yayınlar ve **Satis** grubuyla paylaşır → izleyici yalnız Vitrin'i görür, raporu SQL'siz ve kendi yetkisiyle açar, tasarım adresine gidemez → grupta olmayan göremez → denetim kaydı |
 | `e2e/llm-smoke.spec.ts` | (`npm run e2e:llm`) gerçek LLM ile ihtiyaçtan model onayına |
 

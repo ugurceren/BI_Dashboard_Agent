@@ -1,7 +1,6 @@
 // Dashboard oluşturma: sohbetle İhtiyaç → Veri (model onayı) → Tasarım → dashboard → filtre → HTML → Canlı → stil değişikliği.
 // LLM senaryolu sahte sunucudur (e2e/fake_llm.py); araçlar, SQL doğrulaması ve veritabanı (AdventureWorksDW) gerçektir.
-import { expect, test } from "@playwright/test";
-import { chat, expectTool, newReport, visual } from "./fixtures";
+import { expect, test, chat, expectTool, newReport, visual } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
 

@@ -1,6 +1,5 @@
 // LLM'siz hızlı yol: demo dashboard yükle → görseller gerçek veriyle çizilir → dilimleyici ve görselden çapraz filtre.
-import { expect, test } from "@playwright/test";
-import { newReport, visual } from "./fixtures";
+import { expect, test, newReport, visual } from "./fixtures";
 
 test("demo dashboard yüklenir, dilimleyici ve çapraz filtre çalışır", async ({ page }) => {
   await newReport(page);

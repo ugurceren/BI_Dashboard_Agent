@@ -1,8 +1,7 @@
 // Gerçek LLM duman testi (isteğe bağlı): npm run e2e:llm — bu bilgisayarın Bağlantı Ayarları'ndaki LLM ile (ör. Spark).
 // Model yanıtları her seferinde farklı olabileceği için metin karşılaştırılmaz; yalnız akışın ilerlediği kontrol edilir:
 // ihtiyaç kaydedilir, veri fazına geçilir, agent tabloları ve ilişki önerisini sunup onay ister (SQL yazmadan önce).
-import { expect, test } from "@playwright/test";
-import { chat, newReport } from "./fixtures";
+import { expect, test, chat, newReport } from "./fixtures";
 
 test("@llm gerçek LLM: ihtiyaçtan model onayına", async ({ page }) => {
   test.setTimeout(900_000);

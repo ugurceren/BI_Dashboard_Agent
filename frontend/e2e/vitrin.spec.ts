@@ -1,7 +1,6 @@
 // Sunucu modu (PLATFORM_MODE=server): kimlik ters proxy başlığından (X-Remote-User / X-Remote-Groups).
 // Admin rol atar → tasarımcı rapor yayınlar ve grupla paylaşır → izleyici Vitrin'de görür → grupta olmayan göremez → denetim kaydı.
-import { expect, test } from "@playwright/test";
-import { asUser, visual } from "./fixtures";
+import { expect, test, asUser, visual } from "./fixtures";
 
 const BASE = "http://127.0.0.1:8092";
 test.describe.configure({ mode: "serial" });
@@ -90,5 +89,8 @@ test("admin → tasarımcı → izleyici: yayın, paylaşım ve yetki", async ({
     await expect(rows).toContainText("KURUM\\veli");
   });
 
-  for (const u of [admin, ali, veli, ayse]) await u.ctx.close();
+  for (const u of [admin, ali, veli, ayse]) {
+    expect(u.errors, "kullanıcı sayfasında konsol hatası").toEqual([]);
+    await u.ctx.close();
+  }
 });

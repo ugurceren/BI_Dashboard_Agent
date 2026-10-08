@@ -98,7 +98,29 @@ def decide(messages: list[dict]) -> dict:
                  "fields": [{"name": "sales_month", "label": "Ay"}, {"name": "sales_amount", "label": "Satış Tutarı", "format": "currency"}]}]})
         return say("Veri hazır.")
 
-    # tasarım
+    # tasarım — düzenleme senaryoları: son kullanıcı mesajındaki anahtar kelimeye göre (demo dashboard üzerinde)
+    if last.get("role") == "user":
+        u = user.lower()
+        if "halka" in u:
+            return call("update_visual", {"id": "country_bar", "changes": {
+                "type": "donut", "encoding": {"category": "territory_group", "value": "sales_amount", "x": None, "y": None}}})
+        if "taşı" in u:      # "yeni sayfaya taşı" da "yeni sayfa" içerir: önce taşıma
+            return call("update_visual", {"id": "product_table", "changes": {"page": "detay"}})
+        if "yeni sayfa" in u:
+            return call("add_page", {"id": "detay", "title": "Ürün Detayı", "first_title": "Özet"})
+        if "koyu" in u:
+            return call("update_report", {"theme": {"mode": "dark"}})
+        if "fontsize" in u:      # desteklenmeyen alan: uygulanmamalı, model "yaptım" diyememeli
+            return call("update_visual", {"id": "kpi_sales", "changes": {"options": {"fontSize": 40, "valueColor": "#ff0000"}}})
+        if "karışık" in u:      # desteklenen + desteklenmeyen
+            return call("update_visual", {"id": "kpi_sales", "changes": {"options": {"color": "#dc2626", "labelPosition": "top"}}})
+        if "lacivert" in u:
+            return call("update_visual", {"id": "kpi_orders", "changes": {"options": {"background": "#0f172a", "valueSize": "xl"}}})
+        if "kaldır" in u:
+            return call("remove_visual", {"ids": ["kpi_customers"]})
+    if last.get("role") == "tool" and tools and tools[-1] in ("add_page", "update_report", "remove_visual") \
+            or (last.get("role") == "tool" and tools and tools[-1] == "update_visual" and "yeşil" not in user.lower()):
+        return say("İsteğiniz işlendi; sonucu sağdaki panelde görebilirsiniz.")
     if "create_report_spec" not in tools:
         return call("create_report_spec", {"spec": SPEC})
     if "yeşil" in user.lower() and "update_visual" not in tools:

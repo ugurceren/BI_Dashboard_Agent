@@ -343,6 +343,19 @@ def _layout_visuals(visuals: list[dict[str, Any]], pages: list[dict[str, Any]] |
             x, y = nx, ny
         v["position"] = {"x": x, "y": y, "w": w, "h": h}
         place(x, y, w, h)
+
+    # sıkıştırma: her sayfada tamamen boş satırlar kaldırılır (görsel başka sayfaya taşındığında ya da silindiğinde
+    # sayfanın üstünde / arasında boşluk kalmasın); görsellerin birbirine göre düzeni korunur
+    for pg in grids:
+        on_page = [v for v in visuals if (v.get("page") if v.get("page") in page_ids else (page_ids[0] if page_ids else None)) == pg]
+        used = {y for v in on_page for y in range(v["position"]["y"], v["position"]["y"] + v["position"]["h"])}
+        if not used:
+            continue
+        empty = sorted(set(range(max(used))) - used)
+        if not empty:
+            continue
+        for v in on_page:
+            v["position"]["y"] -= sum(1 for e in empty if e < v["position"]["y"])
     return notes
 
 
@@ -1109,6 +1122,9 @@ def h_remove_page(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     return _spec_ok(ctx, spec, notes, f"'{pid}' sayfası silindi")
 
 
+_MODE_COLORS = ("background", "surface", "text", "mutedText", "border")
+
+
 def h_update_report(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     if (r := _require_spec(ctx)):
         return r
@@ -1117,7 +1133,11 @@ def h_update_report(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
         if k in a:
             base[k] = _deep_merge(base.get(k) or {}, a[k]) if k == "layout" else a[k]
     if isinstance(a.get("theme"), dict):
-        base["theme"] = _deep_merge(base.get("theme") or Theme().model_dump(), a["theme"])
+        old = base.get("theme") or Theme().model_dump()
+        if a["theme"].get("mode") and a["theme"]["mode"] != old.get("mode"):
+            # Mod değişti: verilmeyen zemin / yazı renkleri eski moddan kalmasın, yeni modun varsayılanları gelsin
+            old = {k: v for k, v in old.items() if k not in _MODE_COLORS or k in a["theme"]}
+        base["theme"] = _deep_merge(old, a["theme"])
     spec, errs, notes = _validate_spec(ctx, base)
     if errs:
         return ToolResult(False, {"ok": False, "errors": errs}, "Güncelleme geçersiz")

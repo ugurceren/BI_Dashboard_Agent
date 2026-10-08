@@ -1,6 +1,5 @@
 // Sorgu Çalıştır: yetkili nesne ağacı, SQL editörü, çalıştırma, doğrulama kuralları (salt-okunur, kişisel veri).
-import { expect, test } from "@playwright/test";
-import { setSql } from "./fixtures";
+import { expect, test, setSql } from "./fixtures";
 
 test.describe("Sorgu Çalıştır", () => {
   test.beforeEach(async ({ page }) => {

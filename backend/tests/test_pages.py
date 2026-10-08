@@ -73,3 +73,17 @@ def test_unknown_page_and_overlap_per_page():
 def test_design_tools_include_pages():
     names = {t.name for t in tools_for("design")}
     assert {"add_page", "remove_page"} <= names
+
+
+def test_moved_or_removed_visual_leaves_no_gap(ctx):
+    """Başka sayfaya taşınan görsel o sayfanın en üstüne yerleşir; kalan sayfada boş satır kalmaz."""
+    from app.harness.tools import h_remove_visual
+    assert h_add_page(ctx, {"id": "detay", "title": "Detay"}).ok
+    assert h_update_visual(ctx, {"id": "r1", "changes": {"page": "detay"}}).ok
+    spec = ctx.session.spec
+    assert next(v for v in spec.visuals if v.id == "r1").position.y == 0          # yeni sayfanın en üstü
+    assert h_add_visual(ctx, {"visual": {"id": "k2", "type": "kpi", "title": "İkinci", "datasetId": "kpi",
+                                         "encoding": {"value": "amount"}, "position": {"x": 0, "y": 6, "w": 3, "h": 2}}}).ok
+    assert h_remove_visual(ctx, {"ids": ["k1"]}).ok
+    k2 = next(v for v in ctx.session.spec.visuals if v.id == "k2")
+    assert k2.position.y == 0                                                        # üstteki boşluk kapandı
