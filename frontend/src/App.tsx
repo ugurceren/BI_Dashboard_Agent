@@ -198,6 +198,12 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
+  // izleyici uygulama içinde bir tasarım adresine giderse (#/envanter, #/r/…, #/query …) Vitrin'e döner
+  useEffect(() => {
+    if (me?.capabilities && !me.capabilities.design && !["vitrin", "vitrin-report"].includes(route.view)) {
+      window.location.hash = "#/vitrin";
+    }
+  }, [me, route.view]);
 
   useEffect(() => {
     const onHash = () => setRoute(parseRoute());

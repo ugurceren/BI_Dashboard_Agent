@@ -54,11 +54,15 @@ class ToolCall:
     parse_error: str | None = None
 
 
+TRUNCATED_NOTE = "\n\n_(Yanıt uzunluk sınırında kesildi.)_"
+
+
 @dataclass
 class AssistantTurn:
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
+    truncated: bool = False          # çıktı sınırında kesildi (finish_reason = length)
 
     def to_message(self) -> dict[str, Any]:
         msg: dict[str, Any] = {"role": "assistant", "content": self.content or ""}
@@ -212,8 +216,31 @@ class LLMGateway:
             log.info("LM Studio model bilgisi alınamadı: %s", e)
         return None
 
+    def max_output_tokens(self) -> int | None:
+        """Yanıt token sınırı: ayar (LLM_MAX_TOKENS / Bağlantı Ayarları) > 0 ise o. Değilse None: istekte sınır
+        gönderilmez, modelin / sunucunun kendi sınırı geçerlidir (yeni modellerde yüksek)."""
+        if self.s.llm_max_tokens and self.s.llm_max_tokens > 0:
+            return int(self.s.llm_max_tokens)
+        return None
+
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-             max_tokens: int | None = None) -> AssistantTurn:
+             max_tokens: int | None = None, _retried: bool = False) -> AssistantTurn:
+        turn = self._chat(messages, tools, max_tokens)
+        # Düşünen modeller (Qwen3 vb.) çıktı sınırının tamamını <think> bölümüne harcayıp görünür yanıt yazamayabilir:
+        # yanıt boş kesildiyse bir kez iki kat sınırla yeniden istenir (bağlam penceresinin dörtte birini aşmadan).
+        if turn.truncated and not turn.content.replace(TRUNCATED_NOTE.strip(), "").strip() and not turn.tool_calls and not _retried:
+            limit = max_tokens or self.max_output_tokens()
+            if not limit:               # sınır göndermedik: kesen sunucunun kendi sınırı, yeniden denemek anlamsız
+                return turn
+            ctx = self.context_window()
+            bigger = min(limit * 2, max(limit, (ctx // 4) if ctx else limit * 2))
+            if bigger > limit:
+                log.info("LLM yanıtı düşünme bölümünde kesildi; %d → %d token ile yeniden deneniyor", limit, bigger)
+                return self.chat(messages, tools, bigger, _retried=True)
+        return turn
+
+    def _chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
+              max_tokens: int | None = None) -> AssistantTurn:
         use_native = bool(tools) and self.tool_mode in ("auto", "native")
         try:
             if use_native:
@@ -224,7 +251,7 @@ class LLMGateway:
             if use_native and self.tool_mode == "auto" and _looks_like_tool_unsupported(e):
                 log.warning("Sunucu native tool calling desteklemiyor, prompt moduna geçiliyor: %s", e)
                 self.tool_mode = "prompt"
-                return self.chat(messages, tools, max_tokens)
+                return self._chat(messages, tools, max_tokens)
             text = _err_text(e)
             ctx = _CTX_RE.search(text)
             if ctx or "context length" in text.lower() or "too long" in text.lower():
@@ -257,13 +284,16 @@ class LLMGateway:
         usage = {}
         if resp.usage:
             usage = {"prompt": resp.usage.prompt_tokens or 0, "completion": resp.usage.completion_tokens or 0}
-        if choice.finish_reason == "length" and not calls:
-            content += "\n\n_(Yanıt uzunluk sınırında kesildi.)_"
-        return AssistantTurn(content.strip(), calls, usage)
+        cut = choice.finish_reason == "length"
+        if cut and not calls:
+            content += TRUNCATED_NOTE
+        return AssistantTurn(content.strip(), calls, usage, truncated=cut)
 
     def _create(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, max_tokens: int | None = None):
-        kwargs: dict[str, Any] = dict(model=self.s.llm_model, messages=messages,
-                                      temperature=self.s.llm_temperature, max_tokens=max_tokens or self.s.llm_max_tokens)
+        kwargs: dict[str, Any] = dict(model=self.s.llm_model, messages=messages, temperature=self.s.llm_temperature)
+        limit = max_tokens or self.max_output_tokens()
+        if limit:                       # sınır yoksa gönderilmez: modelin kendi (yüksek) sınırı geçerli
+            kwargs["max_tokens"] = limit
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"

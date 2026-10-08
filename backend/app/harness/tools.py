@@ -510,7 +510,9 @@ def _filter_reach(ctx: ToolContext, table: str, column: str) -> tuple[list[str],
     s = ctx.session
     if not s.spec:
         return [], []
-    eng = ModelFilterEngine(ctx.services.dictionary, ctx.services.connector.dialect)
+    from app.dictionary.model_rels import report_relationships
+    eng = ModelFilterEngine(ctx.services.dictionary, ctx.services.connector.dialect,
+                            report_relationships(ctx.services.dictionary, s.model_relationships))
     datasets = {d.id: d for d in s.datasets}
     datasets.update({d.id: d for d in s.spec.datasets})
     key = f"{table}.{column}".lower()
@@ -657,10 +659,42 @@ def _usable(ctx: ToolContext):
     return lambda t: dd.usable(t) and not pol.denial_reason(t.name)
 
 
+SEARCH_LIMIT_BEFORE_MODEL = 6   # veri fazında model önerisinden önce en çok bu kadar sözlük araması
+
+
 def h_search_dictionary(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     q = str(a.get("query") or "")
+    s = ctx.session
+    mem = s.phase_memory
+    # yerel modeller "2–4 arama yeterli" talimatına rağmen aramayı sürdürebiliyor: veri fazında, model önerisi
+    # (propose_model) yapılmadan sınır aşılırsa arama yerine bulunan aday tablolarla öneriye yönlendirilir
+    if s.phase == "data" and s.model_proposal_at is None and mem.get("searches", 0) >= SEARCH_LIMIT_BEFORE_MODEL:
+        # uyarı yetmiyor (model aramayı sürdürebiliyor): sistem, bulunan aday tablolarla öneriyi kendisi hazırlar
+        seen = mem.get("seen_tables", [])[:5]
+        if seen:
+            prop = h_propose_model(ctx, {"tables": seen})
+            if prop.ok:
+                return ToolResult(True, {**prop.content, "note": (
+                    f"ARAMA SINIRI ({SEARCH_LIMIT_BEFORE_MODEL}): yeni arama yapılmadı; sistem, bulduğun aday tablolarla model "
+                    "önerisini hazırladı (aşağıda). Başka arama YAPMA: bu tabloları ve ilişkileri kullanıcıya özetle, eksik / fazla "
+                    "tablo varsa sor ve onay iste.")},
+                    f"Arama sınırı: sistem model önerisini hazırladı ({len(seen)} tablo)")
+        return ToolResult(False, {"error": f"ARAMA SINIRI: bu fazda {SEARCH_LIMIT_BEFORE_MODEL} arama yapıldı. Yeni arama YAPMA; "
+                                           "ŞİMDİ propose_model çağır ve kullanıcıya tabloları sor.",
+                                  "candidate_tables": seen}, "Arama sınırı: model önerisine geç")
+    if s.phase == "data" and s.model_proposal_at is not None \
+            and not any(t.role == "user" for t in s.transcript[s.model_proposal_at:]):
+        # öneri sunuldu, kullanıcı henüz yanıtlamadı: arama yerine onay sorulmalı (SQL'den önce onay kuralı)
+        mem["ask_refusals"] = mem.get("ask_refusals", 0) + 1
+        return ToolResult(False, {"error": "Model önerisi hazır ve kullanıcı henüz yanıtlamadı. Yeni arama YAPMA: önerideki "
+                                           "tabloları ve ilişkileri kullanıcıya kısaca özetle, eksik / fazla tablo olup olmadığını "
+                                           "sor ve onay iste; ardından DUR ve yanıtı bekle."},
+                          "Önce kullanıcıya sorulmalı")
     hits = ctx.services.dictionary.search(q, int(a.get("limit") or 6), _usable(ctx))
     metrics = ctx.services.dictionary.search_metrics(q, 3)
+    if s.phase == "data":
+        mem["searches"] = mem.get("searches", 0) + 1
+        mem["seen_tables"] = list(dict.fromkeys([*mem.get("seen_tables", []), *(h["table"] for h in hits)]))[:20]
     return ToolResult(True, {"tables": hits, "governed_metrics": metrics},
                       f"'{q}' → {len(hits)} tablo, {len(metrics)} metrik")
 
@@ -675,6 +709,10 @@ def h_get_table_details(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     for n in names[:5]:
         t = ctx.services.dictionary.tables.get(str(n).lower())
         d = ctx.services.dictionary.table_details(str(n), pol.allow_pii) if t is not None and ok(t) else None
+        if d and ctx.session.model_relationships:
+            from app.dictionary.model_rels import report_relationships
+            d["joins"] = d["joins"] + [r.describe() + " (yalnız bu rapor)" for r in report_relationships(
+                ctx.services.dictionary, ctx.session.model_relationships) if t.name in (r.from_table, r.to_table)]
         (out.append(d) if d else missing.append(n))
     if not out:
         return ToolResult(False, {"error": f"Tablo(lar) sözlükte yok: {missing}. search_dictionary kullanın."}, "Tablo bulunamadı")
@@ -720,6 +758,101 @@ def h_discover_object(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
         return ToolResult(False, {"error": "; ".join(errors)}, "Nesne keşfi başarısız")
     return ToolResult(True, {"objects": out, **({"errors": errors} if errors else {})},
                       ", ".join(f"{o['object']} ({o['type']}, {len(o['columns'])} kolon)" for o in out))
+
+
+def h_propose_model(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+    """Bulunan tablolar arasında ilişki önerisi (yabancı anahtar, aynı adlı anahtar + tekillik). Kullanıcıya sorulur."""
+    from app.dictionary.model_rels import propose
+
+    names = a.get("tables") or []
+    if isinstance(names, str):
+        names = [names]
+    dd = ctx.services.dictionary
+    ok = _usable(ctx)
+    keys, missing = [], []
+    for n in names[:8]:
+        k = _object_key(dd, str(n))
+        (keys.append(k) if k and ok(dd.tables[k]) and k not in keys else missing.append(str(n)))
+    if len(keys) < 1:
+        return ToolResult(False, {"error": f"Yetkili tablo bulunamadı: {missing}. search_dictionary ile doğru adları bulun."},
+                          "Tablo bulunamadı")
+    s, mem = ctx.session, ctx.session.phase_memory
+    if s.model_proposal_at is not None and not any(t.role == "user" for t in s.transcript[s.model_proposal_at:]):
+        mem["ask_refusals"] = mem.get("ask_refusals", 0) + 1   # öneri zaten sunuldu, kullanıcıya sorulmadan yenisi
+    res = propose(dd, ctx.services.connector, keys, s.model_relationships)
+    s.model_proposal_at = len(s.transcript)
+    mem["last_proposal"] = {"tables": res["tables"], "candidates": res["candidates"]}
+    new = [c for c in res["candidates"] if not c.get("already_in_model")]
+    return ToolResult(True, {**res, **({"not_found": missing} if missing else {}),
+                             "next": "Tabloları (rol, açıklama, satır sayısı, DataDate) ve ilişki önerilerini kullanıcıya özetle; "
+                                     "hangi tablolarla devam edileceğini ve yeni ilişkileri ONAYLATIP save_relationships ile kaydet. "
+                                     "Kullanıcı yanıt vermeden kaydetme."},
+                      f"{len(keys)} tablo · {len(res['candidates'])} ilişki adayı ({len(new)} yeni)")
+
+
+def h_save_relationships(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+    """Kullanıcının onayladığı ilişkileri ortak modele kaydeder (sonraki raporlar ve filtreler de kullanır)."""
+    from app.dictionary.model_rels import RelationshipRegistry, now_iso, rel_id, report_relationships, to_relationship
+
+    s = ctx.session
+    scope = str(a.get("scope") or "")
+    if scope not in ("global", "report"):
+        return ToolResult(False, {"error": "scope gerekli: kullanıcıya ilişkinin ORTAK modele mi (tüm raporlar kullanır) yoksa "
+                                           "YALNIZ BU RAPORA mı kaydedileceğini sorun; yanıtına göre 'global' ya da 'report' verin."},
+                          "Kapsam sorulmalı")
+    if s.model_proposal_at is None:
+        return ToolResult(False, {"error": "Önce propose_model ile tabloları ve ilişki önerisini kullanıcıya sunun."}, "Öneri yok")
+    if not any(t.role == "user" for t in s.transcript[s.model_proposal_at:]):
+        return ToolResult(False, {"error": "Kullanıcı öneriyi henüz onaylamadı. Tabloları ve ilişkileri sorup yanıtını bekleyin; "
+                                           "onaydan sonra kaydedin."}, "Kullanıcı onayı bekleniyor")
+    dd = ctx.services.dictionary
+    ok = _usable(ctx)
+    reg = RelationshipRegistry(ctx.services.settings.model_relationships)
+    existing = {(r.from_table, r.to_table, tuple(r.pairs))
+                for r in [*dd.relationships, *report_relationships(dd, s.model_relationships)]}
+    saved, errors = [], []
+    for i, r in enumerate((a.get("relationships") or [])[:20]):
+        f, t = _object_key(dd, str(r.get("from_table") or "")), _object_key(dd, str(r.get("to_table") or ""))
+        label = f"{r.get('from_table')} → {r.get('to_table')}"
+        if not f or not t or not ok(dd.tables[f]) or not ok(dd.tables[t]) or f == t:
+            errors.append(f"{label}: tablo bulunamadı ya da yetkisiz")
+            continue
+        card = str(r.get("cardinality") or "N:1").replace("?", "").upper()
+        if card not in ("N:1", "1:1"):
+            errors.append(f"{label}: '{card}' filtre yaymaz; yalnız N:1 (çok → tek) ya da 1:1 kaydedilir (yönü 'tek' tarafa çevirin)")
+            continue
+        fc, tc = {c.name for c in dd.tables[f].columns}, {c.name for c in dd.tables[t].columns}
+        pairs = [(str(x).lower(), str(y).lower()) for x, y in (r.get("columns") or []) if x and y]
+        bad = [f"{x}={y}" for x, y in pairs if x not in fc or y not in tc]
+        if not pairs or bad:
+            errors.append(f"{label}: kolon(lar) yok: {bad or 'columns boş'}")
+            continue
+        if (f, t, tuple(pairs)) in existing:
+            errors.append(f"{label}: bu ilişki modelde zaten var")
+            continue
+        entry = {"id": rel_id(f, t, pairs) if scope == "global" else rel_id(f, t, pairs).replace("model:", "report:", 1),
+                 "from_table": f, "to_table": t, "pairs": [list(p) for p in pairs], "cardinality": card,
+                 "description": str(r.get("description") or "")[:300], "added_by": s.owner or "", "added_at": now_iso(),
+                 "session_id": s.id, "source": "agent+kullanıcı onayı"}
+        if scope == "global":
+            reg.add(entry)
+            dd.relationships.append(to_relationship(entry))
+        else:
+            s.model_relationships = [e for e in s.model_relationships if e["id"] != entry["id"]] + [entry]
+        existing.add((f, t, tuple(pairs)))
+        saved.append(f"{dd.tables[f].display_name or f} → {dd.tables[t].display_name or t} "
+                     f"({', '.join(f'{x}={y}' for x, y in pairs)}, {card})")
+    if saved:
+        from app.harness.agent import Audit
+        Audit(ctx.services.settings.audit_log).write(event="model_relationship_add", session=s.id, user=s.owner, scope=scope,
+                                                     relationships=saved)
+    if not saved:
+        return ToolResult(False, {"error": "; ".join(errors) or "Kaydedilecek ilişki yok."}, "İlişki kaydedilmedi")
+    note = ("İlişkiler ORTAK modele eklendi: filtreler bu tablolar arasında yayılır; sonraki raporlar da kullanır."
+            if scope == "global" else "İlişkiler YALNIZ BU RAPORA eklendi: bu raporun filtreleri (ve Vitrin'deki yayını) kullanır; "
+            "başka raporlara taşınmaz.")
+    return ToolResult(True, {"saved": saved, "scope": scope, **({"errors": errors} if errors else {}), "note": note},
+                      f"{len(saved)} ilişki {'ortak modele' if scope == 'global' else 'rapor modeline'} eklendi", state_changed=True)
 
 
 def h_find_metrics(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
@@ -1019,6 +1152,25 @@ TOOLS: list[Tool] = [
          {"type": "object", "required": ["objects"], "properties": {
              "objects": {**_STRS, "description": "şema.nesne (ek veritabanında db.şema.nesne) adları, en fazla 3"}}},
          DATA_DESIGN, h_discover_object, status="Nesne özellikleri veritabanı kataloğundan okunuyor…"),
+    Tool("propose_model", "Veri modeli önerisi: bulduğun tabloların özetini (fact / boyut / view, satır sayısı, DataDate, PK) ve "
+         "aralarındaki ilişki adaylarını (veritabanı yabancı anahtarları; aynı adlı anahtar kolonları + hangi tarafın tekil "
+         "olduğu) getirir. Veri fazının başında, SQL yazmadan önce çağır; sonucu kullanıcıya sorup onay al.",
+         {"type": "object", "required": ["tables"], "properties": {
+             "tables": {**_STRS, "description": "search_dictionary ile bulduğun aday tablolar (şema.nesne), en fazla 8"}}},
+         DATA_DESIGN, h_propose_model, status="Tablolar arası ilişkiler inceleniyor…"),
+    Tool("save_relationships", "Kullanıcının ONAYLADIĞI ilişkileri ortak veri modeline kaydeder: filtreler bu ilişkilerden yayılır, "
+         "sonraki raporlar da kullanır. Yalnız kullanıcı onay verdikten sonra çağır (sistem onaysız kaydı reddeder). "
+         "Yön: from_table çok (N) tarafı, to_table tek (1) tarafı.",
+         {"type": "object", "required": ["scope", "relationships"], "properties": {
+             "scope": {"type": "string", "enum": ["global", "report"],
+                       "description": "kullanıcının seçimi: global = ortak model (tüm raporlar), report = yalnız bu rapor"},
+             "relationships": {"type": "array", "items": {
+             "type": "object", "required": ["from_table", "to_table", "columns"],
+             "properties": {"from_table": _STR, "to_table": _STR,
+                            "columns": {"type": "array", "description": "[[from_kolon, to_kolon], ...] (anlık görüntülerde tarih kolonu çifti dahil)",
+                                        "items": {"type": "array", "items": _STR}},
+                            "cardinality": {"type": "string", "enum": ["N:1", "1:1"]}, "description": _STR}}}}},
+         DATA_DESIGN, h_save_relationships, status="İlişkiler modele kaydediliyor…"),
     Tool("find_metrics", "Kurumsal olarak tanımlı (onaylı) metrik formüllerini arar. Varsa bu formülleri kullan.",
          {"type": "object", "properties": {"query": _STR}}, DATA_DESIGN, h_find_metrics, status="Metrik tanımları aranıyor…"),
     Tool("run_sql", "Salt-okunur SELECT sorgusunu doğrular ve çalıştırır; ilk satırları ve kolon profilini döndürür. Keşif ve test için.",

@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import re
 import socket
 import sys
@@ -28,7 +29,8 @@ from app.data.odbc import best_sql_server_driver, installed_drivers
 
 log = logging.getLogger(__name__)
 
-CONNECTIONS_FILE = BACKEND_DIR / "config" / "connections.json"
+# BI_CONNECTIONS_FILE: başka bir dosya (ör. uçtan uca testler kendi geçici ayar dosyasını kullanır; bu PC'nin ayarına dokunmaz)
+CONNECTIONS_FILE = Path(os.environ["BI_CONNECTIONS_FILE"]) if os.environ.get("BI_CONNECTIONS_FILE") else BACKEND_DIR / "config" / "connections.json"
 DEFAULT_DICTIONARY_DB = "BI_Meta"
 _lock = threading.Lock()
 
@@ -151,6 +153,8 @@ def llm_overrides() -> dict[str, Any]:
     out: dict[str, Any] = {"llm_base_url": cfg.get("base_url") or "", "llm_model": cfg.get("model") or "",
                            "llm_api_key": unprotect(cfg.get("api_key_enc") or "") or "EMPTY",
                            "llm_tool_mode": cfg.get("tool_mode") or "auto", "llm_extra_body": cfg.get("extra_body") or None}
+    if cfg.get("max_tokens"):                       # arayüzden verilen yanıt token sınırı (.env'dekinin yerine)
+        out["llm_max_tokens"] = int(cfg["max_tokens"])
     v = cfg.get("vision") or {}
     if not v.get("enabled", True) or not v.get("model"):
         out.update(vision_model=None, vision_base_url=None, vision_api_key=None)
@@ -177,6 +181,7 @@ def llm_effective(settings: Settings) -> dict[str, Any]:
         "source": "ui" if cfg else "env",
         "base_url": s.llm_base_url, "model": s.llm_model, "tool_mode": s.llm_tool_mode,
         "extra_body": s.llm_extra_body, "has_api_key": bool(s.llm_api_key and s.llm_api_key != "EMPTY"),
+        "max_tokens": s.llm_max_tokens or None,     # None / 0 = otomatik
         "vision": {"enabled": bool(s.vision_model), "model": s.vision_model or "", "same_as_main": vision_same,
                    "base_url": s.vision_base_url or "", "has_api_key": bool(s.vision_api_key)},
     }

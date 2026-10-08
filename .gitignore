@@ -17,3 +17,8 @@ pip.ini
 frontend/dist/.prebuilt
 *.tsbuildinfo
 backend/config/platform.db
+backend/config/model_relationships.json
+frontend/e2e/report/
+frontend/e2e/.tmp/
+frontend/test-results/
+frontend/e2e/.run*.log

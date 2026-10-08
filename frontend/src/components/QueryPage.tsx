@@ -330,7 +330,7 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
             <Ico size={12} d="M5 7V5a3 3 0 0 1 6 0v2M3.5 7h9v6.5h-9z" /> Salt-okunur · en çok {schema?.max_rows ?? 1000} satır
           </span>
         </div>
-        <div className="qp-editor" ref={host} />
+        <div className="qp-editor" ref={host} data-testid="sql-editor" />
 
         <div className="qp-results">
           {!result ? <div className="qp-empty muted">Sorgu sonucu burada görünecek.</div> : null}
@@ -354,7 +354,7 @@ export function QueryPage({ api, theme }: { api: Api; theme: string }) {
                 </button>
               </div>
               <div className="qp-grid-wrap">
-                <table className="qp-grid">
+                <table className="qp-grid" data-testid="query-result">
                   <thead>
                     <tr><th className="qp-rn">#</th>{result.columns?.map((c, i) => <th key={i} className={result.types?.[i] === "number" ? "is-num" : undefined}>{c}</th>)}</tr>
                   </thead>

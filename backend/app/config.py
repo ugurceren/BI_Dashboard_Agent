@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     llm_api_key: str = "EMPTY"
     llm_model: str = "Qwen/Qwen3-32B"
     llm_temperature: float = 0.2
-    llm_max_tokens: int = 4096
+    llm_max_tokens: int = 0   # yanıt token sınırı; 0 = gönderilmez (modelin kendi sınırı)
     # modelin bağlam penceresi (token). 0 = otomatik: sunucudan (vLLM /models max_model_len) ya da ilk
     # "context length" hatasından öğrenilir; konuşma geçmişi buna göre kırpılır
     llm_context_tokens: int = 0
@@ -83,13 +83,15 @@ class Settings(BaseSettings):
     # onaylı view'lar: dataset'ler bu şemaya kalıcılaştırılır; kayıtları yerel dosyada tutulur
     view_schema: str = "rpt"
     views_registry: Path = BACKEND_DIR / "config" / "views.json"
+    # kullanıcının onayladığı (agent'ın önerdiği) tablo ilişkileri: ortak model, her açılışta sözlüğe eklenir
+    model_relationships: Path = BACKEND_DIR / "config" / "model_relationships.json"
     view_scripts_dir: Path = BACKEND_DIR / "view_scripts"
     viewer_html: Path = BACKEND_DIR.parent / "frontend" / "dist-viewer" / "viewer.html"
     demo_spec: Path = BACKEND_DIR.parent / "docs" / "demo_spec.json"  # "Demo dashboard yükle" butonu
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     @field_validator("dictionary_config", "policy_config", "sessions_dir", "audit_log", "cache_dir", "views_registry",
-                     "view_scripts_dir", "meta_sqlite",
+                     "view_scripts_dir", "meta_sqlite", "model_relationships",
                      "viewer_html", "demo_spec", mode="after")
     @classmethod
     def _relative_to_backend(cls, v: Path) -> Path:

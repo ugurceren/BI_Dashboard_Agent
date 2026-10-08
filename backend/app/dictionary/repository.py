@@ -408,7 +408,17 @@ class DataDictionary:
                      ", ".join(f"{a} → {b}" for a, b in list(self.name_changes.items())[:10]))
         self._merge_catalog(catalog)
         self.mark_snapshots()
+        self.apply_model_relationships()
         return self
+
+    def apply_model_relationships(self) -> int:
+        """Kullanıcının onayladığı model ilişkileri (config/model_relationships.json)."""
+        from app.dictionary.model_rels import apply_registry
+        try:
+            return apply_registry(self)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Model ilişkileri eklenemedi: %s", e)
+            return 0
 
     # ------------------------------------------------------------------ veritabanı kataloğu (yetkiler)
     UNDOCUMENTED_AREA = "Sözlükte tanımsız"
@@ -1068,6 +1078,7 @@ class DataDictionary:
                 "pairs": [[a, b] for a, b in r.pairs],
                 "pairs_display": [[col_display(r.from_table, a), col_display(r.to_table, b)] for a, b in r.pairs],
                 "cardinality": r.cardinality, "role": r.role, "active": r.active,
+                **({"source": "model", "description": r.description} if r.id.startswith("model:") else {}),
             } for r in rels],
         }
 

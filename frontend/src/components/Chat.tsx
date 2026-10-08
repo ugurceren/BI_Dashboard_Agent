@@ -83,7 +83,7 @@ function ToolRow({ item }: { item: TranscriptItem }) {
   const args = t?.arguments;
   const argsText = args === undefined ? "" : typeof args === "string" ? args : JSON.stringify(args, null, 2);
   return (
-    <div className={`tool-row${ok ? "" : " is-fail"}${open ? " is-open" : ""}`}>
+    <div className={`tool-row${ok ? "" : " is-fail"}${open ? " is-open" : ""}`} data-tool={t?.name} data-ok={ok ? "1" : "0"}>
       <button type="button" className="tool-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <svg className="tool-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
           <path d={toolIcon(t?.name ?? "")} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
@@ -118,7 +118,7 @@ function Bubble({ item, onImage }: { item: TranscriptItem; onImage: (src: string
   }
   const isUser = item.role === "user";
   return (
-    <div className={`msg ${isUser ? "msg-user" : "msg-assistant"}${item.id.startsWith("pending_") ? " is-pending" : ""}`}>
+    <div className={`msg ${isUser ? "msg-user" : "msg-assistant"}${item.id.startsWith("pending_") ? " is-pending" : ""}`} data-role={item.role}>
       {!isUser ? (
         <div className="msg-avatar" aria-hidden="true">
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3 12V8M6.5 12V4.5M10 12V7M13.5 12V3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>

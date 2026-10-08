@@ -188,6 +188,14 @@ export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: 
               ))}
             </div>
           </div>
+          <div className="st-field">
+            <label htmlFor="llm-maxtok">Yanıt Token Sınırı</label>
+            <input id="llm-maxtok" className="st-input" type="number" min={256} max={131072} step={1024}
+              value={llm.max_tokens ?? ""} placeholder="Sınırsız (modelin kendi sınırı)"
+              onChange={(e) => upd({ max_tokens: e.target.value ? Number(e.target.value) : null })} />
+            <p className="muted small">Boş bırakın: uygulama sınır koymaz, modelin kendi sınırı geçerlidir; konuşma geçmişi de modelin
+              bağlam penceresinin tamamına göre ayarlanır. Yalnız sunucu sınır istiyorsa bir değer girin.</p>
+          </div>
           <details className="st-adv">
             <summary>Gelişmiş</summary>
             <div className="st-field">

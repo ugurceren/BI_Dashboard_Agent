@@ -34,6 +34,32 @@ OLD_TOOL_RESULT_CHARS = 700
 CACHEABLE_TOOLS = {"search_dictionary", "get_table_details", "discover_object", "find_metrics", "run_sql"}
 MAX_REPEATS = 3           # üst üste bu kadar tekrarlanan çağrıda tur durdurulur
 MAX_FAIL_STREAK = 6       # aynı araç üst üste bu kadar başarısız olursa tur durdurulur
+ASK_REFUSALS_BEFORE_STOP = 2   # öneri hazırken "önce kullanıcıya sor" bu kadar yok sayılırsa tur sistemce bitirilir
+
+
+def proposal_question(prop: dict[str, Any] | None) -> str:
+    """Model önerisinin kullanıcıya özeti + onay sorusu (model kendisi sormadığında sistem yazar)."""
+    if not prop:
+        return "Veri modeli önerisi hazır. Bu tablolarla devam edeyim mi?"
+    kind = {"fact": "olgu", "dimension": "boyut", "view": "view", "bridge": "köprü"}
+    lines = ["Raporda kullanmayı önerdiğim tablolar:"]
+    for t in prop.get("tables", []):
+        rows = (", " + f"{t['row_count']:,}".replace(",", ".") + " satır") if t.get("row_count") else ""
+        desc = f" — {t['description']}" if t.get("description") else ""
+        lines.append(f"- **{t['table']}** ({kind.get(t.get('kind'), t.get('kind') or '?')}{rows}){desc}")
+    new = [c for c in prop.get("candidates", []) if not c.get("already_in_model") and c.get("cardinality") in ("N:1", "1:1", "N:1?")]
+    if new:
+        lines.append("")
+        lines.append("Modelde olmayan ilişki önerileri:")
+        lines += [f"- {c['from_table']} → {c['to_table']} ({', '.join(f'{a}={b}' for a, b in c['columns'])}, {c['cardinality']}) — {c['evidence']}"
+                  for c in new[:6]]
+        lines.append("")
+        lines.append("Bu tablolarla ve ilişkilerle devam edeyim mi? İlişkiler ortak modele mi, yalnız bu rapora mı kaydedilsin? "
+                     "Eksik ya da fazla tablo varsa belirtin.")
+    else:
+        lines.append("")
+        lines.append("Tablolar arasındaki ilişkiler modelde mevcut. Bu tablolarla devam edeyim mi? Eksik ya da fazla tablo varsa belirtin.")
+    return "\n".join(lines)
 
 
 def _safe_rules(services, s) -> str:
@@ -135,16 +161,17 @@ class Agent:
     # ------------------------------------------------------------------ public
     def _budget(self, sys_prompt: str, schemas: list[dict[str, Any]]) -> tuple[int, int | None]:
         """Konuşma geçmişinin karakter bütçesi ve istenecek çıktı token'ı — modelin bağlam penceresine göre.
-        Pencere bilinmiyorsa ayardaki sabit bütçe (LLM_CONTEXT_CHARS). Pencere = girdi + çıktı: sistem talimatı
-        ve araç tanımlarının yeri düşülür, kalan geçmişe ayrılır."""
-        base = self.services.settings.llm_context_chars
+        Pencere biliniyorsa uygulama ayrıca sınır koymaz: pencereden sistem talimatı, araç tanımları ve yanıt payı
+        düşülür, kalanın tamamı geçmişe ayrılır. Pencere bilinmiyorsa ayardaki sabit bütçe (LLM_CONTEXT_CHARS).
+        Çıktı sınırı yalnız ayarda verildiyse gönderilir (None: modelin kendi sınırı)."""
         ctx = self.llm.context_window() if callable(getattr(self.llm, "context_window", None)) else None
+        limit = self.llm.max_output_tokens() if callable(getattr(self.llm, "max_output_tokens", None)) else None
         if not ctx:
-            return base, None
-        max_out = min(self.llm.s.llm_max_tokens, max(1024, ctx // 4))
+            return self.services.settings.llm_context_chars, limit
+        reserve = min(limit, ctx // 2) if limit else max(1024, ctx // 4)   # yanıt için ayrılan pay
         fixed = (len(sys_prompt) + len(json.dumps(schemas, ensure_ascii=False))) / CHARS_PER_TOKEN
-        avail = ctx - max_out - fixed - CONTEXT_MARGIN
-        return max(1500, min(base, int(avail * CHARS_PER_TOKEN))), max_out
+        avail = ctx - reserve - fixed - CONTEXT_MARGIN
+        return max(1500, int(avail * CHARS_PER_TOKEN)), limit
 
     def run_turn(self, sid: str, text: str, images: list[str] | None = None, user: str | None = None,
                  role: str | None = None) -> Iterator[Event]:
@@ -267,6 +294,17 @@ class Agent:
                     next_phase, kickoff = result.next_phase, result.kickoff
             self.store.save(s)
 
+            # model önerisi hazır ama model kullanıcıya sormadan araç çağırmayı sürdürüyor: turu sistem bitirir ve
+            # öneriyi onay sorusuyla gösterir (SQL'den önce kullanıcı onayı kuralı)
+            if s.phase == "data" and s.phase_memory.get("ask_refusals", 0) >= ASK_REFUSALS_BEFORE_STOP \
+                    and s.model_proposal_at is not None and not any(t.role == "user" for t in s.transcript[s.model_proposal_at:]):
+                s.phase_memory["ask_refusals"] = 0
+                msg = proposal_question(s.phase_memory.get("last_proposal"))
+                s.llm_messages.append({"role": "assistant", "content": msg})
+                yield self._emit(s, TranscriptItem(role="assistant", content=msg))
+                self.store.save(s)
+                return
+
             stuck_tool = next((n for n, c in s.phase_memory.get("fail_streak", {}).items() if c >= MAX_FAIL_STREAK), None)
             if (s.phase_memory.get("repeats", 0) >= MAX_REPEATS or stuck_tool) and not next_phase:
                 s.phase_memory["fail_streak"] = {}
@@ -296,8 +334,8 @@ class Agent:
                     "data": "Veri keşfi fazına geçildi", "design": "Tasarım fazına geçildi"}.get(next_phase, next_phase)))
                 carry = f"\n\nKullanıcının bu turdaki mesajı (hâlâ geçerli, dikkate al): «{text}»" if text else ""
                 s.llm_messages.append({"role": "user", "content": f"[HARNESS] {kickoff}{carry}"})
+                self.store.save(s)              # önce kayıt: arayüz "state" ile hemen veri / filtre ister
                 yield Event("state", s.public())
-                self.store.save(s)
 
         yield self._emit(s, TranscriptItem(role="assistant", content=(
             "Bu istek için adım sınırına ulaştım. Şu ana kadarki ilerleme kaydedildi; "
@@ -351,5 +389,6 @@ class Agent:
         yield self._emit(s, TranscriptItem(role="tool", content=result.summary, tool=ToolInfo(
             name=call.name, arguments=call.arguments, ok=result.ok, summary=result.summary, durationMs=ms)))
         if result.state_changed:
+            self.store.save(s)   # arayüz bu olayla dashboard verisini / filtreleri ister: diskteki oturum güncel olmalı
             yield Event("state", s.public())
         return result

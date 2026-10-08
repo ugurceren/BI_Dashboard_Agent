@@ -106,6 +106,7 @@ def build_services() -> Services:
         try:
             dictionary._merge_catalog()
             dictionary.mark_snapshots()
+            dictionary.apply_model_relationships()
         except Exception as ce:  # noqa: BLE001
             log.warning("Veritabanı kataloğu da okunamadı: %s", ce)
     policy_cfg = load_toml(settings.policy_config)
@@ -690,13 +691,16 @@ def _all_datasets(s) -> dict[str, Any]:
     return datasets
 
 
-def _engine() -> ModelFilterEngine:
-    return ModelFilterEngine(state.services.dictionary, state.services.connector.dialect)
+def _engine(s=None) -> ModelFilterEngine:
+    """Filtre motoru; rapor verilirse o rapora özel (onaylı) ilişkiler de kullanılır."""
+    from app.dictionary.model_rels import report_relationships
+    extra = report_relationships(state.services.dictionary, getattr(s, "model_relationships", None)) if s is not None else []
+    return ModelFilterEngine(state.services.dictionary, state.services.connector.dialect, extra)
 
 
 def _bindings(s) -> dict[str, dict[str, str]]:
     """dataset → {alan: 'şema.tablo.kolon'}: hangi dataset kolonu hangi model kolonundan geliyor (tıklayarak filtre için)."""
-    eng = _engine()
+    eng = _engine(s)
     return {did: eng.lineage(d.sql) for did, d in _all_datasets(s).items()}
 
 
@@ -737,6 +741,9 @@ def _filter_options(key: str, role: str) -> list[Any]:
     sql = exp.select(c).distinct().from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd)).where(where)         .order_by(c).limit(500).sql(dialect=dialect)
     payload = _dataset_payload(sql, role)  # validator: izinli şema + PII kontrolü burada da geçerli
     values = [r[0] for r in payload.get("rows", [])]
+    if payload.get("error"):   # hata (ör. zaman aşımı) önbelleğe alınmaz: boş liste 10 dk takılı kalmasın
+        log.warning("Filtre seçenekleri alınamadı (%s): %s", key, str(payload["error"])[:200])
+        return values
     _options_cache[f"{role}|{key}"] = (time.time(), values)
     return values
 
@@ -748,7 +755,7 @@ _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """selections: [{key: 'şema.tablo.kolon', values: [...], exclude: [dataset_id, ...]}];
     key '__as_of__' → günlük anlık görüntülerin veri tarihi (boşsa son gün)."""
-    eng = _engine()
+    eng = _engine(s)
     out: dict[str, Any] = {}
     applied: dict[str, list[str]] = {}
     as_of = next((str(sel["values"][0])[:10] for sel in selections or []
@@ -802,7 +809,7 @@ def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[s
 
 def _data_date_info(s, role: str) -> dict[str, Any] | None:
     """Rapor günlük anlık görüntü okuyorsa veri tarihi seçicisi: kolon, tablolar, en eski / en yeni gün."""
-    eng = _engine()
+    eng = _engine(s)
     tables: list[str] = []
     for d in _all_datasets(s).values():
         for sql in (d.sql, d.original_sql):
@@ -825,7 +832,8 @@ def _data_date_info(s, role: str) -> dict[str, Any] | None:
             .where(c.copy().is_(exp.null()).not_()).sql(dialect=dialect)   # kurum standardı: WHERE koşulsuz sorgu yok
         rows = _dataset_payload(sql, role).get("rows") or []
         lo, hi = (str(rows[0][0])[:10] if rows and rows[0][0] else None), (str(rows[0][1])[:10] if rows and rows[0][1] else None)
-        _options_cache[key] = (time.time(), [lo, hi])
+        if lo or hi:   # boş / hatalı sonuç önbelleğe alınmaz
+            _options_cache[key] = (time.time(), [lo, hi])
     return {"key": AS_OF_KEY, "column": t.snapshot_date, "table": t.display_name or main,
             "tables": sorted({dd.tables[x].display_name or x for x in tables}), "min": lo, "max": hi}
 
@@ -939,7 +947,7 @@ def dataset_use_view(sid: str, did: str, body: ViewIn, request: Request) -> Any:
         if missing:
             raise HTTPException(409, f"View kolonları dataset ile uyuşmuyor; eksik: {missing}. Scripti yeniden üretip çalıştırın.")
         original = ds.original_sql or ds.sql
-        eng = _engine()
+        eng = _engine(s)
         lineage = eng.lineage(original)
         entry = {"name": f"{settings.view_schema}.{name}", "business_name": ds.description or did,
                  "description": f"'{s.title}' raporunun '{did}' dataset'i (onaylı view).", "dataset_id": did,
@@ -994,9 +1002,34 @@ def dictionary_model(request: Request, session: str | None = None) -> dict[str, 
         for d in datasets.values():
             for t in state.services.validator.validate(d.sql, pol).tables:
                 used.setdefault(t, []).append(d.id)
+    if session:
+        dd = state.services.dictionary
+        disp = lambda t, c: next((x.display_name for x in dd.tables[t].columns if x.name == c and x.display_name), c)  # noqa: E731
+        from app.dictionary.model_rels import report_relationships
+        for r in report_relationships(dd, s.model_relationships):
+            model["relationships"].append({"id": r.id, "from_table": r.from_table, "to_table": r.to_table,
+                                           "pairs": [[a, b] for a, b in r.pairs],
+                                           "pairs_display": [[disp(r.from_table, a), disp(r.to_table, b)] for a, b in r.pairs],
+                                           "cardinality": r.cardinality, "role": r.role, "active": True,
+                                           "source": "report", "description": r.description})
     model["used_tables"] = used
     model["dialect"] = state.services.connector.dialect
     return model
+
+
+@app.delete("/api/dictionary/relationships/{rel_id:path}")
+def delete_model_relationship(rel_id: str, request: Request) -> dict[str, Any]:
+    """Kullanıcı onayıyla eklenmiş (agent'ın önerdiği) model ilişkisini kaldırır — yalnız admin."""
+    from app.dictionary.model_rels import RelationshipRegistry
+    ident = _need(request, "admin")
+    if not rel_id.startswith("model:"):
+        raise HTTPException(400, "Yalnız sonradan eklenen model ilişkileri silinebilir (sözlük / veritabanı ilişkileri değil).")
+    removed = RelationshipRegistry(get_settings().model_relationships).remove(rel_id)
+    dd = state.services.dictionary
+    dd.relationships = [r for r in dd.relationships if r.id != rel_id]
+    if removed:
+        _audit(ident, "model_relationship_delete", None, relationship=rel_id)
+    return {"ok": removed}
 
 
 @app.post("/api/dictionary/reload")
@@ -1227,6 +1260,7 @@ class LlmIn(BaseModel):
     model: str
     tool_mode: str = "auto"          # auto | native | prompt
     extra_body: dict[str, Any] | None = None
+    max_tokens: int | None = None    # yanıt token sınırı; boş = otomatik (bağlam penceresine göre, en çok 16384)
     vision: VisionIn = VisionIn()
 
     @field_validator("api_key")
@@ -1371,6 +1405,7 @@ def save_llm(body: LlmIn, request: Request) -> dict[str, Any]:
     conns.save_connections({"llm": {
         "base_url": body.base_url.strip(), "model": body.model.strip(), "tool_mode": body.tool_mode,
         "extra_body": body.extra_body, "api_key_enc": conns.protect(main_key),
+        "max_tokens": max(256, min(int(body.max_tokens), 131072)) if body.max_tokens else None,
         "vision": {"enabled": v.enabled and bool(v.model.strip()), "same_as_main": v.same_as_main, "model": v.model.strip(),
                    "base_url": "" if v.same_as_main else v.base_url.strip(),
                    "api_key_enc": "" if v.same_as_main else conns.protect(vis_key)},
@@ -1718,13 +1753,14 @@ class _Snapshot:
     """Yayınlanmış sürüm: dashboard verisi fonksiyonları tasarım oturumu gibi kullanır (spec + dataset'ler + rol).
     Rol, raporu AÇAN kullanıcının veri rolüdür (yayınlayanınki değil)."""
 
-    def __init__(self, spec: ReportSpec, datasets: list[Dataset], role: str):
+    def __init__(self, spec: ReportSpec, datasets: list[Dataset], role: str, model_relationships: list | None = None):
         self.spec, self.datasets, self.user_role = spec, datasets, role
+        self.model_relationships = model_relationships or []
 
 
 def _snapshot(version: dict[str, Any], role: str) -> _Snapshot:
     return _Snapshot(ReportSpec.model_validate(version["spec"]),
-                     [Dataset.model_validate(d) for d in version["datasets"]], role)
+                     [Dataset.model_validate(d) for d in version["datasets"]], role, version.get("model_relationships"))
 
 
 def _public_spec(spec: ReportSpec) -> dict[str, Any]:
@@ -1805,7 +1841,8 @@ def session_publication(sid: str, request: Request) -> dict[str, Any]:
     cur = meta.version(rep["report_id"])
     changed = bool(s.spec) and cur is not None and (
         cur["spec"] != s.spec.model_dump(mode="json")
-        or cur["datasets"] != [d.model_dump(mode="json") for d in s.datasets])
+        or cur["datasets"] != [d.model_dump(mode="json") for d in s.datasets]
+        or (cur.get("model_relationships") or []) != s.model_relationships)
     return {"published": True, "report": _report_card(rep, ident, meta.grants(rep["report_id"])),
             "grants": meta.grants(rep["report_id"]), "versions": meta.versions(rep["report_id"]), "unpublished_changes": changed}
 
@@ -1826,7 +1863,8 @@ def publish_session(sid: str, body: PublishIn, request: Request) -> dict[str, An
                        title=s.title, description=(body.description if body.description is not None
                                                    else (prev or {}).get("description")),
                        domains=domains, spec=s.spec.model_dump(mode="json"),
-                       datasets=[d.model_dump(mode="json") for d in s.datasets], notes=body.notes, by=ident.username)
+                       datasets=[d.model_dump(mode="json") for d in s.datasets], notes=body.notes, by=ident.username,
+                       model_relationships=s.model_relationships)
     if body.grants is not None:
         meta.set_grants(rep["report_id"], [g.model_dump() for g in body.grants], ident.username)
     with state.store.lock(sid):

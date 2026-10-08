@@ -208,6 +208,7 @@ export function DashboardRenderer({ spec, data, loading, model }: DashboardRende
             <div
               key={key}
               className={`db-cell db-cell--${v.type}`}
+              data-visual-id={v.id}
               style={{
                 ["--x" as string]: x + 1,
                 ["--w" as string]: w,

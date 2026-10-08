@@ -68,6 +68,7 @@ export interface Api {
   vitrinData(id: string, selections?: Selection[]): Promise<DashboardData>;
   vitrinExportUrl(id: string): string;
   retireReport(id: string): Promise<{ ok: boolean }>;
+  deleteRelationship(id: string): Promise<{ ok: boolean }>;
   getGrants(id: string): Promise<Grant[]>;
   setGrants(id: string, grants: Grant[]): Promise<Grant[]>;
   transferOwner(id: string, owner: string): Promise<{ ok: boolean }>;
@@ -255,6 +256,7 @@ export const httpApi: Api = {
   vitrinData: (id, selections) => req<DashboardData>(`/api/vitrin/${encodeURIComponent(id)}/data`, { method: "POST", body: JSON.stringify({ selections: selections ?? [] }) }),
   vitrinExportUrl: (id) => `/api/vitrin/${encodeURIComponent(id)}/export/html`,
   retireReport: (id) => req(`/api/vitrin/${encodeURIComponent(id)}/retire`, { method: "POST" }),
+  deleteRelationship: (id) => req(`/api/dictionary/relationships/${encodeURIComponent(id)}`, { method: "DELETE" }),
   getGrants: (id) => req<Grant[]>(`/api/vitrin/${encodeURIComponent(id)}/grants`),
   setGrants: (id, grants) => req<Grant[]>(`/api/vitrin/${encodeURIComponent(id)}/grants`, { method: "PUT", body: JSON.stringify(grants) }),
   transferOwner: (id, owner) => req(`/api/vitrin/${encodeURIComponent(id)}/owner`, { method: "PUT", body: JSON.stringify({ owner }) }),

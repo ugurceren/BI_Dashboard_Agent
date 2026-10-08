@@ -83,9 +83,9 @@ def test_history_is_trimmed_to_model_window(settings, services):
     store = SessionStore(settings.sessions_dir)
     s = _long_session(store)
     list(Agent(llm, services, store).run_turn(s.id, "son tarihte top 100 mevduatı olan müşteriler", None))
-    assert llm.max_tokens == 4096
+    assert llm.max_tokens is None                                         # sınır gönderilmez: modelin kendi sınırı
     est_tokens = llm.sizes[0] / CHARS_PER_TOKEN
-    assert est_tokens <= 16384 - 4096                                     # ihtiyatlı tahminle bile pencereye sığar
+    assert est_tokens <= 16384 - 4096                                     # yanıt payı (pencerenin 1/4'ü) bırakılarak pencereye sığar
 
 
 def test_overflow_retries_with_shorter_history(settings, services):

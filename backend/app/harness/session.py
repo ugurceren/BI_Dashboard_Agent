@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,6 +92,8 @@ class Session(BaseModel):
     phase_memory: dict[str, Any] = Field(default_factory=dict)
     user_role: str = "standart"
     status: Literal["idea", "design", "test", "live"] | None = None   # yaşam döngüsü; None → içerikten türetilir
+    model_relationships: list[dict[str, Any]] = Field(default_factory=list)   # yalnız bu rapora özel onaylı ilişkiler
+    model_proposal_at: int | None = None   # propose_model anındaki transcript uzunluğu: ilişki ancak sonraki kullanıcı onayıyla kaydedilir
     title_locked: bool = False        # kullanıcı adı elle verdiyse True: agent başlığı değiştirmez
     owner: str | None = None          # oluşturan kullanıcı (DOMAIN\kullanıcı)
     owner_name: str | None = None     # görünen ad
@@ -165,6 +168,19 @@ def _summary(d: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _replace(src: Path, dst: Path, tries: int = 40) -> None:
+    """Atomik değiştirme. Windows'ta hedef dosya o an başka bir istekte okunuyorsa (liste, oturum açma) os.replace
+    'Erişim engellendi' verir; kısa aralıklarla yeniden denenir (okuma milisaniyeler sürer)."""
+    for i in range(tries):
+        try:
+            src.replace(dst)
+            return
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.025 * (1 + i // 10))
+
+
 class SessionStore:
     def __init__(self, directory: Path):
         self.dir = directory
@@ -199,7 +215,7 @@ class SessionStore:
         s.updatedAt = now_iso()
         tmp = self._path(s.id).with_suffix(".tmp")
         tmp.write_text(s.model_dump_json(), encoding="utf-8")
-        tmp.replace(self._path(s.id))
+        _replace(tmp, self._path(s.id))
         self._enforce_unique_title(s)
 
     @staticmethod

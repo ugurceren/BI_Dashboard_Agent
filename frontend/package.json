@@ -8,7 +8,11 @@
     "build": "tsc --noEmit -p . && vite build",
     "build:viewer": "tsc --noEmit -p . && vite build --config vite.viewer.config.ts",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "e2e": "npm run build && node e2e/run-all.mjs",
+    "e2e:llm": "npm run build && node e2e/run-llm.mjs",
+    "e2e:ui": "playwright test --ui",
+    "e2e:report": "playwright show-report e2e/report/desktop"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -28,6 +32,7 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",

@@ -155,3 +155,6 @@
 .er-node.kind-view { border-top: 4px solid var(--er-view); }
 .er-kind.kind-view { background: var(--er-view); }
 .sw.kind-view { background: var(--er-view); }
+
+.er-d-model { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.er-d-del { color: var(--bad); }

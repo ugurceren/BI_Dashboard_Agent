@@ -81,3 +81,52 @@ def test_pasted_key_and_url_are_cleaned():
                               "vision": {"base_url": "", "api_key": "​k "}})
     assert b.base_url == "http://100.121.208.108:1234/v1" and b.api_key == "sk-lm-a:b"
     assert b.vision.base_url == "" and b.vision.api_key == "k"
+
+
+def test_thinking_cutoff_is_retried_with_larger_limit(settings, monkeypatch):
+    """Düşünen model çıktı sınırını <think> ile doldurup boş kesilirse bir kez iki kat sınırla yeniden istenir."""
+    from types import SimpleNamespace as NS
+
+    from app.llm.gateway import LLMGateway
+    gw = LLMGateway(settings.model_copy(update={"llm_max_tokens": 4096, "llm_context_tokens": 262144}))
+    seen = []
+
+    def create(**kw):
+        seen.append(kw.get("max_tokens"))
+        text, reason = ("<think>uzun uzun düşünüyor", "length") if len(seen) == 1 else ("Tablolar: … devam edeyim mi?", "stop")
+        return NS(choices=[NS(message=NS(content=text, tool_calls=None), finish_reason=reason)], usage=None)
+    monkeypatch.setattr(gw.client.chat.completions, "create", create)
+    turn = gw.chat([{"role": "user", "content": "x"}], max_tokens=4096)
+    assert seen == [4096, 8192] and turn.content == "Tablolar: … devam edeyim mi?" and not turn.truncated
+
+
+@pytest.mark.parametrize("setting,expected", [(0, None), (4096, 4096)])
+def test_max_output_tokens_only_when_set(settings, setting, expected):
+    """Sınır verilmediyse istekte max_tokens gönderilmez (modelin kendi sınırı); verildiyse o kullanılır."""
+    from types import SimpleNamespace as NS
+
+    from app.llm.gateway import LLMGateway
+    gw = LLMGateway(settings.model_copy(update={"llm_max_tokens": setting}))
+    assert gw.max_output_tokens() == expected
+    sent = {}
+    gw.client.chat.completions.create = lambda **kw: sent.update(kw) or NS(
+        choices=[NS(message=NS(content="ok", tool_calls=None), finish_reason="stop")], usage=None)
+    gw.chat([{"role": "user", "content": "x"}])
+    assert sent.get("max_tokens") == expected
+
+
+def test_history_budget_uses_full_window(settings, services):
+    """Bağlam penceresi biliniyorsa geçmiş sabit LLM_CONTEXT_CHARS ile kırpılmaz; pencerenin tamamı kullanılır."""
+    from app.harness.agent import Agent
+    from app.harness.session import SessionStore
+    from types import SimpleNamespace as NS
+    llm = NS(context_window=lambda: 262144, max_output_tokens=lambda: None, s=settings)
+    agent = Agent(llm, services, SessionStore(settings.sessions_dir))
+    budget, limit = agent._budget("sistem", [])
+    assert limit is None and budget > settings.llm_context_chars * 3      # ~490 bin karakter, 120 bine sabitlenmez
+
+
+def test_ui_max_tokens_overrides_env(conn_file, settings):
+    from app.data import connections as c
+    c.save_connections({"llm": {"base_url": "http://x/v1", "model": "m", "max_tokens": 12000}})
+    assert c.llm_settings(settings.model_copy(update={"llm_max_tokens": 4096})).llm_max_tokens == 12000

@@ -328,6 +328,9 @@ export interface ModelRelationship {
   pairs_display: [string, string][];
   cardinality: Cardinality | null;
   role: string;
+  /** "model": agent önerdi, kullanıcı onayladı (ortak model) · "report": yalnız bu rapora özel onaylı ilişki */
+  source?: "model" | "report";
+  description?: string;
 }
 
 export interface DataModel {
@@ -527,6 +530,8 @@ export interface LlmVision { enabled: boolean; same_as_main: boolean; base_url: 
 export interface LlmSettings {
   source?: "ui" | "env";
   base_url: string; model: string; tool_mode: ToolMode; extra_body?: Record<string, unknown> | null;
+  /** yanıt token sınırı; null = otomatik */
+  max_tokens?: number | null;
   api_key?: string | null; has_api_key?: boolean;
   vision: LlmVision;
 }

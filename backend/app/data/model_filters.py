@@ -67,15 +67,17 @@ def _base_tables(sel: exp.Select, dd: DataDictionary, ctes: set[str]) -> dict[st
 
 
 class ModelFilterEngine:
-    def __init__(self, dictionary: DataDictionary, dialect: str):
+    def __init__(self, dictionary: DataDictionary, dialect: str, extra_relationships: list[DDRelationship] | None = None):
+        """extra_relationships: yalnız bu rapora özel (kullanıcının onayladığı) ilişkiler — ortak modele eklenmez."""
         self.dd = dictionary
         self.dialect = dialect
+        self.extra = list(extra_relationships or [])
 
     # ------------------------------------------------------------------ yollar
     def _adjacent(self, table: str) -> list[tuple[str, DDRelationship]]:
         """table'dan filtre akış yönündeki komşular: (komşu, ilişki)."""
         out = []
-        for r in self.dd.relationships:
+        for r in [*self.dd.relationships, *self.extra]:
             if not r.active or r.cardinality == "N:N" or r.from_table == r.to_table:
                 continue
             if r.to_table == table:                      # 1 → N

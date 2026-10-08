@@ -204,6 +204,15 @@ function ModelInner({ api, state }: { api: Api; state: SessionState | null }) {
   const flow = useReactFlow();
   const sid = state?.id;
   const datasetsKey = `${state?.spec_version ?? 0}|${state?.datasets?.length ?? 0}`;
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => { api.me().then((m) => setIsAdmin(m.capabilities?.admin ?? true)).catch(() => setIsAdmin(false)); }, [api]);
+  const deleteRel = async (id: string) => {
+    if (!window.confirm("Bu ilişki ortak modelden kaldırılsın mı? Filtreler artık bu ilişki üzerinden yayılmaz.")) return;
+    try {
+      await api.deleteRelationship(id);
+      setModel((m) => (m ? { ...m, relationships: m.relationships.filter((r) => r.id !== id) } : m));
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -337,14 +346,14 @@ function ModelInner({ api, state }: { api: Api; state: SessionState | null }) {
             </ReactFlow>
           )}
         </div>
-        {sel ? <Details model={model} table={sel} onClose={() => setSelected(null)} onGo={focus} /> : null}
+        {sel ? <Details model={model} table={sel} onClose={() => setSelected(null)} onGo={focus} onDeleteRel={isAdmin ? (id) => void deleteRel(id) : undefined} /> : null}
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------- ayrıntı paneli
-function Details({ model, table, onClose, onGo }: { model: DataModel; table: ModelTable; onClose: () => void; onGo: (id: string) => void }) {
+function Details({ model, table, onClose, onGo, onDeleteRel }: { model: DataModel; table: ModelTable; onClose: () => void; onGo: (id: string) => void; onDeleteRel?: (id: string) => void }) {
   const rels = model.relationships.filter((r) => r.from_table === table.id || r.to_table === table.id);
   const byId = new Map(model.tables.map((t) => [t.id, t]));
   const used = model.used_tables[table.id];
@@ -380,6 +389,15 @@ function Details({ model, table, onClose, onGo }: { model: DataModel; table: Mod
               </button>
               <span className={`er-d-card${r.cardinality === "N:N" ? " is-nn" : ""}`}>{here} → {there}</span>
               <div className="small muted">{cardText(r, outgoing)}{r.role ? ` · rol: ${r.role}` : ""}</div>
+              {r.source === "report" ? (
+                <div className="er-d-model small"><span className="pill pill-muted" title={r.description || undefined}>Yalnız bu rapora özel ilişki</span></div>
+              ) : null}
+              {r.source === "model" ? (
+                <div className="er-d-model small">
+                  <span className="pill pill-ok" title={r.description || undefined}>Onaylı model ilişkisi</span>
+                  {onDeleteRel ? <button type="button" className="link-btn er-d-del" onClick={() => onDeleteRel(r.id)}>Kaldır</button> : null}
+                </div>
+              ) : null}
               <div className="er-d-join">
                 {r.pairs_display.map(([a, b], i) => (
                   <code key={i}>{outgoing ? `${a} = ${other?.short_name}.${b}` : `${b} = ${other?.short_name}.${a}`}</code>
@@ -388,7 +406,7 @@ function Details({ model, table, onClose, onGo }: { model: DataModel; table: Mod
             </li>
           );
         })}
-        {rels.length === 0 ? <li className="muted small">Sözlükte ilişki tanımlı değil.</li> : null}
+        {rels.length === 0 ? <li className="muted small">İlişki tanımlı değil. Rapor tasarlarken agent bu tablo için ilişki önerip onayınızı alabilir.</li> : null}
       </ul>
 
       <h4>Kolonlar ({table.columns.length})</h4>

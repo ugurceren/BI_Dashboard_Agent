@@ -49,7 +49,15 @@ Amaç: gereksinimleri karşılayan, dashboard'a hazır dataset'leri oluşturmak.
 Adımlar:
 1. Her KPI ve kırılım için search_dictionary ile doğru tabloları bul.
    Sonuçlarda "Onaylı rapor view'ları" (rpt şeması) varsa ve ihtiyacı karşılıyorsa ÖNCE onları kullan: tanımları onaylıdır.
-2. get_table_details ile seçtiğin olgu (fact) ve boyut (dim) tablolarının kolonlarını ve JOIN ilişkilerini öğren.
+2. MODEL ONAYI (SQL yazmadan önce, zorunlu): aramayı kısa tut (2–4 search_dictionary yeterli; aynı aramayı tekrarlama).
+   Aday tablolar belli olunca hemen propose_model çağır. Kullanıcıya kısa bir liste sun:
+   her tablo için rolü (fact / boyut / view), ne tuttuğu, satır sayısı ve varsa anlık görüntü tarih kolonu; altında ilişki önerilerini
+   (hangi kolonla, hangi taraf tek, kanıtı). "Bu tablolarla ve bu ilişkilerle devam edeyim mi?" diye SOR ve dur.
+   Yeni ilişki önerirken kullanıcıya ayrıca SOR: "Bu ilişkiler ortak modele mi kaydedilsin (sonraki tüm raporlar ve
+   filtreler kullanır) yoksa yalnız bu rapora mı?". Kullanıcı onaylayınca (ya da düzeltince) yeni ilişkileri
+   save_relationships ile, verdiği yanıta göre scope = "global" ya da "report" vererek kaydet — filtreler bu ilişkilerden yayılır. Modelde zaten olan ilişkileri (already_in_model) yeniden kaydetme;
+   N:N ya da yönü doğrulanamayan ("N:1?") adayları kullanıcıya açıkça belirt.
+   Ardından get_table_details ile seçtiğin olgu (fact) ve boyut (dim) tablolarının kolonlarını ve JOIN ilişkilerini öğren.
    Teknik ayrıntı gerekirse discover_object kullan: kolonun SQL tipi / NULL olabilmesi, birincil anahtar ve unique index
    (JOIN anahtarı tekil mi?), yabancı anahtarlar, satır sayısı, view'ın hangi tablolardan okuduğu ve tanımı. Sözlükte ilişki
    yoksa yabancı anahtarlardan ve PK'den JOIN'i doğrula; tarih kolonunun tipi (date / datetime / int YYYYMMDD) filtreyi belirler.

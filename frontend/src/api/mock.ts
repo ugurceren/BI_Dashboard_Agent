@@ -357,6 +357,7 @@ export const mockApi: Api = {
   async vitrinData() { return { datasets: {} }; },
   vitrinExportUrl: () => "/viewer.html",
   async retireReport() { return { ok: true }; },
+  async deleteRelationship() { return { ok: true }; },
   async getGrants() { return []; },
   async setGrants() { return []; },
   async transferOwner() { return { ok: true }; },

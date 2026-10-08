@@ -186,7 +186,7 @@ class MetaStore:
 
     def publish(self, *, session_id: str, owner: str, owner_name: str | None, title: str, description: str | None,
                 domains: list[str], spec: dict[str, Any], datasets: list[dict[str, Any]], notes: str | None,
-                by: str) -> dict[str, Any]:
+                by: str, model_relationships: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Yeni sürüm: ilk yayında rapor oluşur, sonrakilerde sürüm artar (eski sürümler saklanır)."""
         ts = now_iso()
         cur_rep = self.report_by_session(session_id)
@@ -205,7 +205,8 @@ class MetaStore:
             cur.execute("INSERT INTO report_versions (report_id, version, spec_json, datasets_json, notes, published_by, "
                         "published_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (rid, ver, json.dumps(spec, ensure_ascii=False, default=str),
-                         json.dumps(datasets, ensure_ascii=False, default=str), notes, by, ts))
+                         json.dumps({"datasets": datasets, "model_relationships": model_relationships} if model_relationships
+                                    else datasets, ensure_ascii=False, default=str), notes, by, ts))
         return self.report(rid)  # type: ignore[return-value]
 
     def version(self, report_id: str, version: int | None = None) -> dict[str, Any] | None:
@@ -217,7 +218,10 @@ class MetaStore:
         if not rows:
             return None
         r = rows[0]
-        return {**r, "spec": json.loads(r.pop("spec_json")), "datasets": json.loads(r.pop("datasets_json"))}
+        ds = json.loads(r.pop("datasets_json"))   # eski sürümler: liste; rapora özel ilişki varsa {datasets, model_relationships}
+        rels = ds.get("model_relationships") or [] if isinstance(ds, dict) else []
+        ds = ds.get("datasets") or [] if isinstance(ds, dict) else ds
+        return {**r, "spec": json.loads(r.pop("spec_json")), "datasets": ds, "model_relationships": rels}
 
     def versions(self, report_id: str) -> list[dict[str, Any]]:
         return self._rows("SELECT report_id, version, notes, published_by, published_at FROM report_versions "
