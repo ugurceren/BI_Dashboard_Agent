@@ -195,3 +195,39 @@ def test_agent_stops_and_asks_when_model_keeps_calling_tools(model, settings):
     last = s.transcript[-1]
     assert last.role == "assistant" and "CLT.vGuarantee" in last.content and "devam edeyim mi" in last.content
     assert len(llm.script) > 0                                     # model senaryosu bitmeden tur durduruldu
+
+
+JOIN_SQL = ("SELECT c.Segment, SUM(g.Amount) AS amount FROM CLT.vGuarantee g JOIN CUS.vCustomer c "
+            "ON c.CustomerPartyId = g.CustomerPartyId AND c.DataDate = g.DataDate "
+            "WHERE g.DataDate = (SELECT MAX(DataDate) FROM CLT.vGuarantee WHERE DataDate >= DATEADD(day, -2, CAST(GETDATE() AS DATE))) GROUP BY c.Segment")
+
+
+def _join_ctx(model, monkeypatch, unique_tables):
+    from app.dictionary import discovery
+    from app.spec.models import Dataset, DatasetField
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: {})
+    monkeypatch.setattr(model_rels, "_measure_unique", lambda dd, con, key, cols: (key in unique_tables, "test"))
+    s = Session(phase="data", datasets=[Dataset(id="seg", sql=JOIN_SQL, fields=[DatasetField(name="segment"),
+                                                                                DatasetField(name="amount", type="number")])])
+    return s, ToolContext(s, model)
+
+
+def test_join_in_dataset_sql_becomes_report_relationship(model, monkeypatch):
+    from app.harness.tools import add_join_relationships
+    s, ctx = _join_ctx(model, monkeypatch, {"cus.vcustomer"})
+    added = add_join_relationships(ctx)
+    assert len(added) == 1 and s.joins_derived
+    e = s.model_relationships[0]
+    assert (e["from_table"], e["to_table"], e["cardinality"], e["source"]) == ("clt.vguarantee", "cus.vcustomer", "N:1", "sql")
+    assert ["datadate", "datadate"] in e["pairs"] and e["id"].startswith("join:")
+    from app.dictionary.model_rels import report_relationships
+    eng = ModelFilterEngine(model.dictionary, "tsql", report_relationships(model.dictionary, s.model_relationships))
+    assert "clt.vguarantee" in eng.paths_from("cus.vcustomer")          # müşteri filtresi garantiye yayılır
+    assert add_join_relationships(ctx) == [] and len(s.model_relationships) == 1   # tekrar: kopya yok
+    assert not any(r.id.startswith("join:") for r in model.dictionary.relationships)   # ortak modele girmez
+
+
+def test_join_without_unique_side_is_not_added(model, monkeypatch):
+    from app.harness.tools import add_join_relationships
+    s, ctx = _join_ctx(model, monkeypatch, set())
+    assert add_join_relationships(ctx) == [] and s.model_relationships == []

@@ -93,6 +93,7 @@ class Session(BaseModel):
     user_role: str = "standart"
     status: Literal["idea", "design", "test", "live"] | None = None   # yaşam döngüsü; None → içerikten türetilir
     model_relationships: list[dict[str, Any]] = Field(default_factory=list)   # yalnız bu rapora özel onaylı ilişkiler
+    joins_derived: bool = False            # dataset JOIN'lerinden rapora özel ilişkiler çıkarıldı mı (eski raporlar için bir kez)
     model_proposal_at: int | None = None   # propose_model anındaki transcript uzunluğu: ilişki ancak sonraki kullanıcı onayıyla kaydedilir
     title_locked: bool = False        # kullanıcı adı elle verdiyse True: agent başlığı değiştirmez
     owner: str | None = None          # oluşturan kullanıcı (DOMAIN\kullanıcı)

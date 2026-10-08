@@ -29,6 +29,15 @@ from sqlglot import exp
 from app.dictionary.repository import DataDictionary, DDRelationship, sql_table_key
 
 
+def _conjuncts(e: exp.Expression) -> list[exp.Expression]:
+    """a AND b AND c → [a, b, c] (parantezler açılır)."""
+    while isinstance(e, exp.Paren):
+        e = e.this
+    if isinstance(e, exp.And):
+        return _conjuncts(e.this) + _conjuncts(e.expression)
+    return [e]
+
+
 def with_nolock(table: exp.Table, dd: DataDictionary) -> exp.Table:
     """Kurum SQL standardı (EDWDM: 'tüm sorgularda WITH (NOLOCK)'): uygulamanın ürettiği tablo referanslarına da eklenir."""
     nolock = getattr(dd, "nolock", None)
@@ -240,6 +249,7 @@ class ModelFilterEngine:
         """'İtibarıyla' tarihi: anlık görüntü okuyan HER SELECT bloğuna  alias.DataDate <= 'gün'  eklenir.
         Böylece  (SELECT MAX(DataDate) FROM …)  seçilen günü (o gün yoksa öncesindeki son günü) verir, trendler o
         günde biter, 'geçen yıl aynı gün' karşılaştırmaları da seçilen güne göre kayar. (yeni_sql, uygulandı mı)"""
+        from app.data.snapshot_guard import mentions_now
         tree = sqlglot.parse_one(sql, read=self.dialect)
         ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
         lit = exp.Cast(this=exp.Literal.string(day), to=exp.DataType.build("DATE"))
@@ -247,9 +257,26 @@ class ModelFilterEngine:
         for sel in list(tree.find_all(exp.Select)):
             for alias, t in _base_tables(sel, self.dd, ctes).items():
                 dc = getattr(self.dd.tables[t], "snapshot_date", "")
-                if dc:
-                    sel.where(exp.LTE(this=exp.column(dc, table=alias), expression=lit.copy()), append=True, copy=False)
-                    done = True
+                if not dc:
+                    continue
+                # bugüne göreli sınırlar (ör. DataDate >= GETDATE()-2) seçilen geçmiş günle çakışır: kaldırılır
+                where = sel.args.get("where")
+                if where is not None:
+                    def own(n: exp.Expression) -> bool:   # alt sorgunun içindeki ifadeler bu bloğa ait değil
+                        return n.find_ancestor(exp.Select) is sel
+                    keep = [c for c in _conjuncts(where.this)
+                            if not (any(own(f) and mentions_now(f) for f in c.find_all(exp.Func))
+                                    and any(own(col) and col.name.lower() == dc.lower() for col in c.find_all(exp.Column)))]
+                    if len(keep) != len(_conjuncts(where.this)):   # yalnız bir koşul kalktıysa yeniden kur (kopyalamadan:
+                        sel.set("where", exp.Where(this=exp.and_(*keep, copy=False)) if keep else None)  # iç bloklar ağaçta kalsın)
+                col = exp.column(dc, table=alias)
+                sel.where(exp.LTE(this=col.copy(), expression=lit.copy()), append=True, copy=False)
+                refs = [c for e in sel.expressions for c in e.find_all(exp.Column)]
+                if refs and all(c.name.lower() == dc.lower() for c in refs):
+                    # son günü bulan blok (MAX(DataDate)): seçilen günün son 7 günüyle sınırlı (tamamı taranmasın)
+                    sel.where(exp.GTE(this=col.copy(), expression=exp.func(
+                        "DATEADD", exp.var("day"), exp.Literal.number(-7), lit.copy())), append=True, copy=False)
+                done = True
         return (tree.sql(dialect=self.dialect), True) if done else (sql, False)
 
     # ------------------------------------------------------------------ alan kökeni (lineage)

@@ -57,19 +57,22 @@ Yetki seviyesi seçimi:
 DataDate kuralları (sistem bunu HER sorguda otomatik kontrol eder ve uymayanı reddeder):
 - DataDate'i sabitlemeden hiçbir sorgu atma: SUM / COUNT kadar MAX / MIN / AVG / COUNT(DISTINCT), `TOP n *` örnek
   satır, `DISTINCT` / `GROUP BY` ile değer listesi de YASAK — takvimle çoğaltılmış view'ın tamamını tarar ve günleri
-  tekrarlar. Keşif / örnek veri için bile `WHERE v.DataDate = (SELECT MAX(DataDate) FROM <aynı view> WITH (NOLOCK))` ekle.
-  Tek istisna yalnız tarih kolonunu okuyan sorgu: `SELECT MIN(DataDate), MAX(DataDate) …`.
+  tekrarlar. Keşif / örnek veri için bile son günü sabitle (aşağıdaki "son gün" kalıbı).
+- **Son gün kalıbı (T-1):** veri ambarı T-1 çalışır; son gün bugünden en çok 2 gün öncedir. Son günü bulan sorgu da
+  (MAX / MIN DataDate) alt sınır ister, alt sınırsız tarih sorgusu reddedilir:
+  `(SELECT MAX(DataDate) FROM <aynı view> WITH (NOLOCK) WHERE DataDate >= DATEADD(day, -2, CAST(GETDATE() AS DATE)))`
+  Bu aralıkta veri yoksa (yükleme gecikmesi) aralığı genişlet (ör. -7) ve kullanıcıya söyle.
 - Güncel durum / KPI: tek gün seç →
-  `WHERE v.DataDate = (SELECT MAX(DataDate) FROM <aynı view> WITH (NOLOCK))` ve kullanıcıya hangi gün itibarıyla olduğunu söyle.
-- Önce `SELECT MIN(DataDate), MAX(DataDate) FROM <view> WITH (NOLOCK) WHERE DataDate IS NOT NULL` ile veri aralığını
-  öğren; "bu yıl" gibi ifadeleri buna göre yorumla.
+  `WHERE v.DataDate = <son gün kalıbı>` ve kullanıcıya hangi gün itibarıyla olduğunu söyle.
+- Tüm geçmişin MIN(DataDate)'ini sorgulama (view'ın tamamını tarar). Geçmiş bir dönem gerekiyorsa o dönemin günlerini
+  doğrudan seç (ör. `WHERE v.DataDate = EOMONTH(v.DataDate) AND v.DataDate >= '2025-01-01'`).
 - Aylık trend: her ayın tek gününü al → `WHERE v.DataDate = EOMONTH(v.DataDate)` (ay sonu) ve
   `GROUP BY EOMONTH(v.DataDate)`. Henüz bitmemiş ayın ay sonu yoktur; gerekirse son ay için MAX(DataDate) kullan.
   Günlük seri için `GROUP BY v.DataDate`. Dönem ortalaması isteniyorsa AVG kullan.
   Hafta / ay / çeyrek gibi dönem bilgisi gerekiyorsa `COR.vCalendar` view'ını kullan (önce get_table_details ile
   kolonlarına bak); view'ın tarih kolonuyla doğrudan birleştir: `JOIN COR.vCalendar c WITH (NOLOCK) ON c.<tarih kolonu> = v.DataDate`.
 - Önceki dönemle karşılaştırma: aynı günün geçen yılki / geçen ayki değeri →
-  `DATEADD(year, -1, (SELECT MAX(DataDate) FROM <view>))` gibi tek bir gün seç.
+  `DATEADD(year, -1, <son gün kalıbı>)` gibi tek bir gün seç.
 - İki EDWDM view'ını birleştirirken anahtar kolonlarla birlikte `DataDate` kolonlarını da eşle
   (`a.DataDate = b.DataDate`); yoksa satırlar gün × gün çoğalır.
 - "Kaç müşteri / kaç sözleşme" sorularında tek gün seç ve `COUNT(DISTINCT anahtar)` kullan (satır sayısı için

@@ -736,7 +736,9 @@ def _filter_options(key: str, role: str) -> list[Any]:
     where = c.is_(exp.null()).not_()
     if t.snapshot_date:   # günlük anlık görüntü: seçenekler son günden (takvimle çoğaltılmış view'ın tamamı taranmaz)
         d = exp.column(t.snapshot_date)
-        last = exp.select(exp.Max(this=d.copy())).from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd))
+        from app.data.snapshot_guard import recent_bound
+        last = exp.select(exp.Max(this=d.copy())) \
+            .from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd)).where(recent_bound(d.copy()))
         where = exp.and_(where, exp.EQ(this=d.copy(), expression=exp.Subquery(this=last)))
     sql = exp.select(c).distinct().from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd)).where(where)         .order_by(c).limit(500).sql(dialect=dialect)
     payload = _dataset_payload(sql, role)  # validator: izinli şema + PII kontrolü burada da geçerli
@@ -826,12 +828,19 @@ def _data_date_info(s, role: str) -> dict[str, Any] | None:
         lo, hi = hit[1]
     else:
         dialect = state.services.connector.dialect
-        c = exp.column(t.snapshot_date)
-        sql = exp.select(exp.Min(this=c).as_("min_d"), exp.Max(this=c.copy()).as_("max_d")) \
-            .from_(with_nolock(exp.to_table(t.display_name or main, dialect=dialect), dd)) \
-            .where(c.copy().is_(exp.null()).not_()).sql(dialect=dialect)   # kurum standardı: WHERE koşulsuz sorgu yok
-        rows = _dataset_payload(sql, role).get("rows") or []
-        lo, hi = (str(rows[0][0])[:10] if rows and rows[0][0] else None), (str(rows[0][1])[:10] if rows and rows[0][1] else None)
+        # yalnız son gün okunur (T-1 veri ambarı: son 2 gün; yoksa 31 gün) — tüm geçmişin MIN'i taranmaz,
+        # seçicinin alt sınırı boş kalır (kullanıcı geçmiş bir günü yine seçebilir)
+        from app.data.snapshot_guard import recent_bound
+        lo, hi = None, None
+        for days in (2, 31):
+            c = exp.column(t.snapshot_date)
+            sql = exp.select(exp.Max(this=c).as_("max_d")) \
+                .from_(with_nolock(exp.to_table(t.display_name or main, dialect=dialect), dd)) \
+                .where(recent_bound(c.copy(), days)).sql(dialect=dialect)
+            rows = _dataset_payload(sql, role).get("rows") or []
+            hi = str(rows[0][0])[:10] if rows and rows[0][0] else None
+            if hi:
+                break
         if lo or hi:   # boş / hatalı sonuç önbelleğe alınmaz
             _options_cache[key] = (time.time(), [lo, hi])
     return {"key": AS_OF_KEY, "column": t.snapshot_date, "table": t.display_name or main,
@@ -1002,6 +1011,18 @@ def dictionary_model(request: Request, session: str | None = None) -> dict[str, 
         for d in datasets.values():
             for t in state.services.validator.validate(d.sql, pol).tables:
                 used.setdefault(t, []).append(d.id)
+    if session and s.datasets and not s.joins_derived:
+        # eski raporlar: dataset JOIN'lerinden rapora özel ilişkiler bir kez çıkarılır (Model sekmesi + filtreler)
+        from app.harness.tools import add_join_relationships
+        lock = state.store.lock(session)
+        if lock.acquire(blocking=False):      # agent çalışıyorsa bekleme: sonraki açılışta çıkarılır
+            try:
+                s = _session(session)
+                if not s.joins_derived:
+                    add_join_relationships(ToolContext(s, state.services))
+                    state.store.save(s)
+            finally:
+                lock.release()
     if session:
         dd = state.services.dictionary
         disp = lambda t, c: next((x.display_name for x in dd.tables[t].columns if x.name == c and x.display_name), c)  # noqa: E731
@@ -1011,7 +1032,8 @@ def dictionary_model(request: Request, session: str | None = None) -> dict[str, 
                                            "pairs": [[a, b] for a, b in r.pairs],
                                            "pairs_display": [[disp(r.from_table, a), disp(r.to_table, b)] for a, b in r.pairs],
                                            "cardinality": r.cardinality, "role": r.role, "active": True,
-                                           "source": "report", "description": r.description})
+                                           "source": "sql" if r.id.startswith("join:") else "report",
+                                           "description": r.description})
     model["used_tables"] = used
     model["dialect"] = state.services.connector.dialect
     return model
@@ -1070,8 +1092,8 @@ class ConnIn(BaseModel):
     trust_server_certificate: bool = True
     same_as_data: bool = True        # yalnız sözlük için
     sources: dict[str, list[str]] | None = None   # yalnız sözlük: rol → tablolar / sayfalar
-    kind: str = "sqlserver"          # yalnız sözlük: sqlserver | mysql | excel
-    port: int | None = None          # MySQL (varsayılan 3306)
+    kind: str = "sqlserver"          # yalnız sözlük: sqlserver | mysql | postgres | excel | none
+    port: int | None = None          # MySQL (varsayılan 3306) / PostgreSQL (5432)
     excel_path: str = ""             # Excel dosyası (yüklenen ya da ağ yolu)
     extra_databases: list[str] = []  # yalnız veri kaynağı: aynı sunucudaki ek veritabanları (ör. EDW)
     mappings: dict[str, dict[str, str]] | None = None   # yalnız sözlük: kaynak → alan → başlık ("" = kullanma)
@@ -1090,7 +1112,7 @@ class ConnTestIn(BaseModel):
 
 def _fields(c: ConnIn, saved: dict[str, Any] | None) -> dict[str, Any]:
     d = c.model_dump()
-    if d.get("kind") == "mysql":     # MySQL her zaman kullanıcı adı / şifre ile
+    if d.get("kind") in ("mysql", "postgres"):   # MySQL / PostgreSQL her zaman kullanıcı adı / şifre ile
         d["auth"] = "sql"
     if d["auth"] != "sql":
         d.update(username="", password="")
@@ -1114,8 +1136,8 @@ def _resolved(body: ConnTestIn | ConnectionsIn) -> tuple[dict[str, Any], dict[st
     else:
         dic["same_as_data"] = False
     dic["kind"] = kind
-    if kind == "mysql":
-        dic["port"] = dic_in.port or 3306
+    if kind in ("mysql", "postgres"):
+        dic["port"] = dic_in.port or (3306 if kind == "mysql" else 5432)
     if kind == "excel":
         dic["excel_path"] = (dic_in.excel_path or "").strip().strip('"')
     src = dic_in.sources or default_sources(kind)
@@ -1599,10 +1621,13 @@ def list_databases(body: ConnTestIn, request: Request) -> dict[str, Any]:
     _require_settings_access(request)
     data, dic = _resolved(body)
     fields = dic if body.target == "dictionary" else data
-    if body.target == "dictionary" and dic["kind"] == "mysql":
+    if body.target == "dictionary" and dic["kind"] in ("mysql", "postgres"):
         try:
-            from app.dictionary.sources import MySQLReader
-            r = MySQLReader(dic["server"], dic.get("port") or 3306, dic["username"], dic.get("password") or "", "")
+            from app.dictionary.sources import MySQLReader, PostgresReader
+            r = (MySQLReader(dic["server"], dic.get("port") or 3306, dic["username"], dic.get("password") or "", "")
+                 if dic["kind"] == "mysql" else
+                 PostgresReader(dic["server"], dic.get("port") or 5432, dic["username"], dic.get("password") or "", "postgres",
+                                ssl=bool(dic.get("encrypt"))))
             return {"ok": True, "databases": r.databases()}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": friendly_error(str(e)), "databases": []}

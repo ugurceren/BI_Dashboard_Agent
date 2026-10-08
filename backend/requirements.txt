@@ -11,6 +11,7 @@ pillow>=10.4
 pyodbc>=5.1          # + Microsoft ODBC Driver 18 veya 17 for SQL Server (kurulu olan otomatik seçilir)
 openpyxl>=3.1         # veri sözlüğü Excel kaynağı
 pymysql>=1.1          # veri sözlüğü MySQL / MariaDB kaynağı
+pg8000>=1.31          # veri sözlüğü PostgreSQL kaynağı (saf Python, derleme gerektirmez)
 # test
 pytest>=8
 httpx>=0.27

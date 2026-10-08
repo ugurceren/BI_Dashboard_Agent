@@ -28,10 +28,16 @@ const EMPTY_SOURCES: Record<DictRole, string[]> = { tables: [], columns: [], rel
 const DEFAULTS_BY_KIND: Record<DictKind, Record<DictRole, string[]>> = {
   sqlserver: { tables: ["meta.dd_tables"], columns: ["meta.dd_columns"], relationships: ["meta.dd_relationships"], metrics: ["meta.dd_metrics"] },
   mysql: { tables: ["dd_tables"], columns: ["dd_columns"], relationships: ["dd_relationships"], metrics: ["dd_metrics"] },
+  postgres: { tables: ["public.dd_tables"], columns: ["public.dd_columns"], relationships: ["public.dd_relationships"], metrics: ["public.dd_metrics"] },
   excel: { tables: ["Tablolar"], columns: ["Kolonlar"], relationships: ["İlişkiler"], metrics: ["Metrikler"] },
   none: { tables: [], columns: [], relationships: [], metrics: [] },
 };
-const KIND_LABEL: Record<DictKind, string> = { sqlserver: "SQL Server", excel: "Excel dosyası", mysql: "MySQL / MariaDB", none: "Sözlük yok" };
+const KIND_LABEL: Record<DictKind, string> = { sqlserver: "SQL Server", excel: "Excel dosyası", mysql: "MySQL / MariaDB", postgres: "PostgreSQL", none: "Sözlük yok" };
+/** kullanıcı adı / şifreyle bağlanan ağ veritabanları: sunucu + port formu */
+const NET_KIND: Partial<Record<DictKind, { port: number; host: string; db: string; tableHint: string }>> = {
+  mysql: { port: 3306, host: "mysql.kurum.local", db: "ör. bi_meta", tableHint: "tablo ya da veritabanı.tablo ekle" },
+  postgres: { port: 5432, host: "postgres.kurum.local", db: "ör. bi_meta", tableHint: "şema.tablo ekle (şemasız: public)" },
+};
 
 const Ico = ({ d, size = 14 }: { d: string; size?: number }) => (
   <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
@@ -99,7 +105,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
     if (k === kind) return;
     upd("dictionary", {
       kind: k, sources: DEFAULTS_BY_KIND[k], same_as_data: k === "sqlserver",
-      ...(k === "mysql" ? { server: dict.kind === "mysql" ? dict.server : "", port: dict.port ?? 3306, auth: "sql" as const, database: "", encrypt: false } : {}),
+      ...(NET_KIND[k] ? { server: dict.kind === k ? dict.server : "", port: dict.kind === k && dict.port ? dict.port : NET_KIND[k]!.port, auth: "sql" as const, database: "", encrypt: false } : {}),
       ...(k === "sqlserver" ? { database: cfg.default_dictionary_db, server: data.server, auth: data.auth } : {}),
     });
     setCands(null); setSrcInfo({});
@@ -175,7 +181,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       if (d?.type !== "connection-settings" || !d.data || !d.dictionary) throw new Error("Bu dosya bir BI Lens bağlantı ayarları dosyası değil.");
       const base: ConnFields = { server: "localhost", database: "", auth: "windows", username: "", encrypt: true, trust_server_certificate: true };
       const nd: ConnFields = { ...base, ...d.data, password: null, has_password: false };
-      const dk = (["sqlserver", "excel", "mysql", "none"].includes(d.dictionary.kind) ? d.dictionary.kind : "sqlserver") as DictKind;
+      const dk = (["sqlserver", "excel", "mysql", "postgres", "none"].includes(d.dictionary.kind) ? d.dictionary.kind : "sqlserver") as DictKind;
       const ndict: ConnFields = { ...base, ...d.dictionary, kind: dk, password: null, has_password: false,
         sources: { ...EMPTY_SOURCES, ...(d.dictionary.sources ?? DEFAULTS_BY_KIND[dk]) } };
       setData(nd);
@@ -184,9 +190,9 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       setTests({ data: null, dictionary: null });
       setDbs({ data: null, dictionary: null });
       setCands(null); setSrcInfo({});
-      const needPwd = nd.auth === "sql" || (dk !== "excel" && ndict.auth === "sql") || dk === "mysql";
+      const needPwd = nd.auth === "sql" || (dk !== "excel" && ndict.auth === "sql") || !!NET_KIND[dk];
       setMsg("page", { ok: true, text: `"${file.name}" yüklendi (${d.exported_by ? `${d.exported_by} · ` : ""}${(d.exported_at ?? "").slice(0, 10)}) — henüz KAYDEDİLMEDİ. `
-        + (needPwd ? "SQL / MySQL şifresini girin, " : "") + "bağlantıları test edip her kartta Kaydet ve uygula'ya basın."
+        + (needPwd ? "veritabanı şifresini girin, " : "") + "bağlantıları test edip her kartta Kaydet ve uygula'ya basın."
         + (Array.isArray(d.notes) && d.notes.length > 1 ? " " + d.notes.slice(1).join(" ") : "") });
     } catch (e) {
       setMsg("page", { ok: false, text: `Ayar dosyası okunamadı: ${errText(e)}` });
@@ -279,7 +285,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   );
   const dictSummary = kind === "none" ? <>Sözlük yok — yalnız veritabanı kataloğu</>
     : kind === "excel" ? <>Excel · <b>{(dict.excel_path ?? "").split(/[\\/]/).pop() || "dosya seçilmedi"}</b></>
-    : kind === "mysql" ? <>MySQL · {dict.server || "—"}:{dict.port ?? 3306} · <b>{dict.database || "—"}</b></>
+    : NET_KIND[kind] ? <>{KIND_LABEL[kind]} · {dict.server || "—"}:{dict.port ?? NET_KIND[kind]!.port} · <b>{dict.database || "—"}</b></>
     : <>SQL Server · {dict.same_as_data ? "veri sunucusu" : dict.server || "—"} · <b>{dict.database || "—"}</b> · {(sources.columns ?? []).length + (sources.tables ?? []).length} kaynak tablo</>;
 
   const allInstances = [...(instances?.local ?? []), ...(instances?.network ?? [])];
@@ -449,7 +455,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           {kind === "none" ? (
             <p className="muted small st-nodict">
               Ayrı bir veri sözlüğü kullanılmaz: tablo ve view'lar <b>veri kaynağından, yetkinize göre</b> listelenir; açıklamalar veritabanındaki
-              <code>MS_Description</code> tanımlarından, ilişkiler <b>foreign key</b>'lerden gelir. Kurum sözlüğü hazır olduğunda SQL Server / Excel / MySQL seçeneğine geçebilirsiniz.
+              <code>MS_Description</code> tanımlarından, ilişkiler <b>foreign key</b>'lerden gelir. Kurum sözlüğü hazır olduğunda SQL Server / Excel / MySQL / PostgreSQL seçeneğine geçebilirsiniz.
             </p>
           ) : kind === "excel" ? (
             <div className="st-field">
@@ -467,16 +473,16 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                 Mevcut sözlüğü Excel şablonu olarak indir: <a href={api.dictionaryTemplateUrl("multi")} download>4 sayfa</a> ya da <a href={api.dictionaryTemplateUrl("single")} download>tek sayfa</a> — düzenleyip buradan geri yükleyebilirsiniz.
               </p>
             </div>
-          ) : kind === "mysql" ? (
+          ) : NET_KIND[kind] ? (
             <>
               <div className="st-grid2 st-grid-host">
                 <div className="st-field">
                   <label htmlFor="dict-host">Sunucu</label>
-                  <input id="dict-host" className="st-input" value={dict.server} placeholder="mysql.kurum.local" onChange={(e) => upd("dictionary", { server: e.target.value })} spellCheck={false} />
+                  <input id="dict-host" className="st-input" value={dict.server} placeholder={NET_KIND[kind]!.host} onChange={(e) => upd("dictionary", { server: e.target.value })} spellCheck={false} />
                 </div>
                 <div className="st-field">
                   <label htmlFor="dict-port">Port</label>
-                  <input id="dict-port" className="st-input" type="number" value={dict.port ?? 3306} onChange={(e) => upd("dictionary", { port: Number(e.target.value) || 3306 })} />
+                  <input id="dict-port" className="st-input" type="number" value={dict.port ?? NET_KIND[kind]!.port} onChange={(e) => upd("dictionary", { port: Number(e.target.value) || NET_KIND[kind]!.port })} />
                 </div>
               </div>
               <div className="st-grid2">
@@ -491,7 +497,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                 </div>
               </div>
               <label className="st-check"><input type="checkbox" checked={dict.encrypt} onChange={(e) => upd("dictionary", { encrypt: e.target.checked })} /> SSL ile bağlan</label>
-              {dbField("dictionary", dictEff, "ör. bi_meta")}
+              {dbField("dictionary", dictEff, NET_KIND[kind]!.db)}
             </>
           ) : (<>
           <label className="st-check st-same">
@@ -553,7 +559,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
                     ))}
                   </div>
                   <div className="st-row">
-                    <input className="st-input st-input-sm" list="st-dict-tables" value={addDraft[r.id]} placeholder={kind === "excel" ? "sayfa adı ekle" : kind === "mysql" ? "tablo ya da veritabanı.tablo ekle" : "şema.tablo ekle"}
+                    <input className="st-input st-input-sm" list="st-dict-tables" value={addDraft[r.id]} placeholder={kind === "excel" ? "sayfa adı ekle" : NET_KIND[kind]?.tableHint ?? "şema.tablo ekle"}
                       onChange={(e) => setAddDraft((d) => ({ ...d, [r.id]: e.target.value }))}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSource(r.id, addDraft[r.id]); } }} spellCheck={false} />
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => addSource(r.id, addDraft[r.id])} disabled={!addDraft[r.id].trim()}>Ekle</button>

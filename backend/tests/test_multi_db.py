@@ -78,10 +78,10 @@ def test_rules_follow_each_objects_own_database(multi):
     ("SELECT SUM(l.Balance) FROM EDW.dbo.FactLoan l WHERE l.CustomerPartyId > 0", True),
     ("SELECT SUM(l.Balance) FROM edw.dbo.factloan l WHERE l.CustomerPartyId > 0", True),       # harf duyarsız
     ("SELECT g.CustomerPartyId, SUM(l.Balance) FROM CLT.vGuarantee g JOIN EDW.dbo.FactLoan l "
-     "ON l.CustomerPartyId = g.CustomerPartyId WHERE g.DataDate = (SELECT MAX(DataDate) FROM CLT.vGuarantee) "
+     "ON l.CustomerPartyId = g.CustomerPartyId WHERE g.DataDate = (SELECT MAX(DataDate) FROM CLT.vGuarantee WHERE DataDate >= DATEADD(day, -2, CAST(GETDATE() AS DATE))) "
      "GROUP BY g.CustomerPartyId", True),                                                      # veritabanları arası join
     ("SELECT TOP 5 CustomerPartyId FROM EDWDM.CLT.vGuarantee WHERE DataDate = "
-     "(SELECT MAX(DataDate) FROM EDWDM.CLT.vGuarantee)", True),                                 # birincil öneki atılır
+     "(SELECT MAX(DataDate) FROM EDWDM.CLT.vGuarantee WHERE DataDate >= DATEADD(day, -2, CAST(GETDATE() AS DATE)))", True),                                 # birincil öneki atılır
     ("SELECT TOP 5 CustomerPartyId FROM EDWDM.CLT.vGuarantee WHERE CustomerPartyId > 0", False),  # anlık görüntü: gün yok
     ("SELECT TOP 5 X FROM EDW.dbo.Secret WHERE X > 0", False),                                 # yetkisiz nesne
     ("SELECT TOP 5 name FROM master.sys.objects WHERE object_id > 0", False),                  # seçili olmayan veritabanı

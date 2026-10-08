@@ -248,8 +248,8 @@ def database_odbc(settings: Settings, database: str) -> str:
 
 
 def open_dictionary_reader(fields: dict[str, Any]):
-    """Sözlük kaynağına göre okuyucu + bağlantı bilgisi: SQL Server, MySQL ya da Excel."""
-    from app.dictionary.sources import ExcelReader, MySQLReader, SqlServerReader
+    """Sözlük kaynağına göre okuyucu + bağlantı bilgisi: SQL Server, MySQL, PostgreSQL ya da Excel."""
+    from app.dictionary.sources import ExcelReader, MySQLReader, PostgresReader, SqlServerReader
 
     kind = fields.get("kind") or "sqlserver"
     if kind == "none":
@@ -263,6 +263,10 @@ def open_dictionary_reader(fields: dict[str, Any]):
     if kind == "mysql":
         r = MySQLReader(fields.get("server") or "localhost", fields.get("port") or 3306, fields.get("username") or "",
                         pwd, fields.get("database") or "", ssl=bool(fields.get("encrypt")))
+        return r, r.probe()
+    if kind == "postgres":
+        r = PostgresReader(fields.get("server") or "localhost", fields.get("port") or 5432, fields.get("username") or "",
+                           pwd, fields.get("database") or "", ssl=bool(fields.get("encrypt")))
         return r, r.probe()
     from app.data.connector import SqlServerConnector
     odbc = fields.get("odbc") or build_odbc({**fields, "password": pwd})   # .env'deki veri bağlantısından türetilmişse olduğu gibi

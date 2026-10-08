@@ -12,7 +12,9 @@ hatasız çalışır, sonuç makul görünür ama YANLIŞTIR. Bu modül her SELE
     (yalnız dönem bazında gruplanmış ortalama, ör. aylık AVG, uyarıyla geçer).
   * Toplama yoksa (detay satırları, TOP n *, DISTINCT / GROUP BY ile değer listesi) ve gün seçilmemişse: her gün için
     satır döner ve takvimle çoğaltılmış view tümüyle taranır — REDDEDİLİR.
-  * Yalnız tarih kolonunu okuyan sorgu serbesttir (ör. SELECT MAX(DataDate) — son günü bulmak için).
+  * Yalnız tarih kolonunu okuyan sorgu (ör. son günü bulan SELECT MAX(DataDate)) da tarih kolonunda ALT SINIR ister:
+      WHERE DataDate >= DATEADD(day, -2, CAST(GETDATE() AS DATE))   — veri ambarı T-1 çalıştığı için son gün bu aralıktadır;
+    alt sınırsız MIN / MAX takvimle çoğaltılmış view'ın tamamını tarar.
   * İki anlık görüntü aynı kapsamda birleştiriliyorsa tarih kolonları eşlenmeli (a.DataDate = b.DataDate) ya da
     ikisi de ayrı ayrı sabitlenmeli; yoksa satırlar gün × gün çoğalır.
 Sorgu konsolunda (kullanıcının kendi sorgusu, strict_joins=False) hatalar engellemez, uyarı olarak gösterilir.
@@ -23,6 +25,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sqlglot import exp
+
+RECENT_DAYS = 2          # veri ambarı T-1: son gün, bugünden en çok bu kadar gün önce
+_NOW_FUNCS = ("getdate", "sysdatetime", "current_timestamp", "getutcdate", "sysutcdatetime", "currenttimestamp")
+
+
+def recent_bound_sql(col: str) -> str:
+    """Son günü bulan sorgular için alt sınır (T-1 veri ambarı)."""
+    return f"{col} >= DATEADD(day, -{RECENT_DAYS}, CAST(GETDATE() AS DATE))"
+
+
+def last_day_sql(col: str, table: str) -> str:
+    """Son veri günü: (SELECT MAX(col) FROM table WHERE col >= DATEADD(day, -2, CAST(GETDATE() AS DATE)))."""
+    return f"(SELECT MAX({col}) FROM {table} WHERE {recent_bound_sql(col)})"
+
+
+def recent_bound(col: exp.Expression, days: int = RECENT_DAYS) -> exp.Expression:
+    return exp.GTE(this=col, expression=exp.func("DATEADD", exp.var("day"), exp.Literal.number(-days),
+                                                 exp.Cast(this=exp.func("GETDATE"), to=exp.DataType.build("DATE"))))
+
+
+def mentions_now(e: exp.Expression) -> bool:
+    """İfade bugüne göreli mi (GETDATE / SYSDATETIME / CURRENT_TIMESTAMP …)?"""
+    return any(f.sql_name().lower() in _NOW_FUNCS or f.key.lower() in _NOW_FUNCS
+               for f in e.find_all(exp.Func)) or any(isinstance(x, exp.CurrentTimestamp) for x in e.find_all(exp.CurrentTimestamp))
+
 
 @dataclass
 class SnapshotResult:
@@ -97,6 +124,7 @@ class SnapshotGuard:
         conds += [j.args["on"] for j in select.args.get("joins") or [] if j.args.get("on") is not None]
 
         pinned: dict[str, str] = {}   # alias → "day" | "range"
+        lower: set[str] = set()       # tarih kolonunda alt sınır var (>=, >, BETWEEN; ya da x <= DataDate)
         linked: set[frozenset[str]] = set()
         for cond in conds:
             for node in cond.find_all(exp.EQ, exp.In, exp.Between, exp.GTE, exp.GT, exp.LTE, exp.LT):
@@ -112,6 +140,9 @@ class SnapshotGuard:
                     kind = "day" if isinstance(node, (exp.EQ, exp.In)) else "range"
                     if pinned.get(a) != "day":
                         pinned[a] = kind
+                    on_left = isinstance(node.this, exp.Column) and _is_date_col(node.this, a, snaps[a][1], single)
+                    if isinstance(node, exp.Between) or (isinstance(node, (exp.GTE, exp.GT)) and on_left)                             or (isinstance(node, (exp.LTE, exp.LT)) and not on_left):
+                        lower.add(a)
 
         # a.DataDate = b.DataDate ve a tek güne sabitse b de o güne sabittir (eşleşme zinciri boyunca yayılır)
         changed = True
@@ -170,7 +201,7 @@ class SnapshotGuard:
 
         for a, (t, dc) in snaps.items():
             disp = self.dictionary.tables[t].display_name or t
-            fix = f"WHERE {a}.{dc} = (SELECT MAX({dc}) FROM {disp})"
+            fix = f"WHERE {a}.{dc} = {last_day_sql(dc, disp)}"
             day_ok = pinned.get(a) == "day" or a in grouped_raw
             if a in additive:
                 if pinned.get(a) == "day" or a in grouped_raw:
@@ -189,8 +220,15 @@ class SnapshotGuard:
                         f"'{disp}' günlük anlık görüntüdür ({dc}): her kayıt her gün için tekrarlanır; gün seçilmeden "
                         f"{', '.join(additive[a][:2])} gün sayısıyla çarpılmış sonuç verir. Tek gün seçin: {fix} (son gün) "
                         f"ya da günlük seri için GROUP BY {a}.{dc}.")
-            elif day_ok or date_only(a, dc):
+            elif day_ok:
                 pass
+            elif date_only(a, dc):
+                if a not in lower:   # son günü bulan MIN / MAX bile alt sınır ister (T-1: son gün yakın geçmişte)
+                    res.errors.append(
+                        f"'{disp}' günlük anlık görüntüdür ({dc}): tarih kolonunu okuyan sorgu da alt sınır ister — "
+                        f"alt sınırsız MIN / MAX takvimle çoğaltılmış view'ın tamamını tarar. Veri ambarı T-1 çalıştığı için "
+                        f"son gün yakın geçmiştedir: WHERE {recent_bound_sql(f'{a}.{dc}')} ekleyin "
+                        f"(ör. {last_day_sql(dc, disp)}). Bu aralıkta veri yoksa aralığı genişletin.")
             elif a in other and a in grouped_period:   # dönem ortalaması (ör. aylık AVG bakiye): anlamlı, uyarı
                 res.warnings.append(
                     f"'{disp}' günlük anlık görüntüdür ({dc}): {', '.join(other[a][:2])} dönemin tüm günleri üzerinden hesaplanır "
@@ -204,8 +242,7 @@ class SnapshotGuard:
                 res.errors.append(
                     f"'{disp}' günlük anlık görüntüdür ({dc}): gün seçilmeden her kayıt her gün için ayrı satır döner ve "
                     f"takvimle çoğaltılmış view'ın tamamı taranır (TOP / DISTINCT / GROUP BY da bunu önlemez). Keşif ya da "
-                    f"örnek veri için bile tek gün seçin: {fix}. Hangi günlerin olduğunu görmek için yalnız "
-                    f"SELECT MIN({dc}), MAX({dc}) FROM {disp} sorgulanabilir.")
+                    f"örnek veri için bile tek gün seçin: {fix}.")
 
         # iki anlık görüntünün birleştirilmesi: tarih eşlenmeli ya da ikisi de sabitlenmeli
         aliases = sorted(snaps)

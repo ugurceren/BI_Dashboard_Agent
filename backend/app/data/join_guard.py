@@ -57,11 +57,12 @@ class JoinGuard:
         return rep
 
     # ------------------------------------------------------------------ blok
-    def _check_block(self, sel: exp.Select, rep: JoinReport) -> None:
+    def _block_edges(self, sel: exp.Select):
+        """Bloğun kaynakları (alias → tablo; alt sorgu/CTE için None) ve JOIN kenarları (a.x = b.y, USING)."""
         frm = sel.args.get("from_") or sel.args.get("from")
         joins = sel.args.get("joins") or []
         if not frm or not joins:  # tek kaynak: birleştirme yok ("FROM a, b" de joins içinde gelir)
-            return
+            return None
 
         aliases: dict[str, str | None] = {}   # alias → tablo (None = alt sorgu/CTE)
         order: list[str] = []
@@ -114,6 +115,28 @@ class JoinGuard:
                 left = next((a for a in order[:order.index(alias)] if self._has_col(aliases.get(a), c)), None)
                 if left:
                     add_pair(left, c, alias, c)
+
+        return edges, aliases
+
+    def join_pairs(self, tree: exp.Expression) -> list[tuple[str, str, list[tuple[str, str]]]]:
+        """SQL'deki iki gerçek tablo arasındaki eşitlik birleştirmeleri: (tablo_a, tablo_b, [(a_kolon, b_kolon)])."""
+        out = []
+        for sel in tree.find_all(exp.Select):
+            got = self._block_edges(sel)
+            if not got:
+                continue
+            edges, aliases = got
+            for e in edges.values():
+                ta, tb = aliases.get(e.a), aliases.get(e.b)
+                if ta and tb and ta != tb:
+                    out.append((ta, tb, sorted(e.pairs)))
+        return out
+
+    def _check_block(self, sel: exp.Select, rep: JoinReport) -> None:
+        got = self._block_edges(sel)
+        if not got:
+            return
+        edges, aliases = got
 
         for e in edges.values():
             ta, tb = aliases.get(e.a), aliases.get(e.b)

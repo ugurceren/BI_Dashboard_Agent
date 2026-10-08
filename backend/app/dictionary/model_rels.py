@@ -129,7 +129,8 @@ def _measure_unique(dd, connector, key: str, cols: list[str]) -> tuple[bool | No
     q = exp.select(exp.Count(this=exp.Star()), distinct).from_(with_nolock(name, dd))
     if t.snapshot_date:
         d = exp.column(t.snapshot_date)
-        last = exp.select(exp.Max(this=d.copy())).from_(with_nolock(name.copy(), dd))
+        from app.data.snapshot_guard import recent_bound
+        last = exp.select(exp.Max(this=d.copy())).from_(with_nolock(name.copy(), dd)).where(recent_bound(d.copy()))
         q = q.where(exp.EQ(this=d.copy(), expression=exp.Subquery(this=last)))
     db = dd.db_of(key)
     con = connector if not db or not dd.database or db.lower() == dd.database.lower() else dd._connector_for(db)
@@ -223,3 +224,74 @@ def _side_unique(dd, connector, key: str, col: str, info: dict[str, Any]) -> tup
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# ------------------------------------------------------------------ dataset SQL'indeki JOIN'lerden (rapora özel)
+def derive_from_sql(dd, connector, join_guard, datasets: list, report_entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Kaydedilmiş dataset'lerin SQL'indeki eşitlik JOIN'lerinden rapora özel ilişkiler.
+
+    Sözlükte / modelde ilişki olmasa da (ör. EDWDM view'ları) dashboard'un birleştirdiği tablolar Model sekmesinde
+    görünür ve filtreler bu ilişkilerden yayılır. Yalnız bir tarafı tekil olan (N:1 / 1:1) birleşimler eklenir;
+    tekillik PK / unique index'ten, yoksa (anlık görüntüde son gün) COUNT ile COUNT(DISTINCT) karşılaştırılarak bulunur.
+    SQL zaten doğrulanıp çalıştırıldığı için kullanıcı onayı istenmez."""
+    import sqlglot
+
+    from app.dictionary.discovery import discover
+
+    def same(r_from: str, r_to: str, pairs) -> frozenset:
+        return frozenset((r_from, r_to)) | {frozenset(pairs)}
+
+    known = {same(r.from_table, r.to_table, r.pairs) for r in [*dd.relationships, *report_relationships(dd, report_entries)]}
+    known |= {same(r.to_table, r.from_table, [(b, a) for a, b in r.pairs])
+              for r in [*dd.relationships, *report_relationships(dd, report_entries)]}
+    infos: dict[str, dict[str, Any]] = {}
+    uniq: dict[tuple[str, tuple[str, ...]], bool | None] = {}
+
+    def unique(key: str, cols: list[str]) -> bool | None:
+        k = (key, tuple(sorted(cols)))
+        if k in uniq:
+            return uniq[k]
+        t = dd.tables[key]
+        if key not in infos:
+            try:
+                infos[key] = discover(dd, connector, key, include_pii=True) if connector.dialect == "tsql" else {}
+            except Exception:  # noqa: BLE001
+                infos[key] = {}
+        need = set(cols) | ({t.snapshot_date.lower()} if t.snapshot_date else set())
+        res: bool | None = True if any(s and s <= need for s in _unique_sets(infos[key])) else None
+        if res is None and connector.dialect == "tsql":
+            res = _measure_unique(dd, connector, key, [c for c in cols if not (t.snapshot_date and c == t.snapshot_date.lower())])[0]
+        uniq[k] = res
+        return res
+
+    out: list[dict[str, Any]] = []
+    for d in datasets:
+        for sql in {getattr(d, "sql", None), getattr(d, "original_sql", None)} - {None, ""}:
+            try:
+                tree = sqlglot.parse_one(sql, read="tsql")
+            except Exception:  # noqa: BLE001
+                continue
+            for ta, tb, pairs in join_guard.join_pairs(tree):
+                if ta not in dd.tables or tb not in dd.tables:
+                    continue
+                a, b = dd.tables[ta], dd.tables[tb]
+                if a.snapshot_date and b.snapshot_date and (a.snapshot_date.lower(), b.snapshot_date.lower()) not in pairs:
+                    pairs = [*pairs, (a.snapshot_date.lower(), b.snapshot_date.lower())]
+                if same(ta, tb, pairs) in known:
+                    continue
+                key_a = [x for x, _ in pairs if not (a.snapshot_date and x == a.snapshot_date.lower())]
+                key_b = [y for _, y in pairs if not (b.snapshot_date and y == b.snapshot_date.lower())]
+                ua, ub = unique(ta, key_a), unique(tb, key_b)
+                if ub:
+                    frm, to, prs, card = ta, tb, pairs, "1:1" if ua else "N:1"
+                elif ua:
+                    frm, to, prs, card = tb, ta, [(y, x) for x, y in pairs], "N:1"
+                else:
+                    continue   # iki taraf da tekil değil / bilinmiyor: filtre yaymaz, modele eklenmez
+                entry = {"id": rel_id(frm, to, prs).replace("model:", "join:", 1), "from_table": frm, "to_table": to,
+                         "pairs": [list(p) for p in prs], "cardinality": card,
+                         "description": f"SQL JOIN'den ('{getattr(d, 'id', '')}' dataset'i)", "source": "sql", "added_at": now_iso()}
+                out.append(entry)
+                known.add(same(frm, to, prs))
+                known.add(same(to, frm, [(y, x) for x, y in prs]))
+    return out

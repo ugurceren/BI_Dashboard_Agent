@@ -329,7 +329,7 @@ export interface ModelRelationship {
   cardinality: Cardinality | null;
   role: string;
   /** "model": agent önerdi, kullanıcı onayladı (ortak model) · "report": yalnız bu rapora özel onaylı ilişki */
-  source?: "model" | "report";
+  source?: "model" | "report" | "sql";
   description?: string;
 }
 
@@ -495,7 +495,7 @@ export interface ConnFields {
   mappings?: Record<string, Record<string, string>>;  // yalnız sözlük: kaynak → alan → başlık ("" = kullanma)
   extra_databases?: string[];    // yalnız veri kaynağı: aynı sunucudaki ek veritabanları (ör. EDW)
 }
-export type DictKind = "sqlserver" | "excel" | "mysql" | "none";
+export type DictKind = "sqlserver" | "excel" | "mysql" | "postgres" | "none";
 export type DictRole = "tables" | "columns" | "relationships" | "metrics";
 export interface DictCandidates {
   ok: boolean; error?: string;

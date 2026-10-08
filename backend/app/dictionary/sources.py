@@ -54,6 +54,8 @@ DEFAULTS: dict[str, dict[str, list[str]]] = {
     "sqlserver": {"tables": ["meta.dd_tables"], "columns": ["meta.dd_columns"],
                   "relationships": ["meta.dd_relationships"], "metrics": ["meta.dd_metrics"]},
     "mysql": {"tables": ["dd_tables"], "columns": ["dd_columns"], "relationships": ["dd_relationships"], "metrics": ["dd_metrics"]},
+    "postgres": {"tables": ["public.dd_tables"], "columns": ["public.dd_columns"], "relationships": ["public.dd_relationships"],
+                 "metrics": ["public.dd_metrics"]},
     "excel": {"tables": ["Tablolar"], "columns": ["Kolonlar"], "relationships": ["İlişkiler"], "metrics": ["Metrikler"]},
     # sözlük yok: yalnız veritabanı kataloğu (yetkili tablo / view, MS_Description, foreign key'ler)
     "none": {"tables": [], "columns": [], "relationships": [], "metrics": []},
@@ -264,6 +266,87 @@ class MySQLReader:
         out: dict[str, list[str]] = {}
         for t, c in rows:
             out.setdefault(t, []).append(str(c))
+        return out
+
+
+_PG_NAME = re.compile(r"^[A-Za-z_][\w$]*(\.[A-Za-z_][\w$]*)?$")
+
+
+class PostgresReader:
+    """PostgreSQL (pg8000, saf Python). Tablo adı: 'şema.tablo' ya da 'tablo' (public şeması). Oturum salt-okunur."""
+    kind = "postgres"
+
+    def __init__(self, host: str, port: int, user: str, password: str, database: str, ssl: bool = False, timeout: int = 15):
+        import ssl as _ssl
+
+        import pg8000.dbapi
+
+        ctx = None
+        if ssl:
+            ctx = _ssl.create_default_context()
+        self.database = database or "postgres"
+        self.host = host
+        self.conn = pg8000.dbapi.connect(host=host, port=int(port or 5432), user=user, password=password,
+                                         database=self.database, ssl_context=ctx, timeout=timeout)
+        self.conn.autocommit = True
+        self._query("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+
+    @staticmethod
+    def valid(name: str) -> bool:
+        return bool(_PG_NAME.match(name or ""))
+
+    @staticmethod
+    def _split(name: str) -> tuple[str, str]:
+        schema, _, t = name.rpartition(".")
+        return (schema or "public"), t
+
+    @staticmethod
+    def _q(ident: str) -> str:
+        return '"' + ident.replace('"', '""') + '"'
+
+    def _query(self, sql: str, args: tuple = ()) -> tuple[list[str], list[list[Any]]]:
+        cur = self.conn.cursor()
+        try:
+            cur.execute(sql, args or None)
+            cols = [d[0] for d in cur.description or []]
+            return cols, [list(r) for r in (cur.fetchall() if cur.description else [])]
+        finally:
+            cur.close()
+
+    def probe(self) -> dict[str, Any]:
+        _, rows = self._query("SELECT version(), current_database(), current_user")
+        ver, db, user = rows[0]
+        return {"server_name": self.host, "database": db,
+                "version": str(ver).split(",")[0], "login": user, "driver": "pg8000"}
+
+    def databases(self) -> list[str]:
+        _, rows = self._query("SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn ORDER BY datname")
+        return [r[0] for r in rows]
+
+    def columns(self, names: list[str]) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {}
+        for n in names:
+            if not self.valid(n):
+                continue
+            schema, t = self._split(n)
+            _, rows = self._query("SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s "
+                                  "ORDER BY ordinal_position", (schema, t))
+            if rows:
+                out[n.lower()] = [str(r[0]) for r in rows]
+        return out
+
+    def read(self, name: str) -> list[dict[str, Any]]:
+        schema, t = self._split(name)
+        cols, rows = self._query(f"SELECT * FROM {self._q(schema)}.{self._q(t)}")
+        return _rows(cols, rows)
+
+    def list_tables(self) -> dict[str, list[str]]:
+        _, rows = self._query("SELECT table_schema, table_name, column_name FROM information_schema.columns "
+                              "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND table_schema NOT LIKE 'pg_toast%%' "
+                              "ORDER BY table_schema, table_name, ordinal_position")
+        out: dict[str, list[str]] = {}
+        for schema, t, c in rows:
+            out.setdefault(f"{schema}.{t}", []).append(str(c))
         return out
 
 

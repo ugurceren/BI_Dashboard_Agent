@@ -892,7 +892,7 @@ def h_save_requirements(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
                               "SQL'leri test et ve dashboard için dataset'leri save_datasets ile kaydet. Kullanıcıya soru sormadan başla.")
 
 
-def h_save_datasets(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+def _save_datasets(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     items = a.get("datasets")
     if not isinstance(items, list) or not items:
         return ToolResult(False, {"errors": ["'datasets' boş olmayan bir liste olmalı."]}, "Dataset listesi boş")
@@ -935,13 +935,51 @@ def h_save_datasets(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
                       state_changed=True, next_phase="design", kickoff=_DESIGN_KICKOFF)
 
 
+def add_join_relationships(ctx: ToolContext) -> list[str]:
+    """Kaydedilen dataset'lerin SQL JOIN'lerinden rapora özel ilişkiler (Model sekmesi + filtre yayılımı)."""
+    from app.dictionary.model_rels import derive_from_sql
+    s = ctx.session
+    try:
+        new = derive_from_sql(ctx.services.dictionary, ctx.services.connector, ctx.services.validator.join_guard,
+                              s.datasets, s.model_relationships)
+    except Exception as e:  # noqa: BLE001 — ilişki çıkarılamasa da dataset kaydı geçerli
+        import logging
+        logging.getLogger(__name__).warning("JOIN ilişkileri çıkarılamadı: %s", e)
+        return []
+    s.model_relationships = s.model_relationships + new
+    s.joins_derived = True
+    dd = ctx.services.dictionary
+    return [f"{dd.tables[e['from_table']].display_name or e['from_table']} → {dd.tables[e['to_table']].display_name or e['to_table']} "
+            f"({', '.join(f'{x}={y}' for x, y in e['pairs'])}, {e['cardinality']})" for e in new]
+
+
+def _with_join_rels(ctx: ToolContext, result: ToolResult) -> ToolResult:
+    if not result.state_changed:
+        return result
+    added = add_join_relationships(ctx)
+    if added and isinstance(result.content, dict):
+        result.content["join_relationships"] = added
+        result.content["join_note"] = ("SQL'deki JOIN'lerden rapora özel ilişkiler eklendi (Model sekmesinde görünür, filtreler "
+                                       "bu tablolar arasında yayılır).")
+        result.summary += f" · {len(added)} JOIN ilişkisi"
+    return result
+
+
+def h_save_datasets(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+    return _with_join_rels(ctx, _save_datasets(ctx, a))
+
+
+def h_add_dataset(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+    return _with_join_rels(ctx, _add_dataset(ctx, a))
+
+
 _DESIGN_KICKOFF = ("Dataset'ler kaydedildi ve tasarım fazına geçildi. Kullanıcıya (1) veriden öne çıkan 3-5 bulguyu "
                    "sayılarla kısaca özetle, (2) hangi dataset'lerin hazır olduğunu söyle, (3) nasıl bir tasarım "
                    "istediğini sor: tarif edebilir, örnek bir dashboard görseli yükleyebilir ya da 'varsayılan "
                    "tasarımla başla' diyebilir. Kullanıcı tasarımı zaten tarif ettiyse doğrudan create_report_spec ile oluştur.")
 
 
-def h_add_dataset(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
+def _add_dataset(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     ds, prof, errs = _build_dataset(ctx, a)
     if errs:
         return ToolResult(False, {"ok": False, "errors": errs}, "Dataset hatalı")

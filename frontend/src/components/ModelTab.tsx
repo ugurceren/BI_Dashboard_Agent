@@ -389,6 +389,9 @@ function Details({ model, table, onClose, onGo, onDeleteRel }: { model: DataMode
               </button>
               <span className={`er-d-card${r.cardinality === "N:N" ? " is-nn" : ""}`}>{here} → {there}</span>
               <div className="small muted">{cardText(r, outgoing)}{r.role ? ` · rol: ${r.role}` : ""}</div>
+              {r.source === "sql" ? (
+                <div className="er-d-model small"><span className="pill pill-muted" title={r.description || undefined}>SQL JOIN'den (bu rapora özel)</span></div>
+              ) : null}
               {r.source === "report" ? (
                 <div className="er-d-model small"><span className="pill pill-muted" title={r.description || undefined}>Yalnız bu rapora özel ilişki</span></div>
               ) : null}

@@ -28,7 +28,8 @@ def snap(services):
     dd.tables.pop(c.name, None)
 
 
-LAST = "(SELECT MAX(DataDate) FROM CLT.vGuarantee)"
+RECENT = "DataDate >= DATEADD(day, -2, CAST(GETDATE() AS DATE))"      # veri ambarı T-1
+LAST = f"(SELECT MAX(DataDate) FROM CLT.vGuarantee WHERE {RECENT})"
 
 
 @pytest.mark.parametrize("sql", [
@@ -79,9 +80,11 @@ def test_unpinned_non_additive_and_detail_queries_rejected(snap, sql):
 
 
 @pytest.mark.parametrize("sql", [
-    "SELECT MAX(DataDate) FROM CLT.vGuarantee",                           # son günü bulmak: yalnız tarih kolonu
-    "SELECT MIN(g.DataDate), MAX(g.DataDate) FROM CLT.vGuarantee g",
-    "SELECT DISTINCT TOP 30 DataDate FROM CLT.vGuarantee ORDER BY DataDate DESC",
+    f"SELECT MAX(DataDate) FROM CLT.vGuarantee WHERE {RECENT}",            # son günü bulmak: alt sınırlı tarih sorgusu
+    f"SELECT MIN(g.DataDate), MAX(g.DataDate) FROM CLT.vGuarantee g WHERE g.{RECENT}",
+    "SELECT MAX(DataDate) FROM CLT.vGuarantee WHERE DataDate >= DATEADD(day, -2, GETDATE())",   # kullanıcının yazdığı biçim
+    "SELECT MAX(DataDate) FROM CLT.vGuarantee WHERE DataDate BETWEEN '2026-09-01' AND '2026-09-30'",
+    f"SELECT DISTINCT TOP 30 DataDate FROM CLT.vGuarantee WHERE {RECENT} ORDER BY DataDate DESC",
     f"SELECT TOP 100 * FROM CLT.vGuarantee WHERE DataDate = {LAST}",      # örnek satır: tek gün
     f"SELECT TOP 100 Branch, MAX(Amount) FROM CLT.vGuarantee WHERE DataDate = {LAST} GROUP BY Branch",
     "SELECT g.DataDate, MAX(g.Amount) FROM CLT.vGuarantee g GROUP BY g.DataDate",
@@ -89,6 +92,18 @@ def test_unpinned_non_additive_and_detail_queries_rejected(snap, sql):
 def test_pinned_or_date_only_queries_pass(snap, sql):
     r = snap.validator.validate(sql, POL)
     assert r.ok, r.errors
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT MAX(DataDate) FROM CLT.vGuarantee",                           # alt sınırsız: view'ın tamamı taranır
+    "SELECT MIN(g.DataDate), MAX(g.DataDate) FROM CLT.vGuarantee g",
+    "SELECT MAX(DataDate) FROM CLT.vGuarantee WHERE DataDate <= '2026-09-30'",   # yalnız üst sınır yetmez
+    "SELECT SUM(Amount) FROM CLT.vGuarantee WHERE DataDate = (SELECT MAX(DataDate) FROM CLT.vGuarantee)",  # alt sorgu sınırsız
+])
+def test_unbounded_date_only_query_rejected(snap, sql):
+    """Son günü bulan MIN / MAX da alt sınır ister (T-1 veri ambarı: DataDate >= GETDATE() - 2)."""
+    r = snap.validator.validate(sql, POL)
+    assert not r.ok and any("alt sınır" in e and "DATEADD(day, -2" in e for e in r.errors), r.errors
 
 
 def test_period_average_only_warns(snap):
@@ -137,6 +152,7 @@ def test_as_of_rewrites_every_snapshot_block(snap):
     assert eng.snapshot_tables(KPI) == ["clt.vguarantee"]
     sql, done = eng.as_of(KPI, "2026-06-30")
     assert done and sql.count("<= CAST('2026-06-30' AS DATE)") == 2     # dış sorgu + MAX alt sorgusu
+    assert "GETDATE" not in sql and "DATEADD(day, -7, CAST('2026-06-30' AS DATE))" in sql   # bugüne göreli sınır → seçilen gün
     assert snap.validator.validate(sql, POL).ok                         # günlük anlık görüntü kontrolünden geçer
     t2, _ = eng.as_of(TREND, "2026-06-30")
     assert "<= CAST('2026-06-30' AS DATE)" in t2 and snap.validator.validate(t2, POL).ok
@@ -154,9 +170,11 @@ def test_dashboard_data_and_filters_with_as_of(snap, monkeypatch):
     sess = SimpleNamespace(datasets=[Dataset(id="kpi", sql=KPI), Dataset(id="urun", sql="SELECT EnglishProductName FROM dbo.DimProduct")],
                            spec=None, user_role="standart")
     seen = []
-    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role: seen.append(sql) or {"columns": ["min_d", "max_d"], "rows": [["2025-01-01", "2026-10-04"]]})
+    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role: seen.append(sql) or {"columns": ["max_d"], "rows": [["2026-10-04"]]})
+    m._options_cache.clear()
     info = m._data_date_info(sess, "standart")
-    assert info["column"] == "DataDate" and info["min"] == "2025-01-01" and info["max"] == "2026-10-04"
+    assert info["column"] == "DataDate" and info["min"] is None and info["max"] == "2026-10-04"
+    assert "DATEADD(day, -2" in seen[0] and "MIN(" not in seen[0]     # yalnız son günler, tüm geçmiş taranmaz
     seen.clear()
     r = m._dashboard_data(sess, [{"key": m.AS_OF_KEY, "values": ["2026-06-30"]}])
     assert r["as_of"] == "2026-06-30" and r["applied"]["kpi"] == [m.AS_OF_KEY] and "urun" not in r["applied"]
