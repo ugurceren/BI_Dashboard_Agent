@@ -277,6 +277,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
 .tool-row { margin-left: 32px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); overflow: hidden; }
 .tool-row.is-fail { border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); background: color-mix(in srgb, var(--bad) 4%, var(--surface-2)); }
+.tool-row.is-skipped { opacity: 0.6; border-style: dashed; }
+.tool-row.is-skipped .tool-summary { font-style: italic; }
 .tool-head {
   display: flex; align-items: center; gap: 7px; width: 100%;
   border: 0; background: none; padding: 5px 9px; cursor: pointer; text-align: left;
@@ -290,6 +292,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .tool-status { flex: none; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; }
 .tool-status.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .tool-status.fail { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.tool-status.skip { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
 .tool-caret { flex: none; color: var(--muted); transition: transform .15s; }
 .tool-row.is-open .tool-caret { transform: rotate(90deg); }
 .tool-body { padding: 0 9px 9px; }

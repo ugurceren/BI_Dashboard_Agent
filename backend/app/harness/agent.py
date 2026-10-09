@@ -354,14 +354,20 @@ class Agent:
     def _run_tool(self, s: Session, call: ToolCall) -> Iterator[Event]:
         tool = TOOLS_BY_NAME.get(call.name)
         t0 = time.perf_counter()
+        skipped = False
         if call.parse_error:
             result = ToolResult(False, {"error": call.parse_error}, "Argümanlar okunamadı")
         elif tool is None:
             result = ToolResult(False, {"error": f"'{call.name}' diye bir araç yok. Kullanılabilir: {[t.name for t in tools_for(s.phase)]}"},
                                 "Bilinmeyen araç")
         elif s.phase not in tool.phases:
-            result = ToolResult(False, {"error": f"'{call.name}' bu fazda ({s.phase}) kullanılamaz. Kullanılabilir: {[t.name for t in tools_for(s.phase)]}"},
-                                "Araç bu fazda kapalı")
+            skipped = True
+            hint = {"requirements": "Bu fazda yalnız ihtiyacı netleştir: kullanıcıya sor ya da save_requirements çağır.",
+                    "data": "Bu fazda veri kümelerini hazırla; dashboard tasarım fazında oluşturulur.",
+                    "design": "Bu fazda dashboard'u düzenle; yeni veri gerekiyorsa add_dataset kullan."}.get(s.phase, "")
+            result = ToolResult(False, {"error": f"'{call.name}' bu fazda ({s.phase}) kullanılmaz; çağrı atlandı. {hint} "
+                                                 f"Kullanılabilir araçlar: {[t.name for t in tools_for(s.phase)]}"},
+                                "Bu fazda kullanılmaz — atlandı")
         else:
             cache = s.phase_memory.setdefault("calls", {})
             key = f"{call.name}:{json.dumps(call.arguments, sort_keys=True, ensure_ascii=False)}"
@@ -396,7 +402,7 @@ class Agent:
                          arguments=call.arguments, summary=result.summary,
                          errors=result.content.get("errors") if isinstance(result.content, dict) else None)
         yield self._emit(s, TranscriptItem(role="tool", content=result.summary, tool=ToolInfo(
-            name=call.name, arguments=call.arguments, ok=result.ok, summary=result.summary, durationMs=ms)))
+            name=call.name, arguments=call.arguments, ok=result.ok, summary=result.summary, durationMs=ms, skipped=skipped)))
         if result.state_changed:
             self.store.save(s)   # arayüz bu olayla dashboard verisini / filtreleri ister: diskteki oturum güncel olmalı
             yield Event("state", s.public())

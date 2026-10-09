@@ -12,12 +12,20 @@ test("ihtiyaç, veri ve tasarım fazlarında hatalar yakalanır, kullanıcı ona
   const NAME = `Bayi Takip Panosu ${Date.now() % 100000}`;   // aynı backend'de tekrar koşulabilsin (ad benzersiz olmalı)
   const current = (name: string) => page.locator(".step button[aria-current='step']", { hasText: name });
   const stepBtn = (name: string) => page.locator(".stepper button", { hasText: name });
-  const tool = (name: string) => page.locator(`.tool-row[data-tool="${name}"]`);
+  const tool = (name: string) => page.locator(`.tool-row[data-tool="${name}"]:not([data-skipped])`);   // çalışan çağrılar
   const session = async () => (await page.request.get(`/api/sessions/${id}`)).json();
   const tab = (name: string) => page.getByRole("tab", { name: new RegExp(`^${name}`) });
 
   await test.step("İhtiyaç: KPI'sız gereksinim reddedilir, faz ilerlemez, agent KPI sorar", async () => {
     await chat(page, "[detay] Bayi satışlarını izleyeceğim bir rapor istiyorum.");
+    // bu fazda kapalı araç: çalıştırılmaz, hata gibi değil "atlandı" olarak sönük gösterilir
+    const skipped = page.locator('.tool-row[data-tool="run_sql"][data-skipped="1"]').first();
+    await expect(skipped).toHaveAttribute("data-skipped", "1");
+    await expect(skipped).toHaveClass(/is-skipped/);
+    await expect(skipped).not.toHaveClass(/is-fail/);
+    await expect(skipped.locator(".tool-summary")).toContainText("atlandı");
+    // salt-okunur tablo ayrıntısı İhtiyaç fazında açık; uydurma argüman adı (table_name) kabul edilir
+    await expectTool(page, "get_table_details");
     await expectTool(page, "save_requirements", false);
     await expect(tool("save_requirements").last().locator(".tool-summary")).toContainText("KPI eksik");
     await expect(page.locator(".msg-assistant").last()).toContainText("Hangi KPI");

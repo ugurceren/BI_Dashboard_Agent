@@ -34,7 +34,8 @@ REQUIREMENTS = """
 Amaç: kullanıcının nasıl bir rapor istediğini netleştirmek.
 
 Nasıl çalış:
-1. Gerekirse search_dictionary ile hangi verilerin mevcut olduğuna bak; böylece gerçekte var olan KPI ve kırılımları önerebilirsin.
+1. Gerekirse search_dictionary ile hangi verilerin mevcut olduğuna bak; bir tablonun kolonlarını görmek istersen get_table_details
+   (en fazla 3 inceleme). Böylece gerçekte var olan KPI ve kırılımları önerebilirsin. SQL ve model önerisi veri fazındadır.
 2. Eksik bilgi varsa TEK mesajda en fazla 3 kısa soru sor ve her soru için makul bir varsayılan öner
    (ör. "Zaman aralığı: bu yıl başından bugüne, geçen yılla karşılaştırmalı olsun mu?").
    Sorulacaklar: amaç/hedef kitle, ana KPI'lar, kırılımlar (bölge, ürün, kanal…), zaman aralığı ve karşılaştırma, filtreler.

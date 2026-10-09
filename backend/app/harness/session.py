@@ -38,6 +38,7 @@ class ToolInfo(BaseModel):
     ok: bool = True
     summary: str = ""
     durationMs: int = 0
+    skipped: bool = False     # faza kapalı araç: çalıştırılmadı (hata değil; arayüzde sönük gösterilir)
 
 
 class TranscriptItem(BaseModel):
@@ -182,6 +183,19 @@ def _replace(src: Path, dst: Path, tries: int = 40) -> None:
             time.sleep(0.025 * (1 + i // 10))
 
 
+def _read_text(path: Path, tries: int = 40) -> str:
+    """Okuma. Windows'ta dosya o an başka bir istekte kaydediliyorsa (os.replace anı) okuma 'Erişim engellendi' verebilir;
+    kısa aralıklarla yeniden denenir. Yoksa eşzamanlı istekte (ör. filtreler / veri) oturum okunamayıp 500 dönüyordu."""
+    for i in range(tries):
+        try:
+            return path.read_text(encoding="utf-8")
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.025 * (1 + i // 10))
+    raise AssertionError("ulaşılmaz")
+
+
 class SessionStore:
     def __init__(self, directory: Path):
         self.dir = directory
@@ -207,7 +221,7 @@ class SessionStore:
         p = self._path(sid)
         if not p.exists():
             raise KeyError(sid)
-        s = Session.model_validate_json(p.read_text(encoding="utf-8"))
+        s = Session.model_validate_json(_read_text(p))
         if s.busy and not self.lock(sid).locked():  # sunucu çökmüşse takılı kalmasın
             s.busy = False
         return s
@@ -275,8 +289,8 @@ class SessionStore:
         out = []
         for p in self.dir.glob("*.json"):
             try:
-                d = json.loads(p.read_text(encoding="utf-8"))
+                d = json.loads(_read_text(p))
                 out.append(_summary(d))
-            except (json.JSONDecodeError, KeyError):
+            except (json.JSONDecodeError, KeyError, OSError):   # o an silinen / kilitli dosya listeyi düşürmesin
                 continue
         return sorted(out, key=lambda x: x.get("updatedAt") or "", reverse=True)

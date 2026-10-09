@@ -117,7 +117,13 @@ def decide_detail(messages: list[dict]) -> dict:
     if phase == "requirements":
         if prev == "save_requirements" and not prev_ok:
             return say("Hangi KPI'ları görmek istersiniz? Örneğin satış tutarı, sipariş sayısı.")
-        if fresh:
+        # ilk tur: önce bu fazda kapalı bir araç (atlanmalı, hata gibi görünmemeli), sonra uydurma argümanla tablo ayrıntısı
+        # (table_name → tables kabul edilmeli), sonra KPI'sız kayıt (reddedilmeli)
+        if fresh and calls("run_sql") == 0:
+            return call("run_sql", {"sql": "SELECT TOP 5 * FROM dbo.DimReseller"})
+        if prev == "run_sql":
+            return call("get_table_details", {"table_name": "dbo.DimReseller"})
+        if fresh or prev == "get_table_details":
             req = {"report_title": DETAIL_TITLE, "business_goal": f"Bayi satışlarını izlemek ({DETAIL_MARK})", "audience": "Satış yönetimi",
                    "dimensions": ["Bölge grubu", "Yıl"], "time_range": "Tüm dönem"}
             # ilk turda KPI'sız kayıt (harness reddetmeli), kullanıcı KPI'ları söyleyince tam kayıt

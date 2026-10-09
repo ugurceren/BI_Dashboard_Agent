@@ -189,6 +189,8 @@ export interface ToolInfo {
   ok: boolean;
   summary: string;
   durationMs: number;
+  /** faza kapalı araç: çalıştırılmadı (hata değil) */
+  skipped?: boolean;
 }
 
 export interface TranscriptItem {

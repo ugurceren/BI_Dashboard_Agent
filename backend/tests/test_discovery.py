@@ -67,7 +67,7 @@ def test_unknown_or_denied_object_rejected(services):
     assert services.connector.sql == []                                # katalog hiç sorgulanmadı
 
 
-def test_tool_available_in_data_and_design_phases():
-    for phase in ("data", "design"):
+def test_tool_available_in_all_phases():
+    """Salt-okunur keşif: İhtiyaç fazında da açık (sınırlı sayıda; bkz. REQ_PEEK_LIMIT)."""
+    for phase in ("requirements", "data", "design"):
         assert "discover_object" in [t.name for t in tools_for(phase)]
-    assert "discover_object" not in [t.name for t in tools_for("requirements")]

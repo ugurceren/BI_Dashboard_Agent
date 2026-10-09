@@ -122,7 +122,8 @@ def test_tool_not_allowed_in_phase(settings, services):
     _run(agent, s.id, "sql çalıştır")
     s = store.get(s.id)
     t = next(t for t in s.transcript if t.role == "tool")
-    assert not t.tool.ok and "bu fazda" in llm.calls[1]["messages"][-1]["content"]
+    assert not t.tool.ok and t.tool.skipped and "bu fazda" in llm.calls[1]["messages"][-1]["content"]
+    assert "save_requirements" in llm.calls[1]["messages"][-1]["content"]       # faza uygun yönlendirme
 
 
 def test_prompt_mode_roundtrip():
@@ -459,3 +460,41 @@ def test_loading_demo_twice_keeps_both_reports(settings, services):
     assert a.id in titles and b.id in titles
     assert titles[b.id] == titles[a.id] + " (2)"
     assert m.state.store.get(b.id).spec.title == titles[b.id]
+
+
+
+def test_requirements_phase_can_peek_tables_with_limit(settings, services):
+    """İhtiyaç fazında salt-okunur tablo ayrıntısı açık (model 'table_name' gibi uydurma argüman da yazabilir), sınırlı sayıda."""
+    from app.harness.session import Session
+    from app.harness.tools import REQ_PEEK_LIMIT, ToolContext, h_get_table_details
+
+    ctx = ToolContext(Session(phase="requirements"), services)
+    r = h_get_table_details(ctx, {"table_name": "dbo.DimSalesTerritory"})
+    assert r.ok, r.content
+    assert r.content["tables"][0]["table"].lower().endswith("dimsalesterritory")
+    for _ in range(REQ_PEEK_LIMIT - 1):
+        assert h_get_table_details(ctx, {"tables": ["dbo.DimDate"]}).ok
+    r = h_get_table_details(ctx, {"tables": ["dbo.DimDate"]})
+    assert not r.ok and "save_requirements" in r.content["error"]
+    ctx.session.phase = "data"                                                  # veri fazında sınır yok
+    assert h_get_table_details(ctx, {"tables": ["dbo.DimDate"]}).ok
+
+
+def test_session_read_retries_while_file_is_being_replaced(settings, monkeypatch):
+    """Windows: kayıt (os.replace) anında okuma PermissionError verebiliyor; okuma yeniden denenir, istek 500 dönmez."""
+    import pathlib
+
+    store = SessionStore(settings.sessions_dir)
+    s = store.create("standart")
+    real = pathlib.Path.read_text
+    fails = {"n": 2}
+
+    def flaky(self, *a, **kw):
+        if self.name == f"{s.id}.json" and fails["n"]:
+            fails["n"] -= 1
+            raise PermissionError(13, "Erişim engellendi", str(self))
+        return real(self, *a, **kw)
+    monkeypatch.setattr(pathlib.Path, "read_text", flaky)
+    assert store.get(s.id).id == s.id and fails["n"] == 0
+    fails["n"] = 1
+    assert s.id in [x["id"] for x in store.list()]

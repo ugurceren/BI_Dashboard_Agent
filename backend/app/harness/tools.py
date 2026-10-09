@@ -863,10 +863,36 @@ def h_search_dictionary(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
                       f"'{q}' → {len(hits)} tablo, {len(metrics)} metrik")
 
 
+# İhtiyaç fazında salt-okunur keşif (tablo ayrıntısı / nesne keşfi): gerçekte var olan kolonlara bakıp KPI önerilebilsin,
+# ama faz veri keşfine dönüşmesin diye sınırlı
+REQ_PEEK_LIMIT = 3
+
+
+def _names_arg(a: dict[str, Any], *keys: str) -> list[str]:
+    """Tablo / nesne adları: modeller şemadaki adı (tables / objects) yerine table_name, table, name gibi adlar da yazıyor."""
+    for k in (*keys, "table_names", "table_name", "table", "tables", "object_name", "object", "name"):
+        v = a.get(k)
+        if v:
+            return [str(x) for x in v] if isinstance(v, list) else [str(v)]
+    return []
+
+
+def _req_peek_limit(ctx: ToolContext) -> ToolResult | None:
+    if ctx.session.phase != "requirements":
+        return None
+    mem = ctx.session.phase_memory
+    mem["req_peeks"] = mem.get("req_peeks", 0) + 1
+    if mem["req_peeks"] > REQ_PEEK_LIMIT:
+        return ToolResult(False, {"error": f"İhtiyaç fazında en fazla {REQ_PEEK_LIMIT} tablo incelemesi yapılır; ayrıntılı veri keşfi "
+                                           "veri fazındadır. Şimdi kullanıcıya eksik soruları sor ya da save_requirements çağır."},
+                          "İhtiyaç fazı: inceleme sınırı")
+    return None
+
+
 def h_get_table_details(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
-    names = a.get("tables") or ([a["table"]] if a.get("table") else [])
-    if isinstance(names, str):
-        names = [names]
+    if (r := _req_peek_limit(ctx)):
+        return r
+    names = _names_arg(a, "tables")
     if (hint := _session_id_hint(ctx, *names)):
         return ToolResult(False, {"error": hint}, "Bu bir dataset / görsel kimliği")
     pol = ctx.services.policy(ctx.session.user_role)
@@ -900,9 +926,9 @@ def h_discover_object(ctx: ToolContext, a: dict[str, Any]) -> ToolResult:
     """SQL Server kataloğundan nesne özellikleri: kolon tipleri, NULL, PK, index, FK, satır sayısı, view kaynağı / tanımı."""
     from app.dictionary.discovery import compact, discover
 
-    names = a.get("objects") or ([a["object"]] if a.get("object") else [])
-    if isinstance(names, str):
-        names = [names]
+    if (r := _req_peek_limit(ctx)):
+        return r
+    names = _names_arg(a, "objects")
     if not names:
         return ToolResult(False, {"error": "objects listesi gerekli (ör. ['dbo.FactResellerSales'])."}, "Nesne adı yok")
     if (hint := _session_id_hint(ctx, *names)):
@@ -1435,7 +1461,7 @@ TOOLS: list[Tool] = [
          ALL, h_search_dictionary, status="Veri sözlüğü aranıyor…"),
     Tool("get_table_details", "Tabloların tüm kolonlarını, rollerini (measure/dimension/key), örnek değerlerini ve join ilişkilerini getirir.",
          {"type": "object", "required": ["tables"], "properties": {"tables": {**_STRS, "description": "şema.tablo adları, en fazla 5"}}},
-         DATA_DESIGN, h_get_table_details, status="Tablo detayları okunuyor…"),
+         ALL, h_get_table_details, status="Tablo detayları okunuyor…"),
     Tool("discover_object", "Nesne keşfi: tablo / view'ın veritabanındaki TEKNİK özelliklerini getirir — kolon SQL tipi "
          "(uzunluk, hassasiyet), NULL olabilir mi, identity / hesaplanan / varsayılan değer, birincil anahtar, index'ler, "
          "yabancı anahtarlar (giden ve gelen), satır sayısı, oluşturma / değişiklik tarihi, açıklama; view ise kaynak nesneleri "
@@ -1443,7 +1469,7 @@ TOOLS: list[Tool] = [
          "doğrulamak için kullan. Veri satırı okumaz.",
          {"type": "object", "required": ["objects"], "properties": {
              "objects": {**_STRS, "description": "şema.nesne (ek veritabanında db.şema.nesne) adları, en fazla 3"}}},
-         DATA_DESIGN, h_discover_object, status="Nesne özellikleri veritabanı kataloğundan okunuyor…"),
+         ALL, h_discover_object, status="Nesne özellikleri veritabanı kataloğundan okunuyor…"),
     Tool("propose_model", "Veri modeli önerisi: bulduğun tabloların özetini (fact / boyut / view, satır sayısı, DataDate, PK) ve "
          "aralarındaki ilişki adaylarını (veritabanı yabancı anahtarları; aynı adlı anahtar kolonları + hangi tarafın tekil "
          "olduğu) getirir. Veri fazının başında, SQL yazmadan önce çağır; sonucu kullanıcıya sorup onay al.",

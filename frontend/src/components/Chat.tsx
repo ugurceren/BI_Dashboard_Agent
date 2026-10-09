@@ -80,10 +80,12 @@ function ToolRow({ item }: { item: TranscriptItem }) {
   const [open, setOpen] = useState(false);
   const t = item.tool;
   const ok = t ? t.ok : true;
+  const skipped = !!t?.skipped;   // faza kapalı araç: sistem çalıştırmadı, model yönlendirildi — hata gibi gösterme
   const args = t?.arguments;
   const argsText = args === undefined ? "" : typeof args === "string" ? args : JSON.stringify(args, null, 2);
   return (
-    <div className={`tool-row${ok ? "" : " is-fail"}${open ? " is-open" : ""}`} data-tool={t?.name} data-ok={ok ? "1" : "0"}>
+    <div className={`tool-row${ok ? "" : skipped ? " is-skipped" : " is-fail"}${open ? " is-open" : ""}`} data-tool={t?.name} data-ok={ok ? "1" : "0"}
+      data-skipped={skipped ? "1" : undefined}>
       <button type="button" className="tool-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <svg className="tool-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
           <path d={toolIcon(t?.name ?? "")} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
@@ -91,8 +93,10 @@ function ToolRow({ item }: { item: TranscriptItem }) {
         <span className="tool-name">{t?.name ?? "araç"}</span>
         <span className="tool-summary">{t?.summary || item.content}</span>
         <span className="tool-dur">{formatDuration(t?.durationMs)}</span>
-        <span className={`tool-status ${ok ? "ok" : "fail"}`} title={ok ? "Başarılı" : "Başarısız"}>
-          {ok ? (
+        <span className={`tool-status ${ok ? "ok" : skipped ? "skip" : "fail"}`} title={ok ? "Başarılı" : skipped ? "Bu fazda kullanılmaz — atlandı" : "Başarısız"}>
+          {skipped ? (
+            <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+          ) : ok ? (
             <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2.5 6.2 5 8.5l4.5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
           ) : (
             <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3 3l6 6M9 3 3 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
