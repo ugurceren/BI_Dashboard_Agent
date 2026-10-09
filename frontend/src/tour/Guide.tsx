@@ -51,7 +51,9 @@ export function Guide({ me, section, onExit, onPresent }: {
     const main = mainRef.current;
     const el = main?.querySelector<HTMLElement>(`#g-sec-${id}`);
     if (!main || !el) return;
-    main.scrollTo({ top: el.offsetTop - main.offsetTop - 16, behavior: smooth ? "smooth" : "auto" });
+    const top = el.offsetTop - main.offsetTop - 16;
+    main.scrollTo({ top, behavior: smooth ? "smooth" : "auto" });
+    setShowTop(top > 400);
     mark(id);
   }, [mark]);
 
@@ -68,8 +70,13 @@ export function Guide({ me, section, onExit, onPresent }: {
     return () => window.removeEventListener("hashchange", onHash);
   }, [section]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // arama / rol filtresi değişince başa
-  useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); }, [filter, q]);
+  // arama / rol filtresi değişince (oturum bilgisi gelince varsayılan rol filtresi de değişir): adresteki bölüm
+  // listede kaldıysa ona, aramada ya da bölüm elendiyse başa
+  useEffect(() => {
+    const id = /^#\/kilavuz\/([a-z0-9-]+)/.exec(window.location.hash)?.[1];
+    if (!q.trim() && id && list.some((s) => s.id === id)) goTo(id, false);
+    else mainRef.current?.scrollTo({ top: 0 });
+  }, [filter, q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onScroll = () => {
     const main = mainRef.current;

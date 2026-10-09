@@ -66,6 +66,10 @@ test("kılavuz: rol filtresi, arama, bölüm adresi, sol menüden Yardım", asyn
 
   await page.goto("/#/kilavuz/prod");                                           // bölüm adresi doğrudan açılır
   await expect(guide.getByRole("heading", { name: /Üretime \(prod\) kurulum/ })).toBeVisible();
+  await page.reload();                                                          // ilk açılışta da bölüme kayar (başa atmaz)
+  await expect.poll(() => guide.locator(".tr-guide-main").evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await expect(page).toHaveURL(/#\/kilavuz\/prod/);
+  await expect(guide.getByRole("heading", { name: "Grafik ve tablo türleri" })).toBeAttached();
   for (const img of await guide.locator("#g-sec-prod img").all()) {
     await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(0);
   }
