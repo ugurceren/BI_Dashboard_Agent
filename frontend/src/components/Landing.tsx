@@ -29,14 +29,6 @@ export function Landing({ me, vitrin, sessions, health, onChoose, onSystem }: {
 
   return (
     <div className="landing" data-testid="landing">
-      <header className="ld-head">
-        <span className="ld-mark" aria-hidden="true">
-          <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeLinecap="round"><circle cx="7" cy="7" r="5" strokeWidth="1.7" /><path d="M5 9V7.5M7 9V5M9 9V6.5" strokeWidth="1.5" /><path d="M10.8 10.8 14 14" strokeWidth="2" /></svg>
-        </span>
-        <span className="ld-brand">BI Lens</span>
-        {me ? <span className="ld-user">{me.display_name || me.username}</span> : null}
-      </header>
-
       <section className="ld-hero">
         <h1>{firstName ? `Hoş geldiniz, ${firstName}.` : "Hoş geldiniz."}</h1>
         <p>Raporları keşfedin, yenisini tasarlayın ya da sistemi yönetin.</p>
@@ -112,7 +104,7 @@ export function Landing({ me, vitrin, sessions, health, onChoose, onSystem }: {
       </div>
 
       <footer className="ld-foot">
-        <span className="ld-muted">Vitrin / Tasarım seçiminiz hatırlanır; buraya sol üstteki BI Lens logosundan dönebilirsiniz.</span>
+        <span className="ld-muted">Seçiminiz hatırlanır; buraya sol üstteki BI Lens logosundan dönebilirsiniz.</span>
       </footer>
     </div>
   );
