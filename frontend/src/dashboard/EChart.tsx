@@ -6,7 +6,7 @@ import {
 } from "echarts/charts";
 import {
   GridComponent, TooltipComponent, LegendComponent, VisualMapComponent, TitleComponent,
-  GraphicComponent, MarkLineComponent, AxisPointerComponent,
+  GraphicComponent, MarkLineComponent, AxisPointerComponent, DataZoomInsideComponent, DataZoomSliderComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsCoreOption } from "echarts/core";
@@ -14,7 +14,7 @@ import type { EChartsCoreOption } from "echarts/core";
 echarts.use([
   BarChart, LineChart, PieChart, ScatterChart, HeatmapChart, FunnelChart, GaugeChart, TreemapChart,
   GridComponent, TooltipComponent, LegendComponent, VisualMapComponent, TitleComponent,
-  GraphicComponent, MarkLineComponent, AxisPointerComponent, CanvasRenderer,
+  GraphicComponent, MarkLineComponent, AxisPointerComponent, DataZoomInsideComponent, DataZoomSliderComponent, CanvasRenderer,
 ]);
 
 export type EOption = EChartsCoreOption;

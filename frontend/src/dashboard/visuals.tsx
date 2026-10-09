@@ -1,5 +1,5 @@
 // Görsel bileşenleri: grafik, KPI, tablo, metin + kart kabuğu ve hata sınırı.
-import { Component, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { CellValue, Dataset, Visual } from "../types";
 import { EChart } from "./EChart";
 import {
@@ -167,8 +167,8 @@ export function ChartVisual(p: VisualProps) {
   const [size, setSize] = useState({ w: 600, h: 300 });
   const t = table!;
   // genişliğe duyarlı seçenekler (ör. donut lejantı yanda/altta) için boyut kovası;
-  // pie/donut/bar/heatmap yerleşimi piksel hesabıyla yapılır → tam boyut
-  const fine = ["pie", "donut", "gauge", "bar", "heatmap"].includes(visual.type);
+  // pie/donut/bar/heatmap/funnel/treemap yerleşimi piksel hesabıyla yapılır → tam boyut
+  const fine = ["pie", "donut", "gauge", "bar", "heatmap", "funnel", "treemap"].includes(visual.type);
   const wBucket = fine ? Math.round(size.w) : size.w >= 400 ? 1 : 0;
   const hBucket = fine ? Math.round(size.h) : size.h >= 220 ? 1 : 0;
   const e0 = enc(visual);
@@ -315,6 +315,25 @@ export function KpiVisual(p: VisualProps) {
     };
   }, [spark, theme, o.color]);
 
+  // Değer karta sığmazsa (ör. ₺123.456.789.012) kısaltılmış biçime geçilir (123,5 Mr ₺); tam değer title'da.
+  // Kart genişleyince yeniden tam biçim denenir.
+  const valueRef = useRef<HTMLDivElement>(null);
+  const [shrink, setShrink] = useState(false);
+  const canShrink = value !== null && fmt.format !== "percent" && fmt.format !== "compact";
+  useLayoutEffect(() => {
+    const el = valueRef.current;
+    if (el && canShrink && !shrink && el.scrollWidth > el.clientWidth + 1) setShrink(true);
+  });
+  useEffect(() => {
+    const el = valueRef.current;
+    if (!el) return;
+    let w = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth !== w) { w = el.clientWidth; setShrink(false); } });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const valueText = value === null ? "–" : formatValue(value, shrink && canShrink ? { ...fmt, format: "compact" } : fmt);
+
   const up = (delta ?? 0) >= 0;
   // kart stili: zemin, yazı rengi (verilmezse zemine göre okunur renk), vurgu şeridi, değer boyutu
   const fg = o.textColor ?? (o.background ? (luminance(o.background) > 0.4 ? "#0f172a" : "#f8fafc") : undefined);
@@ -327,11 +346,11 @@ export function KpiVisual(p: VisualProps) {
   return (
     <div className={cls} style={cardStyle}>
       <div className="db-kpi-top">
-        <div className="db-kpi-label">{visual.title}</div>
+        <div className="db-kpi-label" title={visual.title}>{visual.title}</div>
         {p.filterNote ? <span className="db-badge" title={p.filterNote}>Filtre dışı</span> : null}
       </div>
-      <div className="db-kpi-value" style={o.color ? { color: o.color } : undefined} title={value === null ? undefined : formatValue(value, { ...fmt, format: fmt.format === "compact" ? (fmt.currency ? "currency" : "number") : fmt.format })}>
-        {value === null ? "–" : formatValue(value, fmt)}
+      <div className="db-kpi-value" ref={valueRef} style={o.color ? { color: o.color } : undefined} title={value === null ? undefined : formatValue(value, { ...fmt, format: fmt.format === "compact" ? (fmt.currency ? "currency" : "number") : fmt.format })}>
+        {valueText}
       </div>
       {deltaText || visual.subtitle ? (
         <div className="db-kpi-delta-row">

@@ -2,7 +2,7 @@
 // Visual → ECharts seçeneği. Tüm renkler/yazılar spec temasından türetilir.
 import type { CellValue, Dataset, DatasetField, Visual } from "../types";
 import {
-  escapeHtml, formatAxis, formatCategory, formatValue, resolveFormat, toNumber, type FormatSpec,
+  escapeHtml, formatAxis, formatCategory, formatValue, isPeriodLike, resolveFormat, toNumber, type FormatSpec,
 } from "./format";
 import { groupBy, keyOf, pivot, seriesOrder, type Row } from "./data";
 import { alpha, inkOn, mix, sequentialRamp, type DerivedTheme } from "./theme";
@@ -89,6 +89,28 @@ export function validateFields(v: Visual, columns: string[]) {
 }
 
 // ---------- ortak parçalar ----------
+
+// ---------- metin ölçümü (etiket sığdırma) ----------
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+/** Metnin piksel genişliği (canvas ölçümü; tarayıcı dışında yaklaşık). */
+export function textWidth(s: string, size: number, font: string, weight: number | string = 400): number {
+  if (measureCtx === undefined) measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
+  if (!measureCtx) return s.length * size * 0.56;
+  measureCtx.font = `${weight} ${size}px ${font}`;
+  return measureCtx.measureText(s).width;
+}
+
+/** Metni verilen genişliğe sığdırır; sığmazsa sonunu "…" ile keser. */
+export function fitText(s: string, maxW: number, size: number, font: string, weight: number | string = 400): string {
+  if (textWidth(s, size, font, weight) <= maxW) return s;
+  let lo = 0, hi = s.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (textWidth(s.slice(0, mid).trimEnd() + "…", size, font, weight) <= maxW) lo = mid; else hi = mid - 1;
+  }
+  return lo > 0 ? s.slice(0, lo).trimEnd() + "…" : "…";
+}
 
 function palette(ctx: ChartCtx): string[] {
   const p = ctx.theme.palette?.length ? ctx.theme.palette : ["#2563eb"];
@@ -255,35 +277,85 @@ function cartesian(ctx: ChartCtx): EOption {
     },
   };
 
-  // Dar yatay çubuk: kategori adı çubuğun üstünde (etiket sütunu çubukları ezmesin)
+  // Yatay çubuk yerleşimi: satır yüksekliği önce hesaplanır. Dar kartta kategori adı çubuk grubunun üstünde, genişte
+  // solda etiket sütununda. Satırlar sığmazsa kategori atlanmaz: kaydırılabilir (dataZoom) görünüm açılır.
+  const nSer = stacked ? 1 : series.length;
+  const ROW_TEXT = 17;                                   // 11.5px etiket + boşluk
+  const groupH = (bw: number) => nSer * bw + (nSer - 1) * Math.max(1, bw * 0.25);
+  const topPad = legendOn ? 40 : 12;
+  const plotH = Math.max(80, ctx.height - topPad - (o.showLabels ? 8 : 26));
+  const n = Math.max(1, categories.length);
   const labelsAbove = horizontal && ctx.width < 560;
-  const plotH = Math.max(80, ctx.height - (legendOn ? 40 : 12) - 8);
-  const band = plotH / Math.max(1, categories.length);
-  const aboveBarW = Math.round(Math.max(6, Math.min(14, band * 0.3)));
+  let aboveBarW = 0;
+  let rows = n;                                          // aynı anda görünen kategori sayısı
+  let barThick = 0;                                      // tek çubuğun kalınlığı (değer etiketi sığar mı)
+  if (labelsAbove) {
+    // etiket iki çubuk grubu arasındaki boşluğa yazılır: satır = grup + etiket
+    for (let bw = 12; bw >= 5 && !aboveBarW; bw--) if (n * (groupH(bw) + ROW_TEXT + 2) <= plotH) aboveBarW = bw;
+    if (!aboveBarW) {
+      aboveBarW = nSer > 1 ? 7 : 9;
+      rows = Math.max(3, Math.floor(plotH / (groupH(aboveBarW) + ROW_TEXT + 2)));
+    }
+    barThick = aboveBarW;
+  } else if (horizontal) {
+    const rowNeed = Math.max(16, (nSer * 5 + (nSer - 1) * 1.25) / 0.7);
+    if (n * rowNeed > plotH) rows = Math.max(3, Math.floor(plotH / rowNeed));
+    const band = plotH / Math.min(n, rows);
+    barThick = Math.min(24, (band * 0.7) / (nSer + (nSer - 1) * 0.25));
+  }
+  const scroll = horizontal && rows < n;
+  const band = plotH / Math.min(n, rows);
+  const aboveTop = labelsAbove ? Math.max(0, ROW_TEXT - (band - groupH(aboveBarW)) / 2) + 2 : 0;
+  const labelColW = Math.round(Math.max(80, Math.min(140, ctx.width * 0.35)));
   const catAxis = categoryAxis(ctx, categories, horizontal
     ? {
         inverse: true,
         axisLine: { show: false },
         axisLabel: labelsAbove
-          ? { ...categoryAxis(ctx, []).axisLabel, inside: true, align: "left", verticalAlign: "bottom", margin: 0, padding: [0, 0, aboveBarW / 2 + 4, 0], color: t.text, fontSize: 11.5, hideOverlap: false }
-          : { ...categoryAxis(ctx, []).axisLabel, width: 120, overflow: "truncate", color: t.text, fontSize: 11.5 },
+          ? { ...categoryAxis(ctx, []).axisLabel, inside: true, align: "left", verticalAlign: "bottom", margin: 0, interval: 0,
+              padding: [0, 0, groupH(aboveBarW) / 2 + 3, 0], color: t.text, fontSize: 11.5, hideOverlap: false,
+              width: Math.max(60, ctx.width - (scroll ? 28 : 12)), overflow: "truncate" }
+          : { ...categoryAxis(ctx, []).axisLabel, interval: 0, hideOverlap: false, width: labelColW, overflow: "truncate", color: t.text, fontSize: 11.5 },
         z: 5,
       }
     : { boundaryGap: isBar });
+  // Dikey eksende uzun kategori adları (dönem değil): atlanmasın, eğik ve kısaltılmış yazılsın
+  if (!horizontal && isBar && categories.length > 1 && !categories.every((c) => isPeriodLike(c))) {
+    const font = t.fontFamily;
+    const per = Math.max(1, (ctx.width - 60) / categories.length);
+    const longest = Math.max(...categories.map((c) => textWidth(formatCategory(c === "∅" ? null : (c as any)), 11, font)));
+    if (longest > per - 6 && categories.length <= 16) {
+      catAxis.axisLabel = { ...catAxis.axisLabel, interval: 0, hideOverlap: false, rotate: per < 26 ? 60 : 30, width: 96, overflow: "truncate" };
+    }
+  }
   const valAxis = valueAxis(ctx, valueFmt, horizontal ? { splitNumber: 3 } : {});
+  const gridExtra: any = {};
   if (horizontal && o.showLabels) {
     // değerler çubuk ucunda: eksen yazıları ve ızgara gereksiz
     valAxis.axisLabel = { ...valAxis.axisLabel, show: false };
     valAxis.splitLine = { show: false };
-    out.grid = grid(ctx, legendOn, { right: 72, left: labelsAbove ? 0 : 4, top: (legendOn ? 40 : 12) + (labelsAbove ? 8 : 0) });
+    Object.assign(gridExtra, { right: 72, left: labelsAbove ? 0 : 4 });
   } else if (labelsAbove) {
-    out.grid = grid(ctx, legendOn, { left: 0, top: (legendOn ? 40 : 12) + 8 });
+    gridExtra.left = 0;
   }
+  if (labelsAbove) gridExtra.top = topPad + aboveTop;
+  if (scroll) {
+    gridExtra.right = (gridExtra.right ?? 12) + 14;
+    const win = { startValue: 0, endValue: rows - 1 };
+    out.dataZoom = [
+      { type: "inside", yAxisIndex: 0, ...win, zoomLock: true, zoomOnMouseWheel: false, moveOnMouseWheel: true, moveOnMouseMove: true },
+      { type: "slider", yAxisIndex: 0, ...win, zoomLock: true, right: 2, width: 8, top: topPad + aboveTop, bottom: o.showLabels ? 8 : 26,
+        showDetail: false, showDataShadow: false, brushSelect: false, handleSize: 0, moveHandleSize: 0, borderColor: "transparent",
+        backgroundColor: alpha(t.text, 0.05), fillerColor: alpha(t.text, 0.18), handleStyle: { opacity: 0 } },
+    ];
+  }
+  if (Object.keys(gridExtra).length) out.grid = grid(ctx, legendOn, gridExtra);
   out.xAxis = horizontal ? valAxis : catAxis;
   out.yAxis = horizontal ? catAxis : valAxis;
 
   // Dikey çubuk etiketleri: sığmıyorsa önce ₺ sembolünü at, yine sığmıyorsa gizle (tooltip + tablo görünümü değerleri taşır)
   let barLabelsOn = !!o.showLabels;
+  if (horizontal && nSer > 1 && barThick < 13) barLabelsOn = false;
   let dropSymbol = false;
   if (isBar && !horizontal && barLabelsOn) {
     const bandW = Math.max(1, (ctx.width - 70) / Math.max(1, categories.length));
@@ -507,18 +579,19 @@ function pie(ctx: ChartCtx): EOption {
   const pctOf = new Map(items.map((i) => [formatCategory(i.raw), pctFmt(i.value)]));
   let cx: number, cy: number, r: number;
   const legends: any[] = [];
+  const pctW = Math.ceil(Math.max(...[...pctOf.values()].map((x) => textWidth(x, 11.5, t.fontFamily, 600)))) + 8;
   const legendItem = (colW: number, extra: any) => {
-    const nameW = Math.max(48, colW - 10 - 8 - 50);
+    const nameW = Math.max(40, colW - 10 - 8 - pctW - 4);
     return legend(ctx, "rect", {
       type: "plain",
       orient: "vertical",
       itemGap: 7,
-      formatter: (name: string) => `{n|${name}}{p|${pctOf.get(name) ?? ""}}`,
+      formatter: (name: string) => `{n|${fitText(name, nameW - 2, 11.5, t.fontFamily)}}{p|${pctOf.get(name) ?? ""}}`,
       textStyle: {
         color: t.mutedText, fontFamily: t.fontFamily,
         rich: {
           n: { width: nameW, color: t.mutedText, fontSize: 11.5, fontFamily: t.fontFamily, overflow: "truncate", ellipsis: "…" },
-          p: { width: 46, align: "right", color: t.text, fontSize: 11.5, fontWeight: 600, fontFamily: t.fontFamily },
+          p: { width: pctW, align: "right", color: t.text, fontSize: 11.5, fontWeight: 600, fontFamily: t.fontFamily },
         },
       },
       ...extra,
@@ -543,6 +616,12 @@ function pie(ctx: ChartCtx): EOption {
     }
   }
 
+  const SIDE = 74;                                       // dış etiket için yan boşluk
+  if (o.showLabels) {
+    const room = side ? cx : W / 2;
+    if (room - r < SIDE) r = Math.max(28, room - SIDE);
+  }
+  const labelW = Math.max(44, (side ? cx : W / 2) - r - 22);
   const out: any = {
     ...baseOption(ctx),
     tooltip: {
@@ -562,9 +641,9 @@ function pie(ctx: ChartCtx): EOption {
         padAngle: isDonut ? 1.2 : 0,
         itemStyle: { borderColor: t.surface, borderWidth: isDonut ? 1 : 2, borderRadius: isDonut ? 5 : 3 },
         label: o.showLabels
-          ? { show: true, color: t.text, fontSize: 11, formatter: (p: any) => `${p.name}\n${pctFmt(p.value)}` }
+          ? { show: true, color: t.text, fontSize: 11, formatter: (p: any) => `${fitText(p.name, labelW, 11, t.fontFamily)}\n${pctFmt(p.value)}` }
           : { show: false },
-        labelLine: { show: !!o.showLabels, lineStyle: { color: t.axis } },
+        labelLine: { show: !!o.showLabels, length: 8, length2: 6, lineStyle: { color: t.axis } },
         emphasis: { scale: true, scaleSize: 4, label: { show: !!o.showLabels } },
         data: items.map((i) => ({
           name: formatCategory(i.raw),
@@ -604,7 +683,24 @@ function funnel(ctx: ChartCtx): EOption {
   const base = colorForIndex(ctx, 0);
   const n = items.length;
   const first = items[0]?.value || 1;
+  const maxV = Math.max(...items.map((i) => i.value), 1);
   const colors = items.map((_, i) => mix(base, t.surface, n <= 1 ? 0 : (i / (n - 1)) * 0.55));
+  // Dilim genişliği: min=0, max=en büyük değer → genişlik oranı MIN_SIZE..1 arasında doğrusal. Etiket her dilimin içine
+  // (tek satır ya da ad / değer iki satır) sığmıyorsa huni sola alınır, etiketler sağda yazılır (beyaz yazı zemine taşmasın).
+  const MIN_SIZE = 0.18, GAP = 2, FS = 11.5;
+  const W = Math.max(160, ctx.width), H = Math.max(120, ctx.height);
+  const segH = (H - 16 - GAP * (n - 1)) / n;
+  type Item = (typeof items)[number];
+  const nameOf = (i: Item) => formatCategory(i.raw);
+  const valOf = (i: Item) => formatAxisValue(i.value, fmt);
+  const fits = (i: Item): "one" | "two" | null => {
+    const room = W * 0.84 * (MIN_SIZE + (1 - MIN_SIZE) * Math.max(0, i.value) / maxV) - 16;
+    if (textWidth(`${nameOf(i)}  ·  ${valOf(i)}`, FS, t.fontFamily) <= room) return "one";
+    const two = Math.max(textWidth(nameOf(i), FS, t.fontFamily), textWidth(valOf(i), FS, t.fontFamily));
+    return two <= room && segH >= 32 ? "two" : null;
+  };
+  const modes = items.map(fits);
+  const outside = modes.some((m) => m === null);
   return {
     ...baseOption(ctx),
     tooltip: {
@@ -615,24 +711,32 @@ function funnel(ctx: ChartCtx): EOption {
     series: [
       {
         type: "funnel",
-        left: "8%", right: "8%", top: 8, bottom: 8,
+        left: outside ? 4 : "8%", right: outside ? Math.round(W * 0.46) : "8%", top: 8, bottom: 8,
+        min: 0, max: maxV, minSize: `${MIN_SIZE * 100}%`, maxSize: "100%",
         sort: "descending",
-        gap: 2,
-        minSize: "18%",
+        gap: GAP,
         itemStyle: { borderColor: t.surface, borderWidth: 0, borderRadius: 4 },
-        label: {
-          show: true,
-          position: "inside",
-          fontFamily: t.fontFamily,
-          fontSize: 11.5,
-          formatter: (p: any) => `${p.name}  ·  ${formatAxisValue(p.value, fmt)}`,
-        },
+        label: outside
+          ? { show: true, position: "right", fontFamily: t.fontFamily, fontSize: FS, color: t.text, lineHeight: 14,
+              formatter: (p: any) => {
+                const room = Math.round(W * 0.46) - 16;
+                const val = formatAxisValue(p.value, fmt);
+                return segH >= 30
+                  ? `{n|${fitText(p.name, room, FS, t.fontFamily)}}\n{v|${val}}`
+                  : `{v|${val}}  {n|${fitText(p.name, Math.max(20, room - textWidth(val, FS, t.fontFamily, 600) - 8), FS, t.fontFamily)}}`;
+              },
+              rich: { n: { color: t.mutedText, fontSize: FS, fontFamily: t.fontFamily }, v: { color: t.text, fontSize: FS, fontWeight: 600, fontFamily: t.fontFamily } } }
+          : { show: true, position: "inside", fontFamily: t.fontFamily, fontSize: FS },
+        labelLine: { show: outside, length: 6, lineStyle: { color: t.axis } },
         emphasis: { label: { fontWeight: 600 } },
         data: items.map((i, k) => ({
-          name: formatCategory(i.raw),
+          name: nameOf(i),
           value: i.value,
           itemStyle: { color: colors[k] },
-          label: { color: inkOn(colors[k], t.text) },
+          label: outside ? {} : {
+            color: inkOn(colors[k], t.text),
+            formatter: modes[k] === "two" ? `${nameOf(i)}\n${valOf(i)}` : `${nameOf(i)}  ·  ${valOf(i)}`,
+          },
         })),
       },
     ],
@@ -677,7 +781,10 @@ function treemap(ctx: ChartCtx): EOption {
           .filter((i) => i.value > 0)
           .map((i) => {
             const c = colorOf(i.key);
-            return { name: formatCategory(i.raw), value: i.value, itemStyle: { color: c }, label: { color: inkOn(c, t.text) } };
+            // kutu alanı ≈ pay × çizim alanı; kısa kenar ~56 px altında ad / değer okunmaz ("Tic", "Hi" gibi parçalar kalıyordu)
+            const area = (total ? i.value / total : 0) * Math.max(1, ctx.width) * Math.max(1, ctx.height);
+            return { name: formatCategory(i.raw), value: i.value, itemStyle: { color: c },
+                     label: { color: inkOn(c, t.text), show: area >= 3 * 56 * 56 } };
           }),
       },
     ],
@@ -859,6 +966,15 @@ function gauge(ctx: ChartCtx): EOption {
   const color = colorForIndex(ctx, 0);
   const small = Math.min(ctx.width, ctx.height) < 220;
   const ratio = target ? value / target : null;
+  const name = target
+    ? `Hedef ${formatAxisValue(target, fmt)} · ${formatValue(ratio, { format: "percent", decimals: 0 })}`
+    : fieldLabel(ctx.dataset, e.value);
+  // yay uçları arası (startAngle 205 / endAngle -25 → ±cos25°·r) yazıya yetmiyorsa yazı yayın altına iner
+  const lineW = small ? 10 : 14;
+  const rPx = 0.92 * Math.min(ctx.width, ctx.height) / 2;
+  const below = textWidth(name, 11.5, t.fontFamily) > 2 * rPx * Math.cos((25 * Math.PI) / 180) - 2 * lineW - 8;
+  const radius = below ? "80%" : "92%";
+  const center = below ? ["50%", "50%"] : ["50%", "58%"];
   const series: any[] = [
     {
       type: "gauge",
@@ -866,8 +982,8 @@ function gauge(ctx: ChartCtx): EOption {
       endAngle: -25,
       min: 0,
       max,
-      radius: "92%",
-      center: ["50%", "58%"],
+      radius,
+      center,
       progress: { show: true, width: small ? 10 : 14, roundCap: true, itemStyle: { color } },
       axisLine: { roundCap: true, lineStyle: { width: small ? 10 : 14, color: [[1, t.grid]] } },
       pointer: { show: false },
@@ -877,7 +993,7 @@ function gauge(ctx: ChartCtx): EOption {
       anchor: { show: false },
       title: {
         show: true,
-        offsetCenter: [0, small ? "34%" : "30%"],
+        offsetCenter: [0, below ? "66%" : small ? "34%" : "30%"],
         color: t.mutedText,
         fontSize: 11.5,
         fontFamily: t.fontFamily,
@@ -891,14 +1007,7 @@ function gauge(ctx: ChartCtx): EOption {
         fontFamily: t.fontFamily,
         formatter: (x: number) => formatAxisValue(x, fmt),
       },
-      data: [
-        {
-          value,
-          name: target
-            ? `Hedef ${formatAxisValue(target, fmt)} · ${formatValue(ratio, { format: "percent", decimals: 0 })}`
-            : fieldLabel(ctx.dataset, e.value),
-        },
-      ],
+      data: [{ value, name: below ? fitText(name, ctx.width - 12, 11.5, t.fontFamily) : name }],
     },
   ];
   if (target) {
@@ -909,8 +1018,8 @@ function gauge(ctx: ChartCtx): EOption {
       endAngle: -25,
       min: 0,
       max,
-      radius: "92%",
-      center: ["50%", "58%"],
+      radius,
+      center,
       axisLine: { show: false },
       progress: { show: false },
       axisTick: { show: false },
