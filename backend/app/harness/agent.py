@@ -23,11 +23,14 @@ from app.harness.rules import phase_rules
 from app.harness.session import Session, SessionStore, ToolInfo, TranscriptItem, now_iso
 from app.harness.tools import TOOLS_BY_NAME, Services, ToolContext, ToolResult, to_llm_content, tools_for
 from app.harness.vision import analyze_design_images
-from app.llm.gateway import AssistantTurn, ContextOverflow, LLMError, LLMGateway, ToolCall
+from app.llm.gateway import AssistantTurn, ContextOverflow, LLMError, LLMGateway, LLMUnavailable, ToolCall
 
 log = logging.getLogger(__name__)
 
 FULL_TOOL_RESULTS = 12    # son N araç sonucu tam, daha eskiler kısaltılır
+# LLM sunucusu geçici hata verdiğinde (502 / 503 / 504 / 429, bağlantı) bekleyip yeniden deneme aralıkları (sn).
+# İstemci zaman aşımında (llm_timeout_s) yalnız ilk aralıkla bir kez denenir; sunucu Retry-After verirse en çok 30 sn ona uyulur.
+LLM_RETRY_DELAYS: tuple[float, ...] = (2, 5, 10, 20)
 CHARS_PER_TOKEN = 2.5     # token tahmini (Türkçe metin + JSON için ihtiyatlı: gerçek ~3–3.5)
 CONTEXT_MARGIN = 512      # token: tahmin hatası payı
 OLD_TOOL_RESULT_CHARS = 700
@@ -198,6 +201,8 @@ class Agent:
             yield from self._turn(s, text.strip(), images or [])
         except LLMError as e:
             log.warning("LLM hatası: %s", e)
+            self.audit.write(session=sid, user=user or self._actors.get(sid), event="llm_failed",
+                             phase=s.phase if s else None, error=str(e)[:300])
             if s:
                 yield self._emit(s, TranscriptItem(role="system", content=f"⚠️ {e}"))
             yield Event("error", {"message": str(e)})
@@ -252,14 +257,39 @@ class Agent:
             schemas = [t.schema() for t in tools]
             budget, max_out = self._budget(sys_prompt, schemas)
             t0 = time.perf_counter()
-            for attempt in range(3):   # bağlam penceresi aşılırsa geçmişi kısaltıp yeniden dene
+            overflows = unavailable = 0
+            while True:   # bağlam penceresi aşılırsa geçmiş kısaltılır; sunucu geçici hata verirse beklenip yeniden denenir
                 messages = [{"role": "system", "content": sys_prompt}] + _trim(s.llm_messages, budget)
+                t_try = time.perf_counter()
                 try:
                     turn: AssistantTurn = (self.llm.chat(messages, schemas, max_tokens=max_out) if max_out
                                            else self.llm.chat(messages, schemas))
                     break
+                except LLMUnavailable as e:
+                    delays = LLM_RETRY_DELAYS[:1] if e.timeout else LLM_RETRY_DELAYS
+                    retry = unavailable < len(delays)
+                    # her başarısız deneme kaydedilir: hata kodu, bekleme süresi ve istek büyüklüğü (kök neden için)
+                    est = int((sum(len(json.dumps(m, ensure_ascii=False)) for m in messages)
+                               + len(json.dumps(schemas, ensure_ascii=False))) / CHARS_PER_TOKEN)
+                    self.audit.write(session=s.id, user=self._actors.get(s.id), event="llm_error", phase=s.phase, step=step,
+                                     attempt=unavailable + 1, status=e.status, timeout=e.timeout or None,
+                                     ms=int((time.perf_counter() - t_try) * 1000), prompt_tokens_est=est,
+                                     max_tokens=max_out, retry=retry, error=str(e)[:200])
+                    if not retry:
+                        raise LLMError(f"{e} {unavailable + 1} deneme yapıldı, sunucu yanıt vermedi. Birkaç dakika sonra "
+                                       "tekrar deneyin; sorun sürerse saatini belirterek LLM platform ekibine bildirin.") from e
+                    wait = min(30.0, max(delays[unavailable], e.retry_after or 0))
+                    unavailable += 1
+                    log.warning("LLM geçici hatası (%s, %d ms, ~%d token); %g sn sonra yeniden deneniyor (%d/%d)",
+                                e.status or ("zaman aşımı" if e.timeout else "bağlantı"), int((time.perf_counter() - t_try) * 1000),
+                                est, wait, unavailable, len(delays))
+                    why = f"{e.status}" if e.status else ("zaman aşımı" if e.timeout else "bağlantı yok")
+                    yield Event("status", {"text": f"LLM sunucusu yanıt vermedi ({why}); {wait:g} sn sonra yeniden "
+                                                   f"deneniyor ({unavailable}/{len(delays)})…"})
+                    time.sleep(wait)
                 except ContextOverflow as e:
-                    if attempt == 2:
+                    overflows += 1
+                    if overflows == 3:
                         fixed = int((len(sys_prompt) + len(json.dumps(schemas, ensure_ascii=False))) / CHARS_PER_TOKEN)
                         raise LLMError(
                             f"Modelin bağlam penceresi çok küçük ({e.context or '?'} token): geçmiş kısaltılsa da bu fazın "

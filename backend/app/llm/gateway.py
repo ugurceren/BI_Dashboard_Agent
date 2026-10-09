@@ -32,6 +32,16 @@ class LLMError(Exception):
     pass
 
 
+class LLMUnavailable(LLMError):
+    """LLM sunucusu geçici olarak yanıt veremedi (502 / 503 / 504 / 429 / 408, bağlantı hatası, zaman aşımı).
+    İstek değiştirilmeden yeniden denenebilir; yeniden denemeyi agent yapar (kullanıcıya durum gösterir, kaydeder).
+    retry_after: sunucunun Retry-After başlığı (sn); timeout: istemci zaman aşımı (yeniden deneme bir kezle sınırlı)."""
+
+    def __init__(self, msg: str, status: int | None = None, retry_after: float | None = None, timeout: bool = False):
+        super().__init__(msg)
+        self.status, self.retry_after, self.timeout = status, retry_after, timeout
+
+
 class ContextOverflow(LLMError):
     """İstek modelin bağlam penceresine sığmadı (girdi + istenen çıktı > pencere). context: modelin penceresi."""
 
@@ -171,8 +181,10 @@ def _to_prompt_mode(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
 class LLMGateway:
     def __init__(self, settings: Settings):
         self.s = settings
+        # max_retries=0: geçici hatalarda (502 / 503 / 504 …) yeniden denemeyi agent bekleyerek yapar (LLMUnavailable);
+        # kütüphanenin 1 sn içindeki tek denemesi kısa kesintileri atlatmıyor, yalnız yükü artırıyordu
         self.client = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key or "EMPTY",
-                             timeout=settings.llm_timeout_s, max_retries=1)
+                             timeout=settings.llm_timeout_s, max_retries=0)
         self.tool_mode = settings.llm_tool_mode  # auto → ilk hatada prompt'a düşebilir
         self._ctx: int | None = settings.llm_context_tokens or None   # bağlam penceresi (öğrenilince önbellek)
         self._ctx_probed = bool(self._ctx)
@@ -288,12 +300,17 @@ class LLMGateway:
                 n_in = int(next(g for g in m.groups() if g)) if m else None
                 raise ContextOverflow(f"İstek modelin bağlam penceresine sığmadı: {text}", self._ctx, n_in) from e
             raise LLMError(f"LLM isteği reddedildi: {text}") from e
+        except openai.APITimeoutError as e:     # APIConnectionError'ın alt sınıfı: önce yakalanmalı
+            raise LLMUnavailable(f"LLM sunucusu {self.s.llm_timeout_s:g} sn içinde yanıt vermedi (zaman aşımı).",
+                                 timeout=True) from e
         except openai.APIConnectionError as e:
-            raise LLMError(f"LLM sunucusuna bağlanılamadı ({self.s.llm_base_url}). Sunucu açık mı?") from e
+            raise LLMUnavailable(f"LLM sunucusuna bağlanılamadı ({self.s.llm_base_url}). Sunucu açık mı?") from e
         except openai.APIStatusError as e:
-            raise LLMError(f"LLM hatası ({e.status_code}): {_err_text(e)}") from e
-        except openai.APITimeoutError as e:
-            raise LLMError("LLM yanıtı zaman aşımına uğradı.") from e
+            code = e.status_code
+            msg = _STATUS_TR.get(code) or f"LLM hatası ({code}): {_err_text(e)}"
+            if code in TRANSIENT_STATUS:
+                raise LLMUnavailable(msg, status=code, retry_after=_retry_after(e)) from e
+            raise LLMError(msg) from e
 
         choice = resp.choices[0]
         msg = choice.message
@@ -366,14 +383,42 @@ class LLMGateway:
         return info
 
 
+TRANSIENT_STATUS = {408, 429, 502, 503, 504}
+_STATUS_TR = {
+    502: "LLM sunucusu yanıt veremedi (502 Bad Gateway): ağ geçidinin arkasındaki model sunucusu bağlantıyı kesti ya da yeniden başlıyor.",
+    503: "LLM sunucusu şu an kullanılamıyor (503 Service Unavailable): model sunucusu yeniden başlıyor, kapasitesi dolu ya da istek sınırı aşıldı.",
+    504: "LLM sunucusu zamanında yanıt vermedi (504 Gateway Timeout): yanıt, ağ geçidinin bekleme süresini aştı.",
+    429: "LLM sunucusu istek sınırına takıldı (429 Too Many Requests).",
+    408: "LLM sunucusu isteği zaman aşımıyla kapattı (408 Request Timeout).",
+}
+_HTML_TITLE = re.compile(r"<title>\s*(.*?)\s*</title>", re.I | re.S)
+_TAGS = re.compile(r"<[^>]+>")
+
+
 def _err_text(e: openai.APIError) -> str:
+    """Hata gövdesinden okunur mesaj: JSON ise error.message; HTML ise (nginx hata sayfası) başlığı ya da etiketsiz metin."""
     body = getattr(e, "body", None)
     if isinstance(body, dict):
         err = body.get("error")
         m = err.get("message") if isinstance(err, dict) else (body.get("message") or err)
         if m:
-            return str(m)[:300]
-    return str(e)[:300]
+            return _clean(str(m))[:300]
+    return _clean(str(e))[:300]
+
+
+def _clean(text: str) -> str:
+    if "<" in text and ">" in text and re.search(r"<(html|head|body|center|h1|title)\b", text, re.I):
+        m = _HTML_TITLE.search(text)
+        text = m.group(1) if m else _TAGS.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _retry_after(e: openai.APIStatusError) -> float | None:
+    try:
+        v = e.response.headers.get("retry-after")
+        return max(0.0, float(v)) if v else None
+    except (AttributeError, TypeError, ValueError):   # HTTP tarihi biçimi vb.: yok sayılır
+        return None
 
 
 def _looks_like_tool_unsupported(e: openai.BadRequestError) -> bool:
