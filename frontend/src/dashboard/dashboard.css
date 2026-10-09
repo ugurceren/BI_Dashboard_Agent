@@ -402,3 +402,49 @@
   color: var(--db-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; border-radius: 6px 6px 0 0; }
 .db-page-tab:hover { color: var(--db-text); background: var(--db-hover, rgba(127,127,127,.08)); }
 .db-page-tab.is-on { color: var(--db-accent); border-bottom-color: var(--db-accent); }
+
+/* ---------- matris (pivot tablo) ---------- */
+.db-mx-wrap { position: relative; }
+.db-matrix { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+.db-matrix thead { position: sticky; top: 0; z-index: 3; }
+.db-matrix th, .db-matrix td { padding: 7px 12px; white-space: nowrap; color: var(--db-text); background: var(--db-surface); }
+.db-matrix thead th {
+  font-weight: 600; font-size: 11.5px; color: var(--db-muted); text-align: left;
+  border-bottom: 1px solid var(--db-border); cursor: pointer; user-select: none;
+}
+.db-matrix thead th.db-mx-colhead { cursor: default; text-align: center; border-bottom-color: var(--db-grid); color: var(--db-text); }
+.db-matrix th.is-num, .db-matrix td.is-num { text-align: right; }
+.db-matrix td.is-num { font-variant-numeric: tabular-nums; }
+.db-matrix thead th.is-num .db-th { flex-direction: row-reverse; }
+.db-matrix thead th:hover .db-sort { opacity: .6; }
+.db-matrix tbody td, .db-matrix tbody th { border-bottom: 1px solid var(--db-grid); }
+.db-matrix th:first-child, .db-matrix td:first-child { padding-left: var(--db-pad-x); }
+.db-matrix th:last-child, .db-matrix td:last-child { padding-right: var(--db-pad-x); }
+/* ilk kolon yapışkan (yatay kaydırmada satır etiketleri görünür kalır) */
+.db-matrix .db-mx-label, .db-matrix .db-mx-corner {
+  position: sticky; left: 0; z-index: 1; text-align: left; max-width: 280px;
+  box-shadow: inset -1px 0 0 var(--db-grid);
+}
+.db-matrix .db-mx-corner { z-index: 4; }
+.db-mx-label { font-weight: 450; padding-left: calc(var(--db-pad-x) + var(--lvl, 0) * 18px) !important; }
+.db-mx-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.db-mx-text { overflow: hidden; text-overflow: ellipsis; }
+.db-mx-text.is-click { cursor: pointer; }
+.db-mx-text.is-click:hover { text-decoration: underline; text-decoration-color: var(--db-grid); text-underline-offset: 3px; }
+.db-mx-toggle {
+  flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 4px; background: transparent; color: var(--db-muted); cursor: pointer;
+}
+.db-mx-toggle:hover { background: var(--db-accent-soft); color: var(--db-accent); }
+.db-mx-spacer { flex: none; width: 18px; }
+.db-matrix tbody tr.db-mx-group > * { background: var(--db-zebra); font-weight: 600; }
+.db-matrix tbody tr:hover > * { background: var(--db-hover); }
+.db-matrix tbody tr.is-selected > * { background: var(--db-accent-soft); }
+.db-matrix tbody tr.is-selected > .db-mx-label { box-shadow: inset 3px 0 0 var(--db-accent), inset -1px 0 0 var(--db-grid); }
+.db-matrix .db-mx-coltotal { font-weight: 650; box-shadow: inset 1px 0 0 var(--db-border); }
+.db-matrix thead th.db-mx-coltotal { color: var(--db-text); }
+.db-matrix tfoot { position: sticky; bottom: 0; z-index: 2; }
+.db-matrix tfoot th, .db-matrix tfoot td { font-weight: 700; border-top: 1px solid var(--db-border); }
+.db-matrix tfoot .db-mx-label { z-index: 3; }
+.db-mx-note { padding: 6px var(--db-pad-x) 0; font-size: 11px; color: var(--db-muted); }
+.db-density-compact .db-matrix td, .db-density-compact .db-matrix th { padding-top: 5px; padding-bottom: 5px; }

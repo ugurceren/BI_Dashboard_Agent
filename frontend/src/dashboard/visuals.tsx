@@ -2,6 +2,7 @@
 import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { CellValue, Dataset, Visual } from "../types";
 import { EChart } from "./EChart";
+import { MatrixVisual } from "./MatrixVisual";
 import {
   buildChartOption, EmptyDataError, enc, fieldDef, fieldLabel, fmtFor, kpiValue, tooltipBase, usedFields, validateFields, VisualError,
   type ChartCtx,
@@ -126,7 +127,7 @@ export function ErrorCard({ title, message }: { title?: string; message: string 
 
 // ---------- kart kabuğu ----------
 
-function CardHead({ visual, filterNote, selectionNote, tableToggle, onToggle, showTable }: {
+export function CardHead({ visual, filterNote, selectionNote, tableToggle, onToggle, showTable }: {
   visual: Visual; filterNote?: string; selectionNote?: string; tableToggle?: boolean; onToggle?: () => void; showTable?: boolean;
 }) {
   if (!visual.title && !visual.subtitle && !tableToggle) return null;
@@ -516,6 +517,8 @@ export function VisualSwitch(p: VisualProps) {
       return <KpiVisual {...p} />;
     case "table":
       return <TableVisual {...p} />;
+    case "matrix":
+      return <MatrixVisual {...p} />;
     case "text":
       return <TextVisual {...p} />;
     default:

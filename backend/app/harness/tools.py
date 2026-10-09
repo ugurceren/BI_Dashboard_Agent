@@ -294,7 +294,7 @@ def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 
 
 _DEFAULT_SIZE = {"kpi": (3, 2), "gauge": (3, 3), "text": (12, 1), "table": (12, 4), "pie": (4, 4), "donut": (4, 4),
-                 "funnel": (4, 4), "treemap": (6, 4)}
+                 "funnel": (4, 4), "treemap": (6, 4), "matrix": (12, 5)}
 
 
 def _layout_visuals(visuals: list[dict[str, Any]], pages: list[dict[str, Any]] | None = None) -> list[str]:
@@ -371,6 +371,22 @@ def _model_of(ann: Any) -> type[BaseModel] | None:
     return None
 
 
+_COLUMN_DIM_ALIASES = ("columns_dim", "columnsDim", "column_dim", "columnDimension", "column", "pivot")
+
+
+def _matrix_aliases(raw: dict[str, Any]) -> None:
+    """Matris sütun boyutunun yaygın yazımları (columns_dim, column …) columnDim'e taşınır; "desteklenmeyen alan" sayılmaz."""
+    for v in raw.get("visuals") or []:
+        enc = v.get("encoding") if isinstance(v, dict) and v.get("type") == "matrix" else None
+        if not isinstance(enc, dict):
+            continue
+        for alias in _COLUMN_DIM_ALIASES:
+            if alias in enc:
+                val = enc.pop(alias)
+                if not enc.get("columnDim") and isinstance(val, str) and val:
+                    enc["columnDim"] = val
+
+
 def _ignored_fields(model: type[BaseModel], raw: Any, path: str = "") -> list[str]:
     """Şemada olmayan alanlar (spec extra='ignore' ile onları sessizce atar): modele bildirilsin ki
     'değiştirdim' demesin. Dataset'ler session'dan geldiği için atlanır."""
@@ -396,6 +412,7 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
     """Spec'i tamamlar (dataset'ler session'dan), yerleşimi düzeltir, doğrular."""
     s = ctx.session
     raw = copy.deepcopy(spec_raw)
+    _matrix_aliases(raw)
     ignored = _ignored_fields(ReportSpec, raw)
     known = {d.id: d for d in s.datasets}
     if s.spec:
@@ -445,7 +462,7 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
             continue
         opts = v.setdefault("options", {}) if isinstance(v.get("options"), dict) or v.get("options") is None else {}
         enc = v.get("encoding") or {}
-        used = {enc.get("value"), *(enc.get("y") or []), *(enc.get("columns") or [])}
+        used = {enc.get("value"), *(enc.get("y") or []), *(enc.get("columns") or []), *(enc.get("values") or [])}
         if isinstance(opts, dict) and not opts.get("currency") and (opts.get("format") in ("currency", "compact") or used & currency_fields):
             opts["currency"] = ctx.services.settings.default_currency
     try:
@@ -618,6 +635,7 @@ def _filter_errors(ctx: ToolContext, spec: ReportSpec) -> list[str]:
 #   çubukta çok kategori (>6) ya da uzun etiket → yatay; >BAR_MAX kategori → ilk 15 (büyükten küçüğe);
 #   çizgi / alan zaman ekseni ister; çok seride (>6) okunabilirlik uyarısı; gösterge hedef ister; dağılım iki sayı ister.
 PIE_MAX, BAR_MAX, SERIES_MAX, LABEL_LONG = 8, 20, 6, 14
+MATRIX_COLS, MATRIX_ROWS = 12, 60   # matris: sütun boyutunda en çok 12 değer; ilk seviyede 60'tan fazla grup okunmaz
 _TOP_N = re.compile(r"(?:\b(?:ilk|top)\s*|\ben\s+(?:çok|fazla|yüksek|iyi|büyük|düşük|az)\b\D{0,25}?)(\d{1,3})\b", re.I)
 _TIME_NAME = re.compile(r"(date|tarih|month|year|yil|yıl|donem|dönem|period|week|hafta|quarter|ceyrek|çeyrek|(^|_)ay($|_)|gun|gün)", re.I)
 _TIME_VALUE = re.compile(r"^\d{4}([-/.]\d{1,2}([-/.]\d{1,2})?)?([ T].*)?$|^\d{4}\s*[-/ ]?\s*[QÇ]\d$|^\d{1,2}[-/.]\d{4}$", re.I)
@@ -648,6 +666,22 @@ def _chart_rules(ctx: ToolContext, raw: dict[str, Any]) -> list[str]:
         def long_labels(c: Any) -> bool:
             return any(len(str(t)) > LABEL_LONG for t in info(c).get("top") or [])
 
+        if typ == "matrix":
+            cd, rows = enc.get("columnDim"), enc.get("rows") if isinstance(enc.get("rows"), list) else []
+            n = info(cd).get("distinct") or 0
+            if cd and n > MATRIX_COLS and not opts.get("maxColumns"):
+                opts["maxColumns"] = MATRIX_COLS
+                which = (f"son {MATRIX_COLS} dönem gösteriliyor" if is_time(cd)
+                         else f"en büyük {MATRIX_COLS} değer gösteriliyor, kalanı 'Diğer' sütununda toplanır")
+                notes.append(f"KURAL '{vid}': sütun boyutunda ({cd}) {n} değer var, matris okunmaz; {which} "
+                             "(daha azı için dataset'i daralt ya da filtre ekle).")
+            if rows and (info(rows[0]).get("distinct") or 0) > MATRIX_ROWS:
+                notes.append(f"KURAL '{vid}': ilk satır seviyesinde ({rows[0]}) {info(rows[0])['distinct']} değer var; "
+                             "matris çok uzun olur, filtre / ilk N ya da tablo önerilir.")
+            if not cd and len(rows) < 2:
+                notes.append(f"KURAL '{vid}': sütun boyutu (columnDim) ve ikinci satır seviyesi yok; tek boyut × ölçü için "
+                             "table ya da bar yeterli.")
+            continue
         if typ in ("pie", "donut"):
             cat, val = enc.get("category") or enc.get("x"), enc.get("value") or (ys[0] if ys else None)
             n, neg = info(cat).get("distinct") or 0, (info(val).get("min") or 0) < 0
@@ -724,6 +758,26 @@ def _normalize_encoding(typ: Any, enc: dict[str, Any], ys: list[str], types: dic
             done.append(f"y→value={nums[0]}")
         if done:
             enc["y"] = None
+    elif typ == "matrix":
+        # satır: rows (yoksa x / category); sütun boyutu: columnDim (columns_dim / series / tek kategorik columns);
+        # ölçüler: values (yoksa y / value / columns'taki sayılar)
+        cols = enc.get("columns") if isinstance(enc.get("columns"), list) else []
+        if not enc.get("values"):
+            vals = [y for y in ys if types.get(y, "number") == "number"] or ([enc["value"]] if enc.get("value") else [])                 or [c for c in cols if types.get(c) == "number"]
+            if vals:
+                enc["values"] = vals
+                done.append(f"→values={vals}")
+        if not enc.get("rows"):
+            rows = [c for c in (enc.get("x"), enc.get("category")) if c]                 or [c for c in cols if types.get(c) != "number"][:2]
+            if rows:
+                enc["rows"] = list(dict.fromkeys(rows))[:2]
+                done.append(f"→rows={enc['rows']}")
+        if not enc.get("columnDim") and enc.get("series"):
+            enc["columnDim"] = enc["series"]
+            done.append(f"series→columnDim={enc['columnDim']}")
+        if done:
+            for k in ("x", "y", "category", "value", "series", "columns"):
+                enc.pop(k, None)
     elif typ in ("kpi", "gauge") and not enc.get("value") and ys:
         enc["value"] = ys[0]
         done.append(f"y→value={ys[0]}")
@@ -1417,10 +1471,13 @@ _VISUAL = {
     "properties": {
         "id": _STR,
         "type": {"type": "string", "enum": ["kpi", "line", "area", "bar", "pie", "donut", "table", "scatter", "heatmap",
-                                            "funnel", "gauge", "treemap", "combo", "text"]},
+                                            "funnel", "gauge", "treemap", "combo", "text", "matrix"]},
         "title": _STR, "subtitle": _STR, "datasetId": _STR,
         "encoding": {"type": "object", "description": "Alan adları dataset kolon adlarıyla birebir aynı olmalı.",
-                     "properties": {"x": _STR, "y": _STRS, "series": _STR, "category": _STR, "value": _STR, "columns": _STRS}},
+                     "properties": {"x": _STR, "y": _STRS, "series": _STR, "category": _STR, "value": _STR, "columns": _STRS,
+                                    "rows": {**_STRS, "description": "matrix: satır boyutları, 1-2 seviye (ör. [bölge, şube])"},
+                                    "columnDim": {**_STR, "description": "matrix: sütun boyutu; değerleri veriden sütun olur (ör. ay)"},
+                                    "values": {**_STRS, "description": "matrix: ölçüler, bir ya da birden çok"}}},
         "options": {"type": "object", "description": "stacked, horizontal, smooth, showLabels, showLegend, format(number|currency|percent|compact), "
                                                      "decimals, sort(asc|desc), limit, aggregate, deltaField (hazır değişim oranı kolonu), "
                                                      "compareField (kpi: önceki dönem değeri kolonu), deltaLabel, "
@@ -1430,7 +1487,10 @@ _VISUAL = {
                                                      "valueSize(sm|md|lg|xl), accentBar (true: solda renkli şerit). "
                                                      "Listede olmayan alan (ör. fontSize, labelPosition) DESTEKLENMEZ ve uygulanmaz; "
                                                      "ignoreFilters (true: görsel filtrelerden etkilenmez — YALNIZ kullanıcı "
-                                                     "açıkça isterse; varsayılan: filtreler tüm görselleri etkiler)"},
+                                                     "açıkça isterse; varsayılan: filtreler tüm görselleri etkiler). "
+                                                     "matrix: rowTotals, columnTotals, subtotals (varsayılan true), "
+                                                     "aggregate(sum|avg|count), maxColumns, conditionalColor (true: hücre zemini "
+                                                     "değere göre renklenir)"},
         "position": _POSITION,
         "page": {"type": "string", "description": "Sayfa id'si (birden çok sayfa varsa). Boşsa ilk sayfa."},
     },

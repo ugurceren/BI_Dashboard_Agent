@@ -48,6 +48,9 @@ export function enc(v: Visual) {
     category: e.category ?? e.x,
     value: e.value ?? e.y?.[0],
     columns: e.columns,
+    rows: e.rows ?? [],
+    columnDim: e.columnDim,
+    values: e.values ?? [],
   };
 }
 
@@ -73,6 +76,12 @@ export function validateFields(v: Visual, columns: string[]) {
       break;
     case "table":
       (e.columns ?? []).forEach((c) => need.push(["columns", c]));
+      break;
+    case "matrix":
+      need.push(["rows", e.rows[0]], ["values", e.values[0]]);
+      e.rows.slice(1).forEach((f) => need.push(["rows", f]));
+      e.values.slice(1).forEach((f) => need.push(["values", f]));
+      if (e.columnDim) need.push(["columnDim", e.columnDim]);
       break;
     case "text":
       return;
@@ -946,6 +955,7 @@ export function kpiValue(ctx: Pick<ChartCtx, "rows" | "visual">, field: string, 
   if (!nums.length) return null;
   switch (fn) {
     case "avg": return nums.reduce((a, b) => a + b, 0) / nums.length;
+    case "count": return nums.length;
     case "first": return nums[0];
     case "last": return nums[nums.length - 1];
     case "min": return Math.min(...nums);
@@ -1076,7 +1086,8 @@ export function buildChartOption(ctx: ChartCtx): EOption {
 /** Görselin kullandığı alanlar (tablo görünümü için). */
 export function usedFields(v: Visual, columns: string[]): string[] {
   const e = enc(v);
-  const list = [e.x, e.category, e.series, ...(e.y ?? []), e.value, ...(e.columns ?? []), v.options?.deltaField, v.options?.compareField]
+  const list = [...e.rows, e.columnDim, ...e.values, e.x, e.category, e.series, ...(e.y ?? []), e.value, ...(e.columns ?? []),
+    v.options?.deltaField, v.options?.compareField]
     .filter((f): f is string => !!f && columns.includes(f));
   const uniq = [...new Set(list)];
   return uniq.length ? uniq : columns;

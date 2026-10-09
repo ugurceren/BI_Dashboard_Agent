@@ -21,7 +21,7 @@ const PHASE_LABEL: Record<string, string> = { requirements: "İhtiyaç", data: "
 
 const VISUAL_LABEL: Record<string, string> = {
   kpi: "KPI", line: "Çizgi", area: "Alan", bar: "Çubuk", pie: "Pasta", donut: "Halka", table: "Tablo", scatter: "Dağılım",
-  heatmap: "Isı haritası", funnel: "Huni", gauge: "Gösterge", treemap: "Ağaç harita", combo: "Kombine", text: "Metin",
+  heatmap: "Isı haritası", funnel: "Huni", gauge: "Gösterge", treemap: "Ağaç harita", combo: "Kombine", text: "Metin", matrix: "Matris",
 };
 
 const PATHS = {

@@ -71,6 +71,8 @@ Adımlar:
    - her ana kırılım için AYRI bir dataset, DÖNEM TOPLAMI olarak (ay kırılımı olmadan): ör. region_sales (region, sales_amount, order_count),
      reseller_type_sales, category_sales. Bu dataset'ler bar/donut görselleri içindir.
    - gerekirse top-N detay tablosu (SELECT TOP 10 ... ORDER BY).
+   - pivot tablo / matris istendiyse UZUN formatta tek dataset: satır boyutları + sütun boyutu + ölçü, ör. region, branch,
+     year_month, collateral_amount (GROUP BY region, branch, year_month). Ayları kolonlara PIVOT etme.
 Dataset kuralları:
 - Toplulaştırmayı SQL'de yap; her dataset küçük olsun (ideal < 200 satır). Ham işlem satırı çekme.
 - Kolon takma adları (alias) snake_case ve ASCII olsun (ör. sales_amount, region, year_month).
@@ -109,14 +111,21 @@ Kurallar:
   Değişim kolonu yoksa ama önceki dönem değeri varsa options.compareField ver (ör. value: "sales_amount_2013", compareField: "sales_amount_2012").
 - Çok serili grafiklerde en fazla 5-6 seri kullan; daha fazla kategori için dönem toplamı dataset'iyle bar grafiği tercih et.
 - Türkçe grafik adları: pasta=pie, halka=donut (pasta ile halka FARKLI türlerdir), çubuk / sütun=bar, çizgi=line,
-  alan=area, ısı haritası / matris=heatmap, huni=funnel, gösterge=gauge, ağaç haritası=treemap, dağılım=scatter,
+  alan=area, ısı haritası=heatmap, matris / pivot tablo / çapraz tablo / özet tablo (toplamlı)=matrix, huni=funnel, gösterge=gauge, ağaç haritası=treemap, dağılım=scatter,
   tablo=table, gösterge kartı / KPI kartı=kpi, metin / açıklama=text.
 - GRAFİK TÜRÜ KURALLARI (veriye göre seç; kullanıcı aksini açıkça istemedikçe uy):
   · tek sayı → kpi (değişim kolonu varsa deltaField) · hedefe göre tek sayı → gauge (options.target ŞART)
   · zaman trendi (tarih / ay / yıl ekseni) → line; hacim / birikim → area; tutar + adet aynı eksende → combo (2 ölçü)
   · kategori karşılaştırma → bar; >6 kategori ya da uzun etiket → yatay (horizontal); >20 kategori → ilk 15 (limit) ya da table
   · parça-bütün → donut / pie YALNIZ ≤8 dilim ve pozitif değer; daha fazlası → treemap ya da sıralı bar
-  · aşamalı azalan süreç → funnel · iki kategorik boyut × bir ölçü (ör. ay × bölge) → heatmap (matris)
+  · aşamalı azalan süreç → funnel
+  · iki kategorik boyut × bir ölçü, desen / yoğunluk RENKLE okunacaksa → heatmap (ısı haritası)
+  · rakamlar okunacak, ara / genel TOPLAM isteniyor, satırda 2 seviye (bölge > şube) ya da birden çok ölçü → matrix
+    (Power BI Matrix / Excel pivot gibi): encoding.rows = satır boyutları (1-2 seviye, ör. ["region", "branch"]),
+    encoding.columnDim = sütun boyutu (ör. ay; değerleri veriden sütun olur, isteğe bağlı), encoding.values = ölçü(ler).
+    options: rowTotals / columnTotals / subtotals (varsayılan açık), aggregate (sum|avg|count), format,
+    conditionalColor=true (hücre zemini değere göre renklenir). Dataset UZUN formatta olmalı (her satır: boyutlar + ölçü;
+    ayları kolon kolon PIVOT etme, sistem istemcide pivotlar). Sütun boyutu ≤12 değer (ör. son 6 / 12 ay).
   · iki sayısal ölçü arasındaki ilişki → scatter · satır düzeyi detay / çok kolon → table
   · "ilk / en çok / top N" istenirse options.limit=N ve options.sort="desc" VER (table ve bar); vermeden "ilk N" deme
   · yığma (stacked) yalnız aynı birimdeki parçalar için (ör. kanal serileri); tutar + adet yığılmaz
@@ -125,7 +134,7 @@ Kurallar:
 - Uzun formatlı veride (ör. ay × kanal) seri ayrımı için encoding.series kullan; y tek alan olur.
 - bar/line/area/combo'da encoding.x KATEGORİ (isim/metin ya da tarih) kolonudur, encoding.y sayı kolonlarıdır.
   İsim kolonunu category'ye değil x'e koy (category yalnız pie/donut/funnel/treemap için).
-- Yerleşim 12 kolonluk ızgara: KPI'lar üst satırda (w=3, h=2), ana grafikler h=4, tablolar w=12. position verilmezse sistem otomatik yerleştirir; çakışmaları sistem düzeltir.
+- Yerleşim 12 kolonluk ızgara: KPI'lar üst satırda (w=3, h=2), ana grafikler h=4, tablolar ve matrisler w=12. position verilmezse sistem otomatik yerleştirir; çakışmaları sistem düzeltir.
 - Tema: tasarım özeti varsa renkleri, açık/koyu modu ve yoğunluğu ona uydur. Yoksa sade, kurumsal açık tema kullan.
   Koyu temada background/surface koyu, text açık renk olmalı. palette en az 3 hex renk.
 - Stil değişiklikleri: tüm dashboard için update_report ile theme (accent, surface, cardStyle, radius…). Tek bir KPI kartı için

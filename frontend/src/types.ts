@@ -22,7 +22,7 @@ export interface Dataset {
 
 export type VisualType =
   | "kpi" | "line" | "area" | "bar" | "pie" | "donut" | "table"
-  | "scatter" | "heatmap" | "funnel" | "gauge" | "treemap" | "combo" | "text";
+  | "scatter" | "heatmap" | "funnel" | "gauge" | "treemap" | "combo" | "text" | "matrix";
 
 export interface VisualEncoding {
   x?: string;
@@ -31,6 +31,12 @@ export interface VisualEncoding {
   category?: string;
   value?: string;
   columns?: string[];
+  /** matrix: satır boyutları (1-2 seviye) */
+  rows?: string[];
+  /** matrix: sütun boyutu (değerleri veriden sütun olur) */
+  columnDim?: string;
+  /** matrix: ölçüler */
+  values?: string[];
 }
 
 export interface VisualOptions {
@@ -45,7 +51,13 @@ export interface VisualOptions {
   decimals?: number;
   sort?: "asc" | "desc";
   limit?: number;
-  aggregate?: "sum" | "avg" | "first" | "last" | "min" | "max";
+  aggregate?: "sum" | "avg" | "count" | "first" | "last" | "min" | "max";
+  // matrix (varsayılan hepsi açık): genel toplam satırı / sütunu, grup ara toplamları; sütun sınırı; koşullu hücre rengi
+  rowTotals?: boolean;
+  columnTotals?: boolean;
+  subtotals?: boolean;
+  maxColumns?: number;
+  conditionalColor?: boolean;
   deltaField?: string;
   /** önceki dönem değeri: deltaField yoksa değişim buradan hesaplanır (tutar → %, oran → puan) */
   compareField?: string;

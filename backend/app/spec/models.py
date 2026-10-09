@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 FieldType = Literal["number", "string", "date"]
 ValueFormat = Literal["number", "currency", "percent", "compact"]
 VisualType = Literal["kpi", "line", "area", "bar", "pie", "donut", "table", "scatter", "heatmap",
-                     "funnel", "gauge", "treemap", "combo", "text"]
+                     "funnel", "gauge", "treemap", "combo", "text", "matrix"]
 
 _ID = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{0,63}$")
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
@@ -91,8 +91,12 @@ class Encoding(_Base):
     category: str | None = None
     value: str | None = None
     columns: list[str] | None = None
+    # matrix (pivot tablo): satır boyutları (1-2 seviye), sütun boyutu (değerleri veriden sütun olur), ölçüler
+    rows: list[str] | None = None
+    columnDim: str | None = None
+    values: list[str] | None = None
 
-    @field_validator("y", "columns", mode="before")
+    @field_validator("y", "columns", "rows", "values", mode="before")
     @classmethod
     def _listify(cls, v: Any) -> Any:
         if isinstance(v, str):
@@ -111,7 +115,7 @@ class VisualOptions(_Base):
     decimals: int | None = None
     sort: Literal["asc", "desc"] | None = None
     limit: int | None = None
-    aggregate: Literal["sum", "avg", "first", "last", "min", "max"] | None = None
+    aggregate: Literal["sum", "avg", "count", "first", "last", "min", "max"] | None = None
     deltaField: str | None = None
     compareField: str | None = None  # önceki dönem değeri; deltaField yoksa değişim buradan hesaplanır
     deltaLabel: str | None = None
@@ -126,6 +130,12 @@ class VisualOptions(_Base):
     valueSize: Literal["sm", "md", "lg", "xl"] | None = None
     accentBar: bool | None = None
     ignoreFilters: bool | None = None  # true: bu görsel filtrelerden etkilenmez (yalnız kullanıcı açıkça isterse)
+    # matrix: satır / sütun genel toplamı, grup ara toplamları (varsayılan hepsi açık), sütun sınırı, koşullu hücre rengi
+    rowTotals: bool | None = None
+    columnTotals: bool | None = None
+    subtotals: bool | None = None
+    maxColumns: int | None = Field(default=None, ge=1, le=60)
+    conditionalColor: bool | None = None
 
 
     @field_validator("color", "background", "textColor")
@@ -257,7 +267,7 @@ _NEEDS: dict[str, list[str]] = {
     "kpi": ["value"], "line": ["x", "y"], "area": ["x", "y"], "bar": ["x", "y"], "combo": ["x", "y"],
     "scatter": ["x", "y"], "pie": ["category", "value"], "donut": ["category", "value"],
     "funnel": ["category", "value"], "treemap": ["category", "value"], "gauge": ["value"],
-    "heatmap": ["x", "category", "value"], "table": [], "text": [],
+    "heatmap": ["x", "category", "value"], "matrix": ["rows", "values"], "table": [], "text": [],
 }
 
 
@@ -302,6 +312,7 @@ def semantic_errors(spec: ReportSpec) -> list[str]:
                 refs.append(getattr(enc, k))
         refs += enc.y or []
         refs += enc.columns or []
+        refs += (enc.rows or []) + (enc.values or []) + ([enc.columnDim] if enc.columnDim else [])
         if v.options.deltaField:
             refs.append(v.options.deltaField)
         if v.options.compareField:
@@ -312,6 +323,10 @@ def semantic_errors(spec: ReportSpec) -> list[str]:
             elsewhere = sorted({d.id for d in spec.datasets if d.id != v.datasetId and set(missing) <= fields_of(d)})
             hint = f" Bu alan(lar) şu dataset'lerde var: {elsewhere} (datasetId'yi değiştir)." if elsewhere else ""
             errors.append(f"{where}: '{v.datasetId}' dataset'inde olmayan alan(lar): {missing}. Mevcut: {sorted(avail)}.{hint}")
+        if v.type == "matrix" and enc.rows and len(enc.rows) > 2:
+            errors.append(f"{where}: matris en çok 2 satır seviyesi alır (encoding.rows), verilen: {enc.rows}.")
+        if v.type == "matrix" and enc.columnDim and enc.columnDim in (enc.rows or []):
+            errors.append(f"{where}: '{enc.columnDim}' hem satır (rows) hem sütun boyutu (columnDim) olamaz.")
         if enc.series and enc.y and len(enc.y) > 1:
             errors.append(f"{where}: series kullanılırken y tek alan olmalı.")
         if v.options.sparklineDatasetId:

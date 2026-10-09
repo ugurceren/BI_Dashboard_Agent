@@ -28,7 +28,7 @@ Sadece aşağıdaki JSON'u döndür, başka metin yazma:
   "summary": "tasarımın 2-3 cümlelik Türkçe özeti",
   "mode": "light" veya "dark",
   "layout": "yerleşimin tarifi: üstte kaç KPI kartı, grafiklerin dizilişi, kolon sayısı, yan menü var mı",
-  "chart_types": ["görülen grafik türleri: kpi, line, area, bar, donut, pie, table, gauge, heatmap, treemap, funnel, scatter"],
+  "chart_types": ["görülen grafik türleri: kpi, line, area, bar, donut, pie, table, gauge, heatmap, matrix (pivot tablo), treemap, funnel, scatter"],
   "style_notes": ["kart stili (gölgeli/çerçeveli/düz), köşe yuvarlaklığı, yoğunluk, yazı tipi karakteri, başlık alanı gibi notlar"]
 }"""
 

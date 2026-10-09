@@ -40,6 +40,23 @@ SPEC = {
 }
 
 
+# pivot tablo isteği (demo dashboard üzerinde): önce uzun formatlı dataset (bölge, ülke, ay, tutar), sonra matris
+PIVOT_SQL = ("SELECT t.SalesTerritoryGroup AS territory_group, t.SalesTerritoryCountry AS country, "
+             "CONVERT(char(7), d.FullDateAlternateKey, 126) AS year_month, CAST(SUM(f.SalesAmount) AS float) AS sales_amount "
+             "FROM dbo.FactInternetSales f JOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey "
+             "JOIN dbo.DimSalesTerritory t ON t.SalesTerritoryKey = f.SalesTerritoryKey "
+             "WHERE d.FullDateAlternateKey BETWEEN '2013-06-01' AND '2013-11-30' "
+             "GROUP BY t.SalesTerritoryGroup, t.SalesTerritoryCountry, CONVERT(char(7), d.FullDateAlternateKey, 126)")
+PIVOT_DATASET = {"id": "territory_monthly", "description": "Bölge grubu × ülke × ay satış (son 6 ay)", "sql": PIVOT_SQL,
+                 "fields": [{"name": "territory_group", "label": "Bölge Grubu"}, {"name": "country", "label": "Ülke"},
+                            {"name": "year_month", "label": "Ay"},
+                            {"name": "sales_amount", "label": "Satış Tutarı", "type": "number", "format": "currency"}]}
+PIVOT_VISUAL = {"id": "pivot_territory", "type": "matrix", "title": "Bölge ve Ülkeye Göre Son 6 Ay Satış",
+                "datasetId": "territory_monthly",
+                "encoding": {"rows": ["territory_group", "country"], "columns_dim": "year_month", "values": ["sales_amount"]},
+                "options": {"rowTotals": True, "columnTotals": True, "subtotals": True, "format": "number", "decimals": 0}}
+
+
 def call(name: str, args: dict) -> dict:
     return {"tool": name, "args": args}
 
@@ -227,6 +244,14 @@ def decide(messages: list[dict]) -> dict:
         return say("Veri hazır.")
 
     # tasarım — düzenleme senaryoları: son kullanıcı mesajındaki anahtar kelimeye göre (demo dashboard üzerinde)
+    if "pivot" in user.lower():
+        if last.get("role") == "user":
+            return call("add_dataset", PIVOT_DATASET)
+        if last.get("role") == "tool" and tools and tools[-1] == "add_dataset":
+            return call("add_visual", {"visual": PIVOT_VISUAL})
+        if last.get("role") == "tool" and tools and tools[-1] == "add_visual":
+            return say("Matris (pivot tablo) eklendi: satırlarda bölge grubu ve ülke (gruplar açılıp kapanır), sütunlarda son 6 ay; "
+                       "ara toplamlar, sağda toplam sütunu ve altta genel toplam var.")
     if last.get("role") == "user":
         u = user.lower()
         if "halka" in u:
@@ -246,7 +271,7 @@ def decide(messages: list[dict]) -> dict:
             return call("update_visual", {"id": "kpi_orders", "changes": {"options": {"background": "#0f172a", "valueSize": "xl"}}})
         if "kaldır" in u:
             return call("remove_visual", {"ids": ["kpi_customers"]})
-    if last.get("role") == "tool" and tools and tools[-1] in ("add_page", "update_report", "remove_visual") \
+    if last.get("role") == "tool" and tools and tools[-1] in ("add_page", "update_report", "remove_visual", "add_visual") \
             or (last.get("role") == "tool" and tools and tools[-1] == "update_visual" and "yeşil" not in user.lower()):
         return say("İsteğiniz işlendi; sonucu sağdaki panelde görebilirsiniz.")
     if "create_report_spec" not in tools:

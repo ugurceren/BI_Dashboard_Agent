@@ -1,7 +1,11 @@
 // Dashboard tasarımı: tüm görsel türleri, yerleşim çakışması, sayfalar, Spec sekmesi, LLM ile düzenlemeler,
 // tema / KPI stili / sayı biçimleri. Raporlar API ile hazırlanır (demo dashboard + spec düzenleme; yeni SQL yok →
 // soğuk veritabanı beklemesi yok), sonra arayüzde doğrulanır. Konsol / sayfa hataları testi düşürür (fixtures).
-import type { APIRequestContext, Page } from "@playwright/test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { chat, expect, expectTool, test, visual } from "./fixtures";
 
 type Spec = { title: string; visuals: Record<string, unknown>[]; pages?: { id: string; title: string }[]; [k: string]: unknown };
@@ -61,14 +65,16 @@ const EXTRA = [
   { id: "x_gauge", type: "gauge", title: "Brüt Kâr Marjı", datasetId: "kpi_summary", encoding: { value: "gross_margin" },
     options: { format: "percent", target: 0.5 } },
   { id: "x_tree", type: "treemap", title: "Alt Kategori Ağacı", datasetId: "top_products", encoding: { category: "subcategory", value: "sales_amount" } },
+  { id: "x_matrix", type: "matrix", title: "Bölge > Ülke Matrisi", datasetId: "country_sales",
+    encoding: { rows: ["territory_group", "country"], values: ["sales_amount"] } },
   { id: "x_text", type: "text", title: "Not", options: { text: "Bu rapor uçtan uca test için hazırlandı.\nİkinci satır." } },
 ];
 const CHART_TYPES = new Set(["line", "area", "bar", "combo", "pie", "donut", "funnel", "treemap", "heatmap", "scatter", "gauge"]);
 
 test.describe("Dashboard tasarımı", () => {
-  test("14 görsel türünün hepsi gerçek veriyle çizilir, tablo görünümünde satır vardır", async ({ page }) => {
+  test("15 görsel türünün hepsi gerçek veriyle çizilir, tablo görünümünde satır vardır", async ({ page }) => {
     const { id, spec } = await seed(page.request, (s) => { s.visuals = [...s.visuals.map((v) => ({ ...v })), ...EXTRA]; });
-    expect(new Set(spec.visuals.map((v) => v.type)).size).toBe(14);
+    expect(new Set(spec.visuals.map((v) => v.type)).size).toBe(15);
     await open(page, id);
     for (const v of spec.visuals) {
       const cell = visual(page, String(v.id));
@@ -78,6 +84,11 @@ test.describe("Dashboard tasarımı", () => {
       if (v.type === "kpi") await expect(cell.locator(".db-kpi-value")).not.toHaveText("–");
       if (v.type === "text") await expect(cell).toContainText("İkinci satır");
       if (v.type === "table") await expect(cell.locator("tbody tr").first()).toBeVisible();
+      if (v.type === "matrix") {
+        await expect(cell.locator("tbody tr[data-level='0']").first()).toBeVisible();
+        await expect(cell.locator("tbody tr[data-level='1']").first()).toBeVisible();
+        await expect(cell.locator("tfoot")).toContainText("Genel toplam");
+      }
       if (CHART_TYPES.has(String(v.type))) {
         await expect(cell.locator("canvas, svg").first(), `${v.id}: grafik çizilmedi`).toBeVisible();
         await cell.getByRole("button", { name: "Tablo görünümü" }).click();
@@ -273,5 +284,91 @@ test.describe("LLM ile tasarım düzenlemeleri", () => {
     await expect(visual(page, "kpi_customers")).toHaveCount(0);
     await expectNoOverlap(page);
     await noVisualErrors(page);
+  });
+});
+
+// ---------- matris (pivot tablo) ----------
+
+/** "1.234.567" (tr-TR, ondalıksız) → 1234567 */
+const num = (t: string | null) => Number((t ?? "").replace(/[^\d,-]/g, "").replace(",", ".")) || 0;
+const lastCell = async (row: Locator) => num(await row.locator("td").last().textContent());
+
+test.describe("Matris (pivot tablo)", () => {
+  test("sohbetle pivot tablo: gruplar açılıp kapanır, toplamlar doğru, sıralanır, HTML dışa aktarmada çalışır", async ({ page }) => {
+    test.setTimeout(360_000);
+    const { id } = await seed(page.request);
+    await open(page, id);
+    await chat(page, "Bölge ve ülkeye göre son 6 ay satış tutarını, toplamlarıyla pivot tablo olarak ekle.");
+    await expectTool(page, "add_dataset");
+    await expectTool(page, "add_visual");
+
+    const s = (await (await page.request.get(`/api/sessions/${id}`)).json()).spec as Spec;
+    const mv = s.visuals.find((v) => v.id === "pivot_territory") as { type: string; encoding: Record<string, unknown> } | undefined;
+    expect(mv?.type).toBe("matrix");
+    expect(mv?.encoding).toMatchObject({ rows: ["territory_group", "country"], columnDim: "year_month", values: ["sales_amount"] });
+
+    const cell = visual(page, "pivot_territory");
+    await cell.scrollIntoViewIfNeeded();
+    await expect(cell.locator(".db-card--error")).toHaveCount(0);
+    // 6 ay sütunu + Toplam (veriden dinamik), köşe hücresi
+    await expect(cell.locator("thead th")).toHaveCount(8);
+    await expect(cell.locator("thead th").last()).toContainText("Toplam");
+    const groups = cell.locator("tbody tr[data-level='0']");
+    const leaves = cell.locator("tbody tr[data-level='1']");
+    await expect(groups).toHaveCount(3);
+    const leafCount = await leaves.count();
+    expect(leafCount).toBeGreaterThanOrEqual(6);
+
+    // genel toplam = dataset toplamı; her grubun toplamı = ülkelerinin toplamı (yuvarlama payıyla)
+    const data = await (await page.request.get(`/api/sessions/${id}/dashboard-data`)).json();
+    const ds = data.datasets.territory_monthly as { columns: string[]; rows: unknown[][] };
+    const vi = ds.columns.indexOf("sales_amount");
+    const expected = ds.rows.reduce((a, r) => a + Number(r[vi] ?? 0), 0);
+    const grand = await lastCell(cell.locator("tfoot tr"));
+    expect(Math.abs(grand - expected)).toBeLessThanOrEqual(1);
+    let groupSum = 0;
+    for (let i = 0; i < 3; i++) groupSum += await lastCell(groups.nth(i));
+    expect(Math.abs(groupSum - grand)).toBeLessThanOrEqual(3);
+    const rowsAll = await cell.locator("tbody tr").evaluateAll((trs) => trs.map((t) => ({
+      level: t.getAttribute("data-level"), total: t.querySelector("td:last-child")?.textContent ?? "" })));
+    const firstLeaves = rowsAll.slice(1, rowsAll.findIndex((r, i) => i > 0 && r.level === "0"));
+    const leafSum = firstLeaves.reduce((a, r) => a + num(r.total), 0);
+    expect(Math.abs(leafSum - await lastCell(groups.first()))).toBeLessThanOrEqual(firstLeaves.length);
+
+    // aç / kapa: grup kapanınca ülkeleri gizlenir, ara toplam görünür kalır; "Tümünü daralt / genişlet"
+    await groups.first().getByRole("button", { name: /daralt$/ }).click();
+    await expect(leaves).toHaveCount(leafCount - firstLeaves.length);
+    await expect(groups.first().locator("td").last()).not.toHaveText("");
+    await groups.first().getByRole("button", { name: /genişlet$/ }).click();
+    await expect(leaves).toHaveCount(leafCount);
+    await cell.getByRole("button", { name: "Tümünü daralt" }).click();
+    await expect(leaves).toHaveCount(0);
+    await expect(groups).toHaveCount(3);
+    await cell.getByRole("button", { name: "Tümünü genişlet" }).click();
+    await expect(leaves).toHaveCount(leafCount);
+
+    // Toplam başlığına tıklayınca gruplar büyükten küçüğe, ikinci tıkta küçükten büyüğe
+    await cell.locator("thead th").last().click();
+    const desc: number[] = [];
+    for (let i = 0; i < 3; i++) desc.push(await lastCell(groups.nth(i)));
+    expect(desc).toEqual([...desc].sort((a, b) => b - a));
+    await cell.locator("thead th").last().click();
+    const asc: number[] = [];
+    for (let i = 0; i < 3; i++) asc.push(await lastCell(groups.nth(i)));
+    expect(asc).toEqual([...desc].reverse());
+    await noVisualErrors(page);
+
+    // HTML dışa aktarma: bağımsız dosyada matris çizilir, toplamı aynıdır, gruplar açılıp kapanır
+    const res = await page.request.get(`/api/sessions/${id}/export/html`);
+    expect(res.status()).toBe(200);
+    const file = join(mkdtempSync(join(tmpdir(), "bi-matris-")), "rapor.html");
+    writeFileSync(file, await res.text(), "utf-8");
+    await page.goto(pathToFileURL(file).href);
+    const xc = visual(page, "pivot_territory");
+    await xc.scrollIntoViewIfNeeded();
+    await expect(xc.locator("tbody tr[data-level='0']")).toHaveCount(3);
+    expect(Math.abs(await lastCell(xc.locator("tfoot tr")) - grand)).toBeLessThanOrEqual(0);
+    await xc.getByRole("button", { name: "Tümünü daralt" }).click();
+    await expect(xc.locator("tbody tr[data-level='1']")).toHaveCount(0);
   });
 });

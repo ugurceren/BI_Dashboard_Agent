@@ -4,7 +4,7 @@ import { isPeriodLike, toNumber } from "./format";
 
 export type Row = Record<string, CellValue>;
 export type FilterState = Record<string, string[]>; // filter.id → seçili değerler (boş = tümü)
-export type AggregateFn = "sum" | "avg" | "first" | "last" | "min" | "max";
+export type AggregateFn = "sum" | "avg" | "count" | "first" | "last" | "min" | "max";
 
 export function toRows(d: DatasetData): Row[] {
   const cols = d.columns ?? [];
@@ -60,6 +60,7 @@ export function aggregate(values: (number | null)[], fn: AggregateFn = "sum"): n
     case "min": return Math.min(...nums);
     case "max": return Math.max(...nums);
     case "avg": return nums.reduce((a, b) => a + b, 0) / nums.length;
+    case "count": return nums.length;
     case "sum":
     default: return nums.reduce((a, b) => a + b, 0);
   }

@@ -21,7 +21,7 @@ interface Dataset {
 
 type VisualType =
   | "kpi" | "line" | "area" | "bar" | "pie" | "donut" | "table"
-  | "scatter" | "heatmap" | "funnel" | "gauge" | "treemap" | "combo" | "text";
+  | "scatter" | "heatmap" | "funnel" | "gauge" | "treemap" | "combo" | "text" | "matrix";
 
 interface Visual {
   id: string;
@@ -36,6 +36,10 @@ interface Visual {
     category?: string;     // pie/donut/funnel/treemap etiket alanı; heatmap'te y ekseni
     value?: string;        // kpi/pie/donut/funnel/gauge/treemap/heatmap değer alanı
     columns?: string[];    // table: gösterilecek kolonlar (yoksa hepsi)
+    // matrix (pivot tablo; veri uzun formatta gelir, istemcide pivotlanır)
+    rows?: string[];       // satır boyutları, 1-2 seviye (ör. ["region", "branch"]); gruplar aç/kapa
+    columnDim?: string;    // sütun boyutu: değerleri veriden sütun olur (ör. year_month); yoksa yalnız ölçü sütunları
+    values?: string[];     // ölçü(ler); birden çoksa her sütun değerinin altında yan yana
   };
   options?: {
     stacked?: boolean;
@@ -49,7 +53,7 @@ interface Visual {
     sort?: "asc" | "desc"; // değer alanına göre
     limit?: number;        // ilk N satır
     // kpi
-    aggregate?: "sum" | "avg" | "first" | "last" | "min" | "max"; // çok satır varsa, varsayılan "sum"
+    aggregate?: "sum" | "avg" | "count" | "first" | "last" | "min" | "max"; // çok satır varsa, varsayılan "sum"
     deltaField?: string;   // karşılaştırma (ör. büyüme oranı, yüzde olarak 0.12 = %12)
     deltaLabel?: string;   // "geçen yıla göre"
     sparklineDatasetId?: string;
@@ -64,6 +68,12 @@ interface Visual {
     textColor?: string;    // yazı rengi (hex); yoksa zemine göre okunur renk
     valueSize?: "sm" | "md" | "lg" | "xl";
     accentBar?: boolean;   // solda renkli şerit (color ya da theme.accent)
+    // matrix (hepsi varsayılan true): satır / sütun genel toplamı, grup ara toplamları
+    rowTotals?: boolean;   // en altta "Genel toplam" satırı
+    columnTotals?: boolean; // sağda "Toplam" sütunu (columnDim varsa)
+    subtotals?: boolean;   // grup satırında ara toplam
+    maxColumns?: number;   // sütun boyutu sınırı: dönemde son N, diğerlerinde en büyük N + "Diğer"
+    conditionalColor?: boolean; // hücre zemini değere göre renklenir (ölçü başına)
   };
   // Şemada olmayan alanlar atılır ve araç sonucunda "UYGULANMADI" olarak modele bildirilir.
   position: { x: number; y: number; w: number; h: number }; // 12 kolon ızgara, h satır birimi

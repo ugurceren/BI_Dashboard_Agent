@@ -93,10 +93,10 @@ export const SLIDES: Slide[] = [
     notes: "Model sekmesi: rapordaki tablolar ve ilişkileri. Yeni ilişkiyi agent önerir, kullanıcı ortak modele mi yalnız rapora mı kaydedileceğine karar verir.",
   },
   {
-    id: "gorseller", kicker: "Görseller", title: "14 görsel türü, akıllı kurallar",
+    id: "gorseller", kicker: "Görseller", title: "15 görsel türü, akıllı kurallar",
     shot: "10-koyu-tema-sayfalar",
     bullets: [
-      "KPI, çizgi, alan, çubuk, combo, pasta / halka, ısı haritası, huni, gösterge, ağaç haritası, dağılım, tablo, metin.",
+      "KPI, çizgi, alan, çubuk, combo, pasta / halka, ısı haritası, huni, gösterge, ağaç haritası, dağılım, tablo, matris (pivot), metin.",
       "Grafik türü **veriye göre** seçilir: 8'den fazla dilim pasta olmaz, zaman ekseni sıralanmaz, \"ilk 10\" otomatik sınırlanır.",
       "Sayfalar, koyu / açık tema, KPI kart stili; Türkçe sayı biçimleri.",
     ],
@@ -245,7 +245,7 @@ export const GUIDE: GuideSection[] = [
     ],
   },
   {
-    id: "gorsel-turleri", title: "Grafik ve tablo türleri", roles: ["herkes", "tasarimci"], summary: "Dashboard'a eklenebilecek 14 görsel türü ve ne zaman kullanılacağı.",
+    id: "gorsel-turleri", title: "Grafik ve tablo türleri", roles: ["herkes", "tasarimci"], summary: "Dashboard'a eklenebilecek 15 görsel türü ve ne zaman kullanılacağı.",
     blocks: [
       { kind: "p", text: "Dashboard'a aşağıdaki görsel türleri eklenebilir. Türü adıyla isteyebilir (\"halka grafik yap\") ya da yalnız ne göstermek istediğinizi anlatabilirsiniz; agent veriye en uygun türü seçer." },
       { kind: "table", head: ["Tür", "Nasıl istenir", "Ne zaman kullanılır", "Not"], rows: [
@@ -259,9 +259,10 @@ export const GUIDE: GuideSection[] = [
         ["**Halka**", "halka, donut", "Pasta ile aynı, ortası boş", "Pastadan ayrı bir türdür; aynı sınırlar geçerli"],
         ["**Ağaç haritası**", "ağaç haritası, treemap", "Çok kategorili parça-bütün", "8'den fazla dilim için pastanın yerine"],
         ["**Huni**", "huni, funnel", "Aşamalı azalan süreç: başvuru → onay → kullandırım", "Aşamalar büyükten küçüğe"],
-        ["**Isı haritası**", "ısı haritası, matris", "İki boyut × bir ölçü: ay × bölge satışı", "Değer renk yoğunluğuyla gösterilir"],
+        ["**Isı haritası**", "ısı haritası", "İki boyut × bir ölçü: ay × bölge satışı", "Değer renk yoğunluğuyla gösterilir; desen görmek için"],
         ["**Dağılım**", "dağılım, scatter", "İki sayısal ölçü arasındaki ilişki", "x ve y ikisi de sayı olmalı"],
         ["**Tablo**", "tablo, liste", "Satır düzeyinde detay, çok kolon", "Aşağıdaki tablo özelliklerine bakın"],
+        ["**Matris**", "matris, pivot tablo, çapraz tablo", "Bölge > şube satırları × ay sütunları, rakamlar ve toplamlarıyla (Power BI Matrix / Excel pivot gibi)", "Gruplar açılıp kapanır; ara toplam, genel toplam satırı ve sütunu; birden çok ölçü; isteğe bağlı hücre renklendirme"],
         ["**Metin**", "metin, açıklama, not", "Başlık, açıklama, okuma notu", "Veri bağlamaz"],
       ] },
       { kind: "table", head: ["Tablo özelliği", "Nasıl"], rows: [
@@ -269,11 +270,11 @@ export const GUIDE: GuideSection[] = [
         ["Sıralama", "Okurken: kolon başlığına tıklayın (↓ / ↑). Tasarımda: \"satışa göre büyükten küçüğe sırala\""],
         ["İlk N satır", "\"En çok satan 10 ürün\": sıralama ve satır sınırı birlikte verilir"],
         ["Sayı biçimi", "sayı, para birimi (₺, $), yüzde, kısaltılmış (1,2 Mn); ondalık basamak sayısı"],
-        ["Isı haritası (matris)", "İki boyutlu özet tablo gerekiyorsa tablo yerine ısı haritası isteyin"],
+        ["Matris (pivot tablo)", "İki boyutlu, toplamlı özet gerekiyorsa matris isteyin: satırda 1-2 seviye (bölge > şube), sütunda veriden gelen değerler (ay); grubun okuna basınca açılır / kapanır, sağ üstteki kare tümünü açar / kapatır"],
       ] },
       { kind: "list", items: [
         "**Tablo görünümü:** Her grafiğin sağ üstündeki tablo düğmesi, grafiğin verisini tablo olarak gösterir; tekrar basınca grafiğe döner.",
-        "**Grafikten filtreleme:** Çubuk, çizgi, alan, birleşik, pasta, halka, huni, ağaç haritası ve ısı haritasında bir öğeye tıklamak diğer görselleri o değere göre filtreler.",
+        "**Grafikten filtreleme:** Çubuk, çizgi, alan, birleşik, pasta, halka, huni, ağaç haritası, ısı haritası ve matriste (satır etiketi) bir öğeye tıklamak diğer görselleri o değere göre filtreler.",
         "**Filtre dışı:** Bir görselin rapor filtrelerinden etkilenmemesini isteyebilirsiniz (\"bu KPI filtrelerden etkilenmesin\"); kartta \"Filtre dışı\" rozeti görünür.",
         "**Ortak ayarlar:** başlık ve alt başlık, renk, lejant, değer etiketleri, sayı biçimi, boyut ve yerleşim (12 kolonluk ızgara).",
       ] },
@@ -283,6 +284,7 @@ export const GUIDE: GuideSection[] = [
         "Şubelere göre teminat tutarını yatay çubuk grafikte, büyükten küçüğe göster.",
         "Tutar ve adet aynı grafikte olsun: tutar çubuk, adet çizgi.",
         "Ay × bölge satışlarını ısı haritası olarak ekle.",
+        "Şube ve bölgeye göre son 6 ay teminat tutarını, toplamlarıyla pivot tablo olarak göster.",
         "Başvuru, onay ve kullandırım aşamalarını huni grafikte göster.",
         "Bütçe gerçekleşmesini %100 hedefli gösterge olarak ekle.",
       ] },
