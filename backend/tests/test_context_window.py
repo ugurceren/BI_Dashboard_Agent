@@ -126,3 +126,40 @@ def test_gateway_detects_silent_cut_as_overflow(settings, monkeypatch):
     with pytest.raises(ContextOverflow) as ei:
         gw.chat([{"role": "user", "content": "x"}])
     assert ei.value.context == 8192 and gw.context_window() == 8192
+
+
+def _resp(content, finish, prompt, completion):
+    return SimpleNamespace(choices=[SimpleNamespace(finish_reason=finish, message=SimpleNamespace(content=content, tool_calls=None))],
+                           usage=SimpleNamespace(prompt_tokens=prompt, completion_tokens=completion))
+
+
+def test_thinking_cut_at_server_default_is_retried_with_higher_limit(settings, monkeypatch):
+    """Sınır gönderilmedi, sunucu varsayılanı (EVREN 16.384) düşünmede doldu, görünür yanıt boş: bir kez açık daha yüksek
+    sınır ve 'kısa düşün' yönlendirmesiyle yeniden denenir."""
+    gw = LLMGateway(settings)
+    calls = []
+
+    def create(**kw):
+        calls.append(kw)
+        return _resp("", "length", 9000, 16384) if len(calls) == 1 else _resp("Hangi KPI'lar olsun?", "stop", 9100, 800)
+    monkeypatch.setattr(gw.client.chat.completions, "create", create)
+    monkeypatch.setattr(gw, "context_window", lambda: 262144)
+    t = gw.chat([{"role": "user", "content": "x"}])
+    assert t.content == "Hangi KPI'lar olsun?" and not t.truncated
+    assert "max_tokens" not in calls[0] and calls[1]["max_tokens"] == 32768
+    assert "Kısa düşün" in calls[1]["messages"][-1]["content"]
+
+
+def test_thinking_retry_rejected_by_server_returns_first_result(settings, monkeypatch):
+    gw = LLMGateway(settings)
+    n = {"i": 0}
+
+    def create(**kw):
+        n["i"] += 1
+        if n["i"] == 1:
+            return _resp("", "length", 9000, 16384)
+        raise _bad_request("max_tokens is too large")
+    monkeypatch.setattr(gw.client.chat.completions, "create", create)
+    monkeypatch.setattr(gw, "context_window", lambda: 262144)
+    t = gw.chat([{"role": "user", "content": "x"}])
+    assert t.truncated and "kesildi" in t.content and n["i"] == 2

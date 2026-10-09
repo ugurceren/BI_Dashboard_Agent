@@ -58,7 +58,9 @@ class ToolCall:
 
 
 SILENT_CUT_TOKENS = 64          # sınırsız istekte bundan kısa kesilen yanıt: pencere doldu
-TRUNCATED_NOTE = "\n\n_(Yanıt uzunluk sınırında kesildi.)_"
+RETHINK_TOKENS = 32768          # sunucu sınırında boş kesilen düşünen modele ikinci deneme için açık çıktı sınırı
+TRUNCATED_NOTE = ("\n\n_(Yanıt uzunluk sınırında kesildi: model düşünme aşamasında sınıra takıldı. İsteği daha kısa ya da "
+                  "adım adım yazmayı deneyin.)_")
 
 
 @dataclass
@@ -241,9 +243,23 @@ class LLMGateway:
                 self._ctx = p + c
                 log.warning("LLM yanıtı %d token'da sessizce kesildi (girdi %d): bağlam penceresi %d kabul ediliyor", c, p, p + c)
                 raise ContextOverflow(f"Yanıt bağlam penceresi dolduğu için kesildi (girdi {p} + yanıt {c} token).", p + c, p)
-            if not limit:               # sınır göndermedik: kesen sunucunun kendi sınırı, yeniden denemek anlamsız
-                return turn
             ctx = self.context_window()
+            if not limit:
+                # sınır göndermedik: kesen sunucunun varsayılan çıktı sınırı (ör. EVREN 16.384). Düşünen model payın tamamını
+                # düşünmeye harcadı: bir kez daha yüksek açık sınırla ve "kısa düşün" yönlendirmesiyle denenir.
+                bigger = max(c * 2, RETHINK_TOKENS)
+                if ctx:
+                    bigger = min(bigger, max(ctx - p - 1024, 0))
+                if bigger <= c:
+                    return turn
+                log.info("LLM yanıtı düşünme bölümünde kesildi (%d token, sunucu sınırı); %d ile yeniden deneniyor", c, bigger)
+                nudge = {"role": "user", "content": "[HARNESS] Önceki denemede yanıtın düşünme aşamasında uzunluk sınırına takıldı ve "
+                                                    "görünür yanıt yazılamadı. Kısa düşün: doğrudan yanıt ver ya da gereken aracı çağır."}
+                try:
+                    return self.chat([*messages, nudge], tools, bigger, _retried=True)
+                except LLMError as e:   # sunucu bu sınırı kabul etmezse (ör. azami çıktı aşıldı) ilk sonuç gösterilir
+                    log.warning("Yüksek sınırla yeniden deneme başarısız: %s", e)
+                    return turn
             bigger = min(limit * 2, max(limit, (ctx // 4) if ctx else limit * 2))
             if bigger > limit:
                 log.info("LLM yanıtı düşünme bölümünde kesildi; %d → %d token ile yeniden deneniyor", limit, bigger)
