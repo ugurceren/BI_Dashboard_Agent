@@ -10,11 +10,12 @@ senaryodaki sıradaki yanıt döner. Böylece her koşu aynı sonucu verir. Sena
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-MODEL = "e2e-senaryo"
+MODEL = os.environ.get("E2E_FAKE_MODEL", "e2e-senaryo")   # tanıtım görüntülerinde gerçekçi ad
 
 KPI_SQL = ("SELECT SUM(f.SalesAmount) AS sales_amount, COUNT(DISTINCT f.SalesOrderNumber) AS order_count "
            "FROM dbo.FactResellerSales f")

@@ -647,8 +647,16 @@ def load_demo(sid: str, request: Request) -> Any:
             "dimensions": [], **req})
         spec = ReportSpec.model_validate({**raw, "datasets": [d.model_dump() for d in built]})
         s.set_phase("design")
+        # Aynı başlıklı rapor kaydedilince eskisi silinir (üstüne yazma kuralı): ikinci kez yüklenen demo, ilk demo
+        # raporunu (Vitrin'de yayında olsa bile) sessizce siliyordu. Başlık doluysa numaralanır.
+        title, n = raw["title"], 2
+        while not s.title_locked and state.store.title_taken(title, sid, s.owner):
+            title, n = f"{raw['title']} ({n})", n + 1
+        if s.title_locked:
+            title = s.title
+        spec.title = title
         s.set_spec(spec)
-        s.title = raw["title"]
+        s.title = title
 
         s.add(TranscriptItem(role="system", content="Demo dashboard yüklendi. Değişiklik isteyebilirsiniz (ör. \"bölge grafiğini donut yap\")."))
         s.llm_messages = [{"role": "user", "content": "[HARNESS] Demo dashboard yüklendi. Kullanıcının değişiklik isteklerini bekle."}]

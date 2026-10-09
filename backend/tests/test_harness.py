@@ -441,3 +441,21 @@ def test_style_claim_without_tool_is_nudged(settings, services):
     assert "KPI yazı tipi boyutu 40 punto olarak ayarlandı." not in shown
     assert shown[-1].startswith("Yazı tipi boyutu desteklenmiyor")
     assert any(t.tool and t.tool.name == "update_visual" for t in s.transcript)
+
+
+def test_loading_demo_twice_keeps_both_reports(settings, services):
+    """İkinci demo yüklemesi aynı başlığı alıp ilk demo raporunu (üstüne yazma kuralıyla) siliyordu: numaralanır."""
+    from fastapi.testclient import TestClient
+
+    import app.main as m
+    from app.harness.session import SessionStore as SS
+
+    m.state.store, m.state.services = SS(settings.sessions_dir), services
+    c = TestClient(m.app)
+    a, b = m.state.store.create("standart"), m.state.store.create("standart")
+    assert c.post(f"/api/sessions/{a.id}/demo").status_code == 200
+    assert c.post(f"/api/sessions/{b.id}/demo").status_code == 200
+    titles = {x["id"]: x["title"] for x in m.state.store.list()}
+    assert a.id in titles and b.id in titles
+    assert titles[b.id] == titles[a.id] + " (2)"
+    assert m.state.store.get(b.id).spec.title == titles[b.id]

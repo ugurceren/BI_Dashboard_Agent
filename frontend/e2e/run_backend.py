@@ -68,7 +68,7 @@ def main() -> None:
                 (tmp / "connections.json").write_text(json.dumps(conf, ensure_ascii=False, indent=2), encoding="utf-8")
     else:
         env |= {"BI_CONNECTIONS_FILE": str(tmp / "connections.json"),     # yok: veri bağlantısı .env (AdventureWorksDW)
-                "LLM_BASE_URL": "http://127.0.0.1:8091/v1", "LLM_MODEL": "e2e-senaryo", "LLM_API_KEY": "e2e",
+                "LLM_BASE_URL": f"http://127.0.0.1:{os.environ.get('E2E_FAKE_LLM_PORT', '8091')}/v1", "LLM_MODEL": os.environ.get("E2E_FAKE_MODEL", "e2e-senaryo"), "LLM_API_KEY": "e2e",
                 "LLM_TOOL_MODE": "native", "LLM_CONTEXT_TOKENS": "32768", "VISION_MODEL": ""}
     os.environ.update(env)
     os.chdir(BACKEND)

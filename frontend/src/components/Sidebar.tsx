@@ -4,7 +4,7 @@ import type { Me, VitrinCard } from "../types";
 import { counts, SCOPE_LABEL, type VitrinFilter, type VitrinScope } from "../lib/vitrin";
 import "./sidebar.css";
 
-export type Page = "home" | "access" | "model" | "query" | "settings" | "designer" | "viewer" | "vitrin" | "vitrin-report" | "admin" | "landing";
+export type Page = "home" | "access" | "model" | "query" | "settings" | "designer" | "viewer" | "vitrin" | "vitrin-report" | "admin" | "landing" | "tour" | "guide";
 
 const ICONS: Record<string, ReactNode> = {
   home: <path d="M2.5 7 8 2.5 13.5 7v6.5h-3.8V9.5H6.3v4H2.5z" />,
@@ -21,6 +21,7 @@ const ICONS: Record<string, ReactNode> = {
   retired: <path d="M2.5 4.5h11v2h-11zM3.5 6.5v7h9v-7M6.5 9h3" />,
   domain: <path d="M2.5 8.5 8.5 2.5h5v5l-6 6zM10.8 5.2h.01" />,
   admin: <path d="M8 1.8 13.5 4v4c0 3-2.3 5.3-5.5 6.2C4.8 13.3 2.5 11 2.5 8V4zM5.8 8l1.6 1.6L10.5 6.5" />,
+  help: <path d="M8 14.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13ZM6.2 6.2a1.9 1.9 0 0 1 3.7.6c0 1.3-1.9 1.6-1.9 2.9M8 11.6h.01" />,
 };
 
 function Icon({ name }: { name: string }) {
@@ -109,6 +110,7 @@ export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, curre
         {domains.length ? <div className="sb-section sb-label">İş alanları</div> : null}
         {domains.map(([d, n]) => item("domain", d, page === "vitrin" && f.domain === d, () => go({ scope: "all", domain: d }), false, n))}
         <div className="sb-spacer" />
+        {item("help", "Yardım", false, () => { window.location.hash = "#/kilavuz"; })}
         {user}
       </nav>
     );
@@ -135,6 +137,7 @@ export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, curre
       </> : null}
 
       <div className="sb-spacer" />
+      {item("help", "Yardım", false, () => { window.location.hash = "#/kilavuz"; })}
       {user}
     </nav>
   );

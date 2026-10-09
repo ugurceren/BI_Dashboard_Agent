@@ -11,6 +11,8 @@ import { RightPanel, type Tab } from "./components/RightPanel";
 import { Home } from "./components/Home";
 import { Sidebar, type Page } from "./components/Sidebar";
 import { Landing } from "./components/Landing";
+import { Presentation } from "./tour/Presentation";
+import { Guide } from "./tour/Guide";
 import { AccessPage } from "./components/AccessPage";
 import { ModelTab } from "./components/ModelTab";
 import { Vitrin } from "./components/Vitrin";
@@ -30,6 +32,10 @@ function parseRoute(): { view: Page; id: string | null } {
   if (vr) return { view: "vitrin-report", id: vr[1] };
   if (h.startsWith("#/vitrin")) return { view: "vitrin", id: null };
   if (h.startsWith("#/giris")) return { view: "landing", id: null };
+  const tr = /^#\/tanitim(?:\/(\d+))?/.exec(h);
+  if (tr) return { view: "tour", id: tr[1] ?? "1" };
+  const gd = /^#\/kilavuz(?:\/([a-z0-9-]+))?/.exec(h);
+  if (gd) return { view: "guide", id: gd[1] ?? null };
   if (h.startsWith("#/admin")) return { view: "admin", id: null };
   if (h.startsWith("#/envanter")) return { view: "home", id: null };
   const m = /^#\/r\/([A-Za-z0-9]+)/.exec(h);
@@ -197,7 +203,7 @@ export default function App() {
     if (!me) return;
     if (me.capabilities && !me.capabilities.design) {
       setSessionsLoading(false);
-      if (!["vitrin", "vitrin-report", "landing"].includes(parseRoute().view)) window.location.hash = "#/vitrin";
+      if (!["vitrin", "vitrin-report", "landing", "tour", "guide"].includes(parseRoute().view)) window.location.hash = "#/vitrin";
     } else {
       void refreshSessions();
     }
@@ -205,7 +211,7 @@ export default function App() {
   }, [me]);
   // izleyici uygulama içinde bir tasarım adresine giderse (#/envanter, #/r/…, #/query …) Vitrin'e döner
   useEffect(() => {
-    if (me?.capabilities && !me.capabilities.design && !["vitrin", "vitrin-report", "landing"].includes(route.view)) {
+    if (me?.capabilities && !me.capabilities.design && !["vitrin", "vitrin-report", "landing", "tour", "guide"].includes(route.view)) {
       window.location.hash = "#/vitrin";
     }
   }, [me, route.view]);
@@ -488,11 +494,25 @@ export default function App() {
     return all;
   }, [state?.transcript, localItems, pending]);
 
+  if (route.view === "tour") {
+    return (
+      <Presentation index={Number(route.id ?? 1) - 1} onGo={(i) => { window.location.hash = `#/tanitim/${i + 1}`; }}
+        onExit={() => { window.location.hash = "#/giris"; }} onGuide={() => { window.location.hash = "#/kilavuz"; }} />
+    );
+  }
+  if (route.view === "guide") {
+    return (
+      <Guide me={me} section={route.id} onSection={(sid) => { window.location.hash = `#/kilavuz/${sid}`; }}
+        onExit={() => { if (window.history.length > 1) window.history.back(); else window.location.hash = "#/giris"; }}
+        onPresent={() => { window.location.hash = "#/tanitim/1"; }} />
+    );
+  }
   if (route.view === "landing") {
     return (
       <Landing me={me} vitrin={vitrinItems} sessions={canDesign ? (sessionsLoading ? null : sessions) : null}
         onChoose={(c) => { lsSet(LS_LANDING, c); window.location.hash = c === "vitrin" ? "#/vitrin" : "#/envanter"; }}
-        health={health} onSystem={(pg) => { window.location.hash = `#/${pg}`; }} />
+        health={health} onSystem={(pg) => { window.location.hash = `#/${pg}`; }}
+        onTour={() => { window.location.hash = "#/tanitim/1"; }} onGuide={() => { window.location.hash = "#/kilavuz"; }} />
     );
   }
 

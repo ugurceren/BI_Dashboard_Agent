@@ -78,6 +78,10 @@ test("admin → tasarımcı → izleyici: yayın, paylaşım ve yetki", async ({
     expect(body.spec.datasets.every((d: { sql: string }) => d.sql === "")).toBe(true);    // SQL izleyiciye gitmez
     expect(body).not.toHaveProperty("transcript");
     await expect(visual(p, "kpi_sales").locator(".db-kpi-value")).not.toHaveText("–", { timeout: 90_000 });
+    await p.goto("/#/kilavuz");                                                          // kılavuz izleyiciye de açık
+    await expect(p.getByTestId("guide")).toBeVisible();
+    await expect(p).toHaveURL(/#\/kilavuz/);
+    await expect(p.getByRole("button", { name: "Herkes", exact: true })).toHaveAttribute("aria-pressed", "true");   // rolüne göre
     await p.goto("/#/envanter");
     await expect(p).toHaveURL(/#\/vitrin/);                                              // tasarım sayfasına giremez → Vitrin
     await expect(p.locator(".home.vitrin")).toBeVisible();

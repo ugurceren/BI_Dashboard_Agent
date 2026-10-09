@@ -12,7 +12,8 @@
     "e2e": "npm run build && node e2e/run-all.mjs",
     "e2e:llm": "npm run build && node e2e/run-llm.mjs",
     "e2e:ui": "playwright test --ui",
-    "e2e:report": "playwright show-report e2e/report/desktop"
+    "e2e:report": "playwright show-report e2e/report/desktop",
+    "shots": "node e2e/shots.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

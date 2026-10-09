@@ -10,7 +10,7 @@ const fmtDate = (iso?: string) => {
   try { return new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "long" }); } catch { return ""; }
 };
 
-export function Landing({ me, vitrin, sessions, health, onChoose, onSystem }: {
+export function Landing({ me, vitrin, sessions, health, onChoose, onSystem, onTour, onGuide }: {
   me: Me | null;
   vitrin: VitrinCard[] | null;
   sessions: SessionSummary[] | null;
@@ -18,6 +18,8 @@ export function Landing({ me, vitrin, sessions, health, onChoose, onSystem }: {
   onChoose: (c: LandingChoice) => void;
   /** Kontrol paneli: sistem sayfaları (seçim hatırlanmaz; açılış hep Vitrin ya da Tasarım) */
   onSystem: (page: "admin" | "settings") => void;
+  onTour: () => void;
+  onGuide: () => void;
 }) {
   const caps = me?.capabilities ?? { design: true, admin: true, vitrin: true };
   const live = (vitrin ?? []).filter((r) => r.status === "active");
@@ -32,6 +34,10 @@ export function Landing({ me, vitrin, sessions, health, onChoose, onSystem }: {
       <section className="ld-hero">
         <h1>{firstName ? `Hoş geldiniz, ${firstName}.` : "Hoş geldiniz."}</h1>
         <p>Raporları keşfedin, yenisini tasarlayın ya da sistemi yönetin.</p>
+        <div className="ld-intro">
+          <button type="button" className="ld-intro-btn is-primary" onClick={onTour}><span aria-hidden="true">▶</span> Tanıtımı izle</button>
+          <button type="button" className="ld-intro-btn" onClick={onGuide}>Kullanım kılavuzu</button>
+        </div>
       </section>
 
       <div className="ld-cards">

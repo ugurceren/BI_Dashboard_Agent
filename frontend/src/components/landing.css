@@ -22,6 +22,13 @@
 
 .ld-hero { text-align: center; margin: clamp(28px, 7vh, 72px) 0 clamp(24px, 5vh, 48px); }
 .ld-hero h1 { font-size: clamp(30px, 4.6vw, 54px); font-weight: 700; letter-spacing: -0.03em; margin: 0; }
+.ld-intro { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
+.ld-intro-btn { all: unset; cursor: pointer; font-size: 14px; font-weight: 600; padding: 9px 18px; border-radius: 999px; color: #e5e7eb;
+  border: 1px solid rgba(255, 255, 255, 0.18); transition: border-color 0.2s, background 0.2s; }
+.ld-intro-btn:hover { border-color: rgba(255, 255, 255, 0.45); }
+.ld-intro-btn.is-primary { background: #f5f5f7; color: #000; border-color: #f5f5f7; }
+.ld-intro-btn.is-primary:hover { background: #fff; }
+.ld-intro-btn:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }
 .ld-hero p { color: var(--ld-muted); font-size: clamp(15px, 1.6vw, 19px); margin: 10px 0 0; }
 
 .ld-cards {
