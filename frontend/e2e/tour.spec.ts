@@ -66,11 +66,21 @@ test("kılavuz: rol filtresi, arama, bölüm adresi, sol menüden Yardım", asyn
 
   await page.goto("/#/kilavuz/prod");                                           // bölüm adresi doğrudan açılır
   await expect(guide.getByRole("heading", { name: /Üretime \(prod\) kurulum/ })).toBeVisible();
-  for (const img of await guide.locator(".tr-article img").all()) {
+  for (const img of await guide.locator("#g-sec-prod img").all()) {
     await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(0);
   }
-  await guide.getByRole("button", { name: /Sorun giderme/ }).last().click();     // sonraki bölüm düğmesi
+  await expect(guide.getByRole("heading", { name: "Sorun giderme ve SSS" })).toBeAttached();   // bölümler alt alta tek sayfada
+  const main = guide.locator(".tr-guide-main");
+  const toTop = guide.getByRole("button", { name: "Başa dön" });
+  await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));          // sürükleyerek sona: menü ve adres güncellenir
   await expect(page).toHaveURL(/#\/kilavuz\/sss/);
+  await expect(nav.locator(".tr-nav-item.is-on")).toContainText("Sorun giderme");
+  await expect(toTop).toHaveClass(/is-on/);
+  await toTop.click();
+  await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBe(0);
+  await nav.getByRole("button", { name: /Üretime \(prod\)/ }).click();          // menüden bölüme atlar
+  await expect(page).toHaveURL(/#\/kilavuz\/prod/);
+  await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
 
   await page.goto("/#/envanter");                                                // uygulama içinden: sol menü → Yardım
   await page.getByRole("button", { name: "Yardım" }).click();

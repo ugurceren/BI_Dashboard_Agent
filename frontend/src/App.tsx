@@ -502,7 +502,7 @@ export default function App() {
   }
   if (route.view === "guide") {
     return (
-      <Guide me={me} section={route.id} onSection={(sid) => { window.location.hash = `#/kilavuz/${sid}`; }}
+      <Guide me={me} section={route.id}
         onExit={() => { if (window.history.length > 1) window.history.back(); else window.location.hash = "#/giris"; }}
         onPresent={() => { window.location.hash = "#/tanitim/1"; }} />
     );

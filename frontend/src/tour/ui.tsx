@@ -26,7 +26,7 @@ export function Shot({ src, caption, className }: { src: string; caption?: strin
   return (
     <figure className={`tr-shot ${className ?? ""}`}>
       <button type="button" className="tr-shot-btn" onClick={() => setOpen(true)} aria-label={`${caption ?? "Ekran görüntüsü"} — büyüt`}>
-        <img src={shotUrl(src)} alt={caption ?? ""} loading="lazy" />
+        <img src={shotUrl(src)} alt={caption ?? ""} loading="lazy" width={1440} height={900} />
       </button>
       {caption ? <figcaption>{caption}</figcaption> : null}
       {open ? (

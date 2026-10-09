@@ -1,5 +1,6 @@
-// Kullanım kılavuzu: rol filtresi, arama, bölüm menüsü; içerik content.ts'ten. Açık / koyu tema, yazdırılabilir.
-import { useEffect, useMemo, useState } from "react";
+// Kullanım kılavuzu: rol filtresi, arama, bölüm menüsü; içerik content.ts'ten. Bölümler alt alta tek sayfada akar,
+// menü kaydırmayla güncellenir. Açık / koyu tema, yazdırılabilir.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Me } from "../types";
 import { GUIDE, ROLE_LABEL, type Block, type GuideSection, type Role } from "./content";
 import { Rich, Shot } from "./ui";
@@ -19,10 +20,9 @@ const blockText = (b: Block): string =>
     : b.kind === "examples" ? [b.title ?? "", ...b.items].join(" ")
     : b.items.join(" ");
 
-export function Guide({ me, section, onSection, onExit, onPresent }: {
+export function Guide({ me, section, onExit, onPresent }: {
   me: Me | null;
   section: string | null;
-  onSection: (id: string) => void;
   onExit: () => void;
   onPresent: () => void;
 }) {
@@ -35,9 +35,56 @@ export function Guide({ me, section, onSection, onExit, onPresent }: {
     return GUIDE.filter((s) => (filter === "tumu" || s.roles.includes(filter) || s.roles.includes("herkes"))
       && (!ql || `${s.title} ${s.summary} ${s.blocks.map(blockText).join(" ")}`.toLocaleLowerCase("tr").includes(ql)));
   }, [filter, q]);
-  const current = GUIDE.find((s) => s.id === section) ?? visible[0] ?? GUIDE[0];
+  const list = visible.length ? visible : GUIDE;
+  const mainRef = useRef<HTMLElement>(null);
+  const [active, setActive] = useState<string | null>(section);
+  const [showTop, setShowTop] = useState(false);
 
-  useEffect(() => { document.querySelector(".tr-guide-main")?.scrollTo({ top: 0 }); }, [current.id]);
+  // bölüm adresi: kaydırırken URL güncellenir (geçmişe kayıt eklemeden, hashchange tetiklemeden)
+  const mark = useCallback((id: string) => {
+    setActive(id);
+    const h = `#/kilavuz/${id}`;
+    if (window.location.hash !== h) window.history.replaceState(null, "", h);
+  }, []);
+
+  const goTo = useCallback((id: string, smooth = true) => {
+    const main = mainRef.current;
+    const el = main?.querySelector<HTMLElement>(`#g-sec-${id}`);
+    if (!main || !el) return;
+    main.scrollTo({ top: el.offsetTop - main.offsetTop - 16, behavior: smooth ? "smooth" : "auto" });
+    mark(id);
+  }, [mark]);
+
+  // dışarıdan gelen bölüm adresi (bağlantı, yeniden yükleme) o bölüme götürür; kaydırırken URL replaceState ile
+  // değiştiği için uygulamanın rotası eskide kalabilir, bu yüzden hashchange ayrıca dinlenir
+  useEffect(() => {
+    if (section && list.some((s) => s.id === section)) goTo(section, false);
+    else mainRef.current?.scrollTo({ top: 0 });
+    const onHash = () => {
+      const id = /^#\/kilavuz\/([a-z0-9-]+)/.exec(window.location.hash)?.[1];
+      if (id) goTo(id, false);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [section]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // arama / rol filtresi değişince başa
+  useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); }, [filter, q]);
+
+  const onScroll = () => {
+    const main = mainRef.current;
+    if (!main) return;
+    setShowTop(main.scrollTop > 400);
+    const atEnd = main.scrollTop + main.clientHeight >= main.scrollHeight - 4;
+    let id = list[0]?.id;
+    for (const s of list) {
+      const el = main.querySelector<HTMLElement>(`#g-sec-${s.id}`);
+      if (el && el.offsetTop - main.offsetTop - main.scrollTop <= 120) id = s.id;
+    }
+    if (atEnd) id = list[list.length - 1]?.id;
+    if (id && id !== active) mark(id);
+  };
+  const current = list.find((s) => s.id === active) ?? list[0];
 
   return (
     <div className="tr-guide" data-testid="guide">
@@ -58,7 +105,7 @@ export function Guide({ me, section, onSection, onExit, onPresent }: {
         <nav>
           {visible.map((s) => (
             <button key={s.id} type="button" className={`tr-nav-item${s.id === current.id ? " is-on" : ""}`}
-              aria-current={s.id === current.id ? "page" : undefined} onClick={() => onSection(s.id)}>
+              aria-current={s.id === current.id ? "page" : undefined} onClick={() => goTo(s.id)}>
               <span>{s.title}</span>
               <small>{s.roles.map((r) => ROLE_LABEL[r]).join(" · ")}</small>
             </button>
@@ -66,9 +113,10 @@ export function Guide({ me, section, onSection, onExit, onPresent }: {
           {!visible.length ? <p className="tr-muted">Aramaya uyan bölüm yok.</p> : null}
         </nav>
       </aside>
-      <main className="tr-guide-main">
-        <Section s={current} />
-        <Pager current={current} list={visible.length ? visible : GUIDE} onSection={onSection} />
+      <main className="tr-guide-main" ref={mainRef} onScroll={onScroll}>
+        {list.map((s) => <Section key={s.id} s={s} />)}
+        <button type="button" className={`tr-to-top${showTop ? " is-on" : ""}`} aria-label="Başa dön" title="Başa dön"
+          tabIndex={showTop ? 0 : -1} onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" })}>↑ Başa dön</button>
       </main>
     </div>
   );
@@ -76,7 +124,7 @@ export function Guide({ me, section, onSection, onExit, onPresent }: {
 
 function Section({ s }: { s: GuideSection }) {
   return (
-    <article className="tr-article" aria-labelledby={`g-${s.id}`}>
+    <article className="tr-article" id={`g-sec-${s.id}`} aria-labelledby={`g-${s.id}`}>
       <div className="tr-badges">{s.roles.map((r) => <span key={r} className={`tr-badge r-${r}`}>{ROLE_LABEL[r]}</span>)}</div>
       <h2 id={`g-${s.id}`}>{s.title}</h2>
       <p className="tr-summary">{s.summary}</p>
@@ -108,16 +156,4 @@ function BlockView({ b }: { b: Block }) {
       </div>
     );
   }
-}
-
-function Pager({ current, list, onSection }: { current: GuideSection; list: GuideSection[]; onSection: (id: string) => void }) {
-  const k = list.findIndex((s) => s.id === current.id);
-  const prev = k > 0 ? list[k - 1] : null;
-  const next = k >= 0 && k < list.length - 1 ? list[k + 1] : null;
-  return (
-    <div className="tr-pager">
-      {prev ? <button type="button" className="tr-page-btn" onClick={() => onSection(prev.id)}>← {prev.title}</button> : <span />}
-      {next ? <button type="button" className="tr-page-btn is-next" onClick={() => onSection(next.id)}>{next.title} →</button> : null}
-    </div>
-  );
 }
