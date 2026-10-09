@@ -33,7 +33,7 @@ export default defineConfig({
     video: "off",
   },
   projects: [
-    ...(want("desktop") ? [{ name: "masaustu", testMatch: /(^|[\\/])(landing|query|dashboard|demo|design|flow)\.spec\.ts$/, use: { baseURL: "http://127.0.0.1:8090" } }] : []),
+    ...(want("desktop") ? [{ name: "masaustu", testMatch: /(^|[\\/])(landing|inventory|query|dashboard|demo|design|flow)\.spec\.ts$/, use: { baseURL: "http://127.0.0.1:8090" } }] : []),
     ...(want("server") ? [{ name: "sunucu", testMatch: /vitrin\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8092" } }] : []),
     ...(LLM ? [{ name: "gercek-llm", testMatch: /llm-(smoke|design)\.spec\.ts/, timeout: 900_000,
       use: { baseURL: "http://127.0.0.1:8093", actionTimeout: 30_000 } }] : []),

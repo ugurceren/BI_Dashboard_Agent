@@ -492,7 +492,7 @@ export default function App() {
     return (
       <Landing me={me} vitrin={vitrinItems} sessions={canDesign ? (sessionsLoading ? null : sessions) : null}
         onChoose={(c) => { lsSet(LS_LANDING, c); window.location.hash = c === "vitrin" ? "#/vitrin" : "#/envanter"; }}
-        onAdmin={me?.capabilities?.admin && me.platform_mode === "server" ? () => { window.location.hash = "#/admin"; } : undefined} />
+        health={health} onSystem={(pg) => { window.location.hash = `#/${pg}`; }} />
     );
   }
 

@@ -99,6 +99,7 @@
 
 /* liste görünümü */
 .rl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: auto; box-shadow: var(--shadow-sm); }
+.sm .rl-wrap { max-height: calc(100vh - 230px); }
 .rl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .rl th { text-align: left; font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
   padding: 10px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -186,3 +187,41 @@
 .tb-health-icons .is-ok { color: var(--ok); }
 .tb-health-icons .is-bad { color: var(--bad); }
 @media (max-width: 760px) { .tb-health-model, .tb-health-icons { display: none; } .tb-health { padding: 0 9px; } }
+
+/* ---- akıllı tablo (liste görünümü): sıralama, kolon filtreleri, kolon seçimi, CSV ---- */
+.sm { display: flex; flex-direction: column; gap: 10px; }
+.sm-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sm-total { font-size: 13px; color: var(--muted); }
+.sm-spacer { flex: 1; }
+.sm-btn { font: inherit; font-size: 12.5px; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer; }
+.sm-btn:hover:not(:disabled) { border-color: var(--border-strong); }
+.sm-btn:disabled { opacity: .5; cursor: default; }
+.rl-smart { font-variant-numeric: tabular-nums; }
+.rl-smart thead th { position: sticky; top: 0; z-index: 2; padding: 0; }
+.rl-smart .num { text-align: right; }
+.rl-smart th.is-filtered { color: var(--accent); }
+.sm-th { display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 12px; }
+.num .sm-th { justify-content: flex-end; }
+.sm-sort { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font: inherit; text-transform: inherit;
+  letter-spacing: inherit; color: inherit; padding: 4px 2px; border-radius: 6px; }
+.sm-sort:hover { color: var(--text); }
+.sm-sort:focus-visible, .sm-funnel:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sm-arrow { font-size: 9px; opacity: .45; }
+th[aria-sort="ascending"] .sm-arrow, th[aria-sort="descending"] .sm-arrow { opacity: 1; color: var(--accent); }
+.sm-funnel { all: unset; cursor: pointer; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--muted); opacity: .6; }
+.sm-funnel:hover, .sm-funnel.is-on { opacity: 1; background: var(--surface-3); }
+.sm-funnel.is-on { color: var(--accent); }
+.sm-pop-host { position: relative; display: inline-flex; }
+.sm-pop { position: fixed; z-index: 60; min-width: 220px; max-width: 300px; padding: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,.18));
+  text-transform: none; letter-spacing: normal; font-weight: 400; font-size: 13px; color: var(--text); display: flex; flex-direction: column; gap: 8px; }
+.sm-pop-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }
+.sm-check { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.sm-check:hover { background: var(--surface-2); }
+.sm-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-n { font-size: 11.5px; color: var(--muted); background: var(--surface-3); border-radius: 999px; padding: 0 7px; }
+.sm-text { width: 100%; box-sizing: border-box; }
+.sm-link { all: unset; cursor: pointer; font-size: 12.5px; color: var(--accent); align-self: flex-start; }
+.sm-empty { padding: 16px; margin: 0; }
+.rl-kpis { max-width: 260px; font-size: 12.5px; }

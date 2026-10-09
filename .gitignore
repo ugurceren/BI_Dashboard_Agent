@@ -22,3 +22,6 @@ frontend/e2e/report/
 frontend/e2e/.tmp/
 frontend/test-results/
 frontend/e2e/.run*.log
+
+# start.bat yerel işareti (son derlenen sürüm)
+frontend/dist-viewer/.rev

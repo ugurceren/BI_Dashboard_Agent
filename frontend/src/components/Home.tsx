@@ -4,6 +4,7 @@ import type { SessionSummary } from "../types";
 import { STATUSES, statusInfo, type ReportStatus } from "../lib/status";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusPicker } from "./StatusPicker";
+import { ReportTable, type ColId } from "./ReportTable";
 import "./home.css";
 
 function relTime(iso?: string): string {
@@ -15,6 +16,8 @@ function relTime(iso?: string): string {
   if (s < 86400) return `${Math.floor(s / 3600)} sa önce`;
   return new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" });
 }
+
+const PHASE_LABEL: Record<string, string> = { requirements: "İhtiyaç", data: "Veri", design: "Tasarım" };
 
 const VISUAL_LABEL: Record<string, string> = {
   kpi: "KPI", line: "Çizgi", area: "Alan", bar: "Çubuk", pie: "Pasta", donut: "Halka", table: "Tablo", scatter: "Dağılım",
@@ -89,10 +92,12 @@ export function Home({ reports, loading, onNew, ...actions }: Actions & {
             <input type="search" placeholder="Rapor ara… (ad, amaç, domain, KPI)" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Rapor ara" />
             {q ? <button type="button" className="home-search-x" onClick={() => setQ("")} aria-label="Aramayı temizle">×</button> : null}
           </label>
-          <select className="home-sort" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sırala">
-            <option value="updated">Son güncellenen</option>
-            <option value="title">Ada göre</option>
-          </select>
+          {view === "cards" ? (   // liste görünümünde sıralama tablo başlıklarından
+            <select className="home-sort" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sırala">
+              <option value="updated">Son güncellenen</option>
+              <option value="title">Ada göre</option>
+            </select>
+          ) : null}
           <div className="view-seg" role="group" aria-label="Görünüm">
             <button type="button" className={view === "cards" ? "is-on" : undefined} onClick={() => setView("cards")} title="Kart görünümü" aria-pressed={view === "cards"}><Ico d={PATHS.cards} /></button>
             <button type="button" className={view === "list" ? "is-on" : undefined} onClick={() => setView("list")} title="Liste görünümü" aria-pressed={view === "list"}><Ico d={PATHS.list} /></button>
@@ -117,16 +122,7 @@ export function Home({ reports, loading, onNew, ...actions }: Actions & {
           {list.map((r) => <ReportCard key={r.id} r={r} {...actions} />)}
         </div>
       ) : list.length ? (
-        <div className="rl-wrap">
-          <table className="rl">
-            <thead>
-              <tr>
-                <th>Statü</th><th>Rapor</th><th>Domain</th><th>Hedef kitle</th><th>İçerik</th><th>Güncellendi</th><th aria-label="İşlemler" />
-              </tr>
-            </thead>
-            <tbody>{list.map((r) => <ReportRow key={r.id} r={r} {...actions} />)}</tbody>
-          </table>
-        </div>
+        <ReportTable reports={list} renderRow={(r, cols) => <ReportRow r={r} cols={cols} {...actions} />} />
       ) : null}
       {reports.length && !list.length ? <p className="muted">Aramaya uyan rapor yok.</p> : null}
     </div>
@@ -223,26 +219,35 @@ function ReportCard({ r, ...a }: Actions & { r: SessionSummary }) {
   );
 }
 
-function ReportRow({ r, ...a }: Actions & { r: SessionSummary }) {
+function ReportRow({ r, cols, ...a }: Actions & { r: SessionSummary; cols: ColId[] }) {
   const it = useReportItem(r, a);
+  const cell = (c: ColId): ReactNode => {
+    switch (c) {
+      case "status": return it.statusSelect("left");
+      case "title": return it.renameForm ?? (
+        <>
+          <div className="rl-name" title={r.title}>{r.title || "Başlıksız"}</div>
+          <div className="rl-desc muted">{r.business_goal || r.subtitle || "Henüz ihtiyaç tanımlanmadı."}</div>
+        </>
+      );
+      case "phase": return PHASE_LABEL[r.phase] ?? r.phase;
+      case "domains": return <Domains r={r} />;
+      case "audience": return r.audience || <span className="muted">—</span>;
+      case "owner": return r.owner_name || r.owner || <span className="muted">—</span>;
+      case "vitrin": return r.published?.status === "active"
+        ? <span className="pill pill-ok" title="Vitrin'de yayında olan sürüm">v{r.published.version}</span> : <span className="muted">—</span>;
+      case "visuals": return <span title={r.visual_types?.map((t) => VISUAL_LABEL[t] ?? t).join(", ")}>{r.visual_count ?? 0}</span>;
+      case "datasets": return r.dataset_count ?? 0;
+      case "kpis": return (r.kpi_titles?.length ? r.kpi_titles : r.kpis ?? []).join(", ") || <span className="muted">—</span>;
+      case "created": return <span className="muted">{relTime(r.createdAt)}</span>;
+      case "updated": return <span className="muted">{relTime(r.updatedAt)}</span>;
+    }
+  };
+  const CLS: Partial<Record<ColId, string>> = { status: "rl-status", title: "rl-title", audience: "rl-aud", kpis: "rl-kpis",
+    visuals: "num", datasets: "num", created: "rl-time", updated: "rl-time" };
   return (
     <tr className="rl-row" onClick={() => !it.editing && a.onOpen(r.id)} style={{ ["--st" as string]: statusInfo(r.status).color }}>
-      <td className="rl-status">{it.statusSelect("left")}</td>
-      <td className="rl-title">
-        {it.renameForm ?? (
-          <>
-            <div className="rl-name" title={r.title}>{r.title || "Başlıksız"}</div>
-            <div className="rl-desc muted">{r.business_goal || r.subtitle || "Henüz ihtiyaç tanımlanmadı."}</div>
-          </>
-        )}
-      </td>
-      <td><Domains r={r} /></td>
-      <td className="rl-aud">{r.audience || <span className="muted">—</span>}</td>
-      <td className="rl-content muted">
-        {[r.visual_count ? `${r.visual_count} görsel` : "", r.dataset_count ? `${r.dataset_count} veri kümesi` : "", r.views?.length ? `${r.views.length} view` : ""]
-          .filter(Boolean).join(" · ") || "—"}
-      </td>
-      <td className="rl-time muted">{relTime(r.updatedAt)}</td>
+      {cols.map((c) => <td key={c} className={CLS[c]}>{cell(c)}</td>)}
       <td className="rl-actions" onClick={(e) => e.stopPropagation()}>
         <div>{it.buttons(true)}</div>
         {it.dialog}

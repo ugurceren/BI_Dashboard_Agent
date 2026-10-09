@@ -32,6 +32,23 @@ test("giriş sayfası: kutular, seçimin hatırlanması, logodan dönüş", asyn
     await expect(page.locator(".home.vitrin")).toBeVisible();
   });
 
+  await test.step("Kontrol Paneli: Yönetim ve Bağlantı Ayarları; seçim hatırlanmaz", async () => {
+    await page.goto("/#/giris");
+    const control = landing.getByRole("group", { name: "Kontrol Paneli" });
+    await expect(control).toBeVisible();
+    await expect(control.getByText(/Dil modeli:/)).toBeVisible();
+    await control.getByRole("button", { name: /Bağlantı Ayarları/ }).click();
+    await expect(page).toHaveURL(/#\/settings/);
+    await page.goto("/#/giris");
+    await control.getByRole("button", { name: /^Yönetim/ }).click();
+    await expect(page).toHaveURL(/#\/admin/);
+    await page.goto("/#/giris");
+    await control.locator(".ld-stage").click();                                  // kutunun kendisi: Yönetim
+    await expect(page).toHaveURL(/#\/admin/);
+    await page.goto("/");
+    await expect(page.locator(".home.vitrin")).toBeVisible();                     // son seçim hâlâ Vitrin
+  });
+
   await test.step("klavye: kutular Tab ile seçilip Enter ile açılır", async () => {
     await page.goto("/#/giris");
     await vitrin.focus();
@@ -42,12 +59,14 @@ test("giriş sayfası: kutular, seçimin hatırlanması, logodan dönüş", asyn
   });
 });
 
-test("giriş sayfası dar ekranda: kutular alt alta, yatay kaydırma yok", async ({ page }) => {
+test("giriş sayfası dar ekranda: üç kutu alt alta, yatay kaydırma yok", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/#/giris");
   const cards = page.getByTestId("landing").locator(".ld-card");
-  await expect(cards).toHaveCount(2);
+  await expect(cards).toHaveCount(3);
   const [a, b] = [await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
   expect(b!.y).toBeGreaterThan(a!.y + a!.height - 1);
+  const c = await cards.nth(2).boundingBox();
+  expect(c!.y).toBeGreaterThan(b!.y + b!.height - 1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
 });

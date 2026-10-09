@@ -39,7 +39,7 @@ test("@llm gerçek LLM: grafik türleri, tablolar, sayfalar ve KPI stili", async
   };
 
   await test.step("demo dashboard", async () => {
-    const [res] = await Promise.all([page.waitForResponse((r) => r.url().endsWith("/demo")),
+    const [res] = await Promise.all([page.waitForResponse((r) => r.url().endsWith("/demo"), { timeout: 300_000 }),
       page.getByRole("button", { name: "Demo dashboard yükle" }).click()]);
     expect(res.status()).toBe(200);
     await expect(visual(page, "kpi_sales")).toBeVisible({ timeout: 180_000 });

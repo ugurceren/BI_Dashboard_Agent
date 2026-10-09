@@ -58,6 +58,9 @@ test("admin → tasarımcı → izleyici: yayın, paylaşım ve yetki", async ({
     const design = landing.getByRole("button", { name: /^Tasarım/ });
     await expect(design).toHaveAttribute("aria-disabled", "true");                        // tasarım yetkisi yok: kilitli
     await expect(design).toContainText("Tasarım yetkiniz yok");
+    const control = landing.getByRole("group", { name: "Kontrol Paneli" });
+    await expect(control).toContainText("yalnız yöneticilere açık");           // izleyici: kilitli, hedef butonu yok
+    await expect(control.getByRole("button")).toHaveCount(0);
     await design.click({ force: true });                                                  // aria-disabled: Playwright normalde beklerdi
     await expect(landing).toBeVisible();                                                   // kilitli kutu bir yere götürmez
     await expect(landing.getByRole("button", { name: /^Vitrin/ })).toContainText("1 rapor yayında");

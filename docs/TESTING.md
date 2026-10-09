@@ -31,7 +31,8 @@ npx playwright install chromium
 ### Ne test ediliyor
 | Dosya | Akış |
 |---|---|
-| `e2e/landing.spec.ts` | Giriş sayfası: seçim yokken açılış, Vitrin / Tasarım kutuları, seçimin hatırlanması, logodan dönüş, klavye ile seçim, dar ekranda kutular alt alta (sunucu modunda izleyici için Tasarım kutusu kilitli: `vitrin.spec.ts`) |
+| `e2e/landing.spec.ts` | Giriş sayfası: seçim yokken açılış, Vitrin / Tasarım / Kontrol Paneli kutuları (Yönetim ve Bağlantı Ayarları, seçim hatırlanmaz), seçimin hatırlanması, logodan dönüş, klavye ile seçim, dar ekranda kutular alt alta (sunucu modunda izleyici için Tasarım kutusu kilitli: `vitrin.spec.ts`) |
+| `e2e/inventory.spec.ts` | Rapor envanteri akıllı tablo: başlıktan sıralama (ad, görsel sayısı, statü sırası), kolon filtreleri (statü değer listesi, ad içinde arama), sayaç, filtreleri temizle, kolon göster-gizle ve sıralamanın sayfa yenilenince korunması, CSV (Excel için ; ayraç) |
 | `e2e/query.spec.ts` | Sorgu Çalıştır: nesne ağacı ve arama, SELECT ve sonuç tablosu, Ctrl+Enter, yazma sorgusu reddi, kişisel veri kontrolü, "ilk 100 satır" |
 | `e2e/dashboard.spec.ts` | Sohbetle dashboard: İhtiyaç → Veri (tablo ve ilişki önerisi, **onay olmadan kayıt yok**) → rapora özel ilişki → SQL / dataset → Tasarım → 4 görsel gerçek veriyle → Bölge Grubu filtresi KPI'yı değiştirir → HTML dışa aktarma → Canlı görünüm → "KPI'yı yeşil yap" |
 | `e2e/demo.spec.ts` | LLM'siz: demo dashboard, görselden çapraz filtre, temizle |
