@@ -225,3 +225,47 @@ th[aria-sort="ascending"] .sm-arrow, th[aria-sort="descending"] .sm-arrow { opac
 .sm-link { all: unset; cursor: pointer; font-size: 12.5px; color: var(--accent); align-self: flex-start; }
 .sm-empty { padding: 16px; margin: 0; }
 .rl-kpis { max-width: 260px; font-size: 12.5px; }
+
+/* rapor açıkken sade üst çubuk: ← Envanter · ad · statü … Düzenle|Görüntüle · ⋯ · Yayınla · bağlantı */
+.topbar-report { gap: 10px; }
+.rb-back {
+  display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 10px 0 6px; border-radius: 8px; flex: none;
+  border: 0; background: none; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 560; cursor: pointer;
+}
+.rb-back:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.rb-sep { width: 1px; height: 20px; background: var(--border); flex: none; }
+.rb-title {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 32px; padding: 0 8px; margin-left: -2px; border-radius: 8px;
+  border: 0; background: none; color: var(--text); font: inherit; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; cursor: pointer;
+}
+.rb-title svg { flex: none; color: var(--muted); opacity: 0; transition: opacity .12s; }
+.rb-title:hover:not(:disabled) { background: var(--surface-2); }
+.rb-title:hover svg, .rb-title:focus-visible svg { opacity: 1; }
+.rb-title.is-static { cursor: default; }
+.rb-title-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
+.rb-more { position: relative; flex: none; }
+.rb-icon-btn {
+  width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
+}
+.rb-icon-btn:hover, .rb-icon-btn[aria-expanded="true"] { border-color: var(--border-strong); color: var(--text); }
+.menu.rb-menu { left: auto; right: 0; width: 300px; }
+.rb-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 9px; border: 0; border-radius: 8px; background: none;
+  color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.rb-menu-item:hover:not(:disabled) { background: var(--surface-3); }
+.rb-menu-item.is-danger { color: var(--bad); }
+.menu.rb-menu .menu-head { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 10px; }
+.rb-health { display: inline-flex; flex: none; }
+.rb-health .sb-health.is-compact { width: 32px; height: 32px; padding: 0; margin: 0; cursor: pointer; border-radius: 8px; }
+.rb-health .sb-health.is-compact:hover { background: var(--surface-2); }
+@media (max-width: 1150px) { .rb-back-label { display: none; } .rb-back { padding: 0 6px; } .rb-title-text { max-width: 30vw; } }
+@media (max-width: 700px) {
+  .topbar-report { gap: 6px; padding: 0 8px; }
+  .topbar-report .sp-label, .rb-sep { display: none; }
+  .topbar-report .sp-btn { padding: 0 8px; gap: 5px; }
+  .rb-title { font-size: 14px; padding: 0 4px; }
+  .rb-title-text { max-width: none; }
+  .topbar-report .mode-seg button { padding: 0 8px; }
+}

@@ -65,10 +65,10 @@ test("sohbetle dashboard oluşturulur, filtrelenir, dışa aktarılır ve günce
   });
 
   await test.step("Canlı görünüm tam sayfa dashboard'u gösterir", async () => {
-    await page.getByRole("group", { name: "Rapor görünümü" }).getByRole("button", { name: "Canlı" }).click();
+    await page.getByRole("group", { name: "Rapor görünümü" }).getByRole("button", { name: "Görüntüle" }).click();
     await expect(page).toHaveURL(new RegExp(`#/v/${id}`));
     await expect(visual(page, "k_sales")).toBeVisible();
-    await page.getByRole("group", { name: "Rapor görünümü" }).getByRole("button", { name: "Tasarım" }).click();
+    await page.getByRole("group", { name: "Rapor görünümü" }).getByRole("button", { name: "Düzenle" }).click();
     await expect(page).toHaveURL(new RegExp(`#/r/${id}`));
   });
 

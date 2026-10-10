@@ -46,13 +46,13 @@ export function QueryPage({ api, theme, onOpenReport }: { api: Api; theme: strin
     return () => { alive = false; };
   }, [api]);
 
-  // ilk açılış: kayıtlı SQL yoksa ilk tablodan örnek sorgu
-  const starter = useMemo(() => {
-    if (initialSql || !schema) return initialSql;
+  // ilk açılış: kayıtlı SQL yoksa ve kullanıcı henüz yazmadıysa ilk tablodan örnek sorgu (yazılmış metin ezilmez)
+  useEffect(() => {
+    if (initialSql || !schema || editor.current?.text()) return;
     const first = schema.objects.find((o) => o.kind === "fact") ?? schema.objects[0];
-    if (!first) return "";
+    if (!first) return;
     const cols = first.columns.filter((c) => !c.blocked).slice(0, 5).map((c) => c.name).join(", ");
-    return `-- Ctrl+Enter / F5: çalıştır (seçili metin varsa yalnızca o). En çok ${schema.max_rows} satır döner.\nSELECT TOP 100 ${cols || "*"}\nFROM ${first.name};\n`;
+    editor.current?.replaceAll(`-- Ctrl+Enter / F5: çalıştır (seçili metin varsa yalnızca o). En çok ${schema.max_rows} satır döner.\nSELECT TOP 100 ${cols || "*"}\nFROM ${first.name};\n`);
   }, [schema, initialSql]);
 
   const run = useCallback(async () => {
@@ -247,7 +247,7 @@ export function QueryPage({ api, theme, onOpenReport }: { api: Api; theme: strin
             <Ico size={12} d="M5 7V5a3 3 0 0 1 6 0v2M3.5 7h9v6.5h-9z" /> Salt-okunur · en çok {schema?.max_rows ?? 1000} satır
           </span>
         </div>
-        <SqlEditor ref={editor} schema={schema} value={starter} className="qp-editor" testId="sql-editor"
+        <SqlEditor ref={editor} schema={schema} value={initialSql} className="qp-editor" testId="sql-editor"
           onRun={() => void run()} onChange={(t) => lsWrite(LS_SQL, t)} />
 
         <div className="qp-results">

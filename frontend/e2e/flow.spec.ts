@@ -37,16 +37,27 @@ test("ihtiyaç, veri ve tasarım fazlarında hatalar yakalanır, kullanıcı ona
   });
 
   await test.step("İhtiyaç: kullanıcı raporu adlandırır (agent bu adı değiştirmemeli)", async () => {
-    await page.getByRole("button", { name: "Adlandır" }).click();
+    await expect(page.getByRole("group", { name: "Uygulama modu" })).toHaveCount(0);   // rapor açıkken sade üst çubuk
+    await page.getByRole("button", { name: "Rapor menüsü" }).click();
+    await expect(page.getByRole("group", { name: "Başka rapor aç" })).toBeVisible();
+    await page.getByRole("menuitem", { name: "Yeniden adlandır" }).click();
     await page.getByLabel("Rapor adı").fill(NAME);
     await page.getByRole("button", { name: "Kaydet" }).click();
-    await expect(page.locator(".session-title")).toHaveText(NAME);
+    await expect(page.locator(".rb-title-text")).toHaveText(NAME);
+    // gündüz / gece modu sol menüde
+    const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+    const flip = (t?: string) => (t === "dark" ? "light" : "dark");
+    const menu = page.getByRole("navigation", { name: "Ana menü" });
+    await menu.getByRole("button", { name: theme === "dark" ? "Gündüz modu" : "Gece modu" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", flip(theme));
+    await menu.getByRole("button", { name: theme === "dark" ? "Gece modu" : "Gündüz modu" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme ?? "light");
   });
 
   await test.step("İhtiyaç: KPI'lar verilince kayıt olur, kullanıcının verdiği ad korunur, Veri fazında agent önce tablo önerir", async () => {
     await chat(page, "Satış tutarı ve sipariş sayısı.");
     await expectTool(page, "save_requirements");
-    await expect(page.locator(".session-title")).toHaveText(NAME);
+    await expect(page.locator(".rb-title-text")).toHaveText(NAME);
     await expect(current("Veri")).toBeVisible();
     await expectTool(page, "search_dictionary");
     await expectTool(page, "propose_model");
@@ -189,6 +200,6 @@ test("ihtiyaç, veri ve tasarım fazlarında hatalar yakalanır, kullanıcı ona
     await expect(page.locator(".msg-user", { hasText: "[detay]" })).toBeVisible();
     await expect(tool("save_requirements")).toHaveCount(2);
     for (const v of ["d_sales", "d_type"]) await expect(visual(page, v)).toBeVisible({ timeout: 120_000 });
-    await expect(page.locator(".session-title")).toHaveText(NAME);
+    await expect(page.locator(".rb-title-text")).toHaveText(NAME);
   });
 });

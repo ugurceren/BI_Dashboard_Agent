@@ -145,7 +145,7 @@ test.describe("Dashboard tasarımı", () => {
     await expectNoOverlap(page);
 
     // Canlı görünümde de sekmeler var
-    await page.getByRole("group", { name: "Rapor görünümü" }).getByRole("button", { name: "Canlı" }).click();
+    await page.getByRole("group", { name: "Rapor görünümü" }).getByRole("button", { name: "Görüntüle" }).click();
     await expect(page.getByRole("tablist", { name: "Rapor sayfaları" }).getByRole("tab")).toHaveCount(2);
 
     // HTML dışa aktarma iki sayfayı da içerir

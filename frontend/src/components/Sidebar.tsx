@@ -1,6 +1,7 @@
 // Sol menü: uygulama bölümleri + en altta bağlı kullanıcı (Windows oturumu / LDAP).
 import type { ReactNode } from "react";
 import type { Me, VitrinCard } from "../types";
+import type { ThemePref } from "./TopBar";
 import { counts, SCOPE_LABEL, type VitrinFilter, type VitrinScope } from "../lib/vitrin";
 import "./sidebar.css";
 
@@ -45,7 +46,7 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? "?") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toLocaleUpperCase("tr");
 }
 
-export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, currentReport, busy, vitrin }: {
+export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, currentReport, busy, vitrin, theme, onTheme }: {
   page: Page;
   /** vitrin: yayınlanmış rapor kataloğu menüsü · design: tasarım çalışma alanı menüsü */
   mode: "vitrin" | "design";
@@ -56,6 +57,9 @@ export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, curre
   currentReport: { id: string; title: string } | null;
   busy: boolean;
   vitrin?: { items: VitrinCard[] | null; filter: VitrinFilter; onFilter: (f: VitrinFilter) => void };
+  /** gündüz / gece modu: kullanıcı satırının yanında (daraltılmışken tek düğme) */
+  theme: ThemePref;
+  onTheme: (t: ThemePref) => void;
 }) {
   // yetkiler /api/me'den; yüklenene kadar bugünkü (masaüstü) menü — backend her uç noktada ayrıca kontrol eder
   const caps = me?.capabilities ?? { design: true, admin: true, vitrin: true };
@@ -66,6 +70,28 @@ export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, curre
       <span className="sb-label">{label}</span>
       {count !== undefined ? <span className="sb-count sb-label">{count}</span> : null}
     </button>
+  );
+  const SUN = <path d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6ZM8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />;
+  const MOON = <path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6Z" />;
+  const themeIcon = (d: ReactNode) => (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>
+  );
+  const themeCtl = collapsed ? (
+    <button type="button" className="sb-theme-one" onClick={() => onTheme(theme === "dark" ? "light" : "dark")}
+      title={theme === "dark" ? "Gündüz moduna geç" : "Gece moduna geç"} aria-label={theme === "dark" ? "Gündüz modu" : "Gece modu"}>
+      {themeIcon(theme === "dark" ? SUN : MOON)}
+    </button>
+  ) : (
+    <div className="sb-theme-row">
+      <span className="sb-theme-label">Görünüm</span>
+      <div className="theme-seg" role="group" aria-label="Görünüm">
+        {([["light", "Gündüz modu", SUN], ["dark", "Gece modu", MOON]] as [ThemePref, string, ReactNode][]).map(([k, l, d]) => (
+          <button key={k} type="button" className={theme === k ? "is-on" : undefined} onClick={() => onTheme(k)} title={l} aria-label={l} aria-pressed={theme === k}>
+            {themeIcon(d)}
+          </button>
+        ))}
+      </div>
+    </div>
   );
   const user = (
     <div className="sb-user" title={me ? [me.display_name, me.username, me.title, me.department,
@@ -111,6 +137,7 @@ export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, curre
         {domains.map(([d, n]) => item("domain", d, page === "vitrin" && f.domain === d, () => go({ scope: "all", domain: d }), false, n))}
         <div className="sb-spacer" />
         {item("help", "Yardım", false, () => { window.location.hash = "#/kilavuz"; })}
+        {themeCtl}
         {user}
       </nav>
     );
@@ -138,6 +165,7 @@ export function Sidebar({ page, mode, collapsed, onToggle, onNavigate, me, curre
 
       <div className="sb-spacer" />
       {item("help", "Yardım", false, () => { window.location.hash = "#/kilavuz"; })}
+      {themeCtl}
       {user}
     </nav>
   );

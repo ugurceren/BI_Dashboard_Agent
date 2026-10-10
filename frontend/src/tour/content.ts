@@ -213,6 +213,12 @@ export const GUIDE: GuideSection[] = [
         "Şube bazında mevduat bakiyelerini son gün itibarıyla, müşteri segmentine göre görmek istiyorum.",
       ] },
       { kind: "tip", text: "Faz adımlarına (İhtiyaç / Veri / Tasarım) tıklayarak geri dönebilir, kayıtlı içerikle ileri geçebilirsiniz." },
+      { kind: "list", items: [
+        "**Üst çubuk:** solda **← Envanter**, rapor adı ve statü; sağda **Düzenle | Görüntüle**, **⋯** menüsü ve **Yayınla**.",
+        "Rapor adını değiştirmek için ada tıklayın. **⋯** menüsünden başka bir rapor açabilir ya da raporu silebilirsiniz.",
+        "**Görüntüle** raporu son kullanıcının göreceği gibi tam sayfa açar; **Düzenle** sohbete döner.",
+        "Gündüz / gece modu sol menünün altındadır; sağ üstteki nokta bağlantı durumunu gösterir (üzerine gelince ayrıntı).",
+      ] },
       { kind: "tip", text: "Hazır bir SQL sorgunuz varsa veriyi konuşarak bulmanız gerekmez: sol paneldeki **Sorgu** moduna geçin (bkz. **Hazır sorguyla rapor**)." },
       { kind: "shot", src: "04-veri", caption: "Veri sekmesi: veri kümeleri, alanları, SQL'i ve önizlemesi." },
       { kind: "warn", text: "Günlük anlık görüntü tablolarında (DataDate) gün seçilmeden toplama yapılmaz; agent 'son gün' kuralını kendisi uygular." },
@@ -343,7 +349,7 @@ export const GUIDE: GuideSection[] = [
     blocks: [
       { kind: "shot", src: "13-envanter", caption: "Liste görünümü: akıllı tablo." },
       { kind: "list", items: [
-        "Üstteki çipler statüye göre süzer: **Fikir → Tasarım → Test → Canlıda**. \"Canlıda\" yalnız Yayınla ile verilir.",
+        "Üstteki çipler statüye göre süzer: **Fikir → Tasarımda → Test → Canlıda**. \"Canlıda\" yalnız Yayınla ile verilir.",
         "Kart / liste görünümü arasında geçiş yapın.",
         "Listede başlığa tıklayarak sıralayın; huni simgesiyle kolon filtresi açın (statü, domain, hedef kitle, Vitrin …).",
         "**Kolonlar** menüsünden ek kolonları (Faz, Sahip, KPI'lar, Oluşturuldu) açın; tercihleriniz hatırlanır.",

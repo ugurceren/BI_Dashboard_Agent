@@ -463,13 +463,18 @@ export default function App() {
   };
 
   // ---- sohbet / sorgu modu ----
+  // hızlı geçişlerde cevaplar sırasız gelebilir: yalnız son isteğin cevabı uygulanır (eskisi paneli geri çevirip sıfırlıyordu)
+  const modeSeq = useRef(0);
   const setDataMode = async (mode: "chat" | "query") => {
     if (!state || state.data_mode === mode) return;
+    const n = ++modeSeq.current;
+    const id = state.id;
     setState({ ...state, data_mode: mode });
     try {
-      setState(await api.saveQueryDrafts(state.id, { mode }));
+      const s = await api.saveQueryDrafts(id, { mode });
+      if (n === modeSeq.current) setState((cur) => (cur && cur.id === id ? { ...s, data_mode: mode } : cur));
     } catch (e) {
-      showToast(`Mod değiştirilemedi: ${errMsg(e)}`);
+      if (n === modeSeq.current) showToast(`Mod değiştirilemedi: ${errMsg(e)}`);
     }
   };
   const toggleChatFull = () => { const v = !chatFullPref; setChatFullPref(v); lsSet(LS_CHAT_FULL, v ? "1" : "0"); };
@@ -548,6 +553,8 @@ export default function App() {
       me={me}
       currentReport={state && sessionId ? { id: sessionId, title: state.title } : null}
       busy={streaming}
+      theme={theme}
+      onTheme={setTheme}
     />
     <div className="app">
       <TopBar
@@ -559,8 +566,6 @@ export default function App() {
         onRename={(t) => (sessionId ? renameReport(sessionId, t) : Promise.resolve(false))}
         status={state?.status ?? (state?.spec ? "design" : "idea")}
         onStatus={(st) => sessionId && void setReportStatus(sessionId, st)}
-        theme={theme}
-        onTheme={setTheme}
         mock={MOCK}
         sessions={sessions}
         currentId={sessionId}

@@ -118,3 +118,12 @@
 .sb-item.is-on .sb-count { background: var(--surface); color: var(--accent); }
 .sb-brand-sub { color: var(--accent); font-weight: 600; }
 .sidebar-vitrin .sb-brand { margin-bottom: 8px; }
+
+/* gündüz / gece modu (kullanıcı satırının üstünde) */
+.sb-theme-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 0; margin-top: 4px; }
+.sb-theme-label { font-size: 12px; color: var(--muted); }
+.sb-theme-one {
+  width: 32px; height: 32px; margin: 6px auto 0; display: grid; place-items: center; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--muted);
+}
+.sb-theme-one:hover { color: var(--text); border-color: var(--border-strong); }

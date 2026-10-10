@@ -62,8 +62,10 @@ export const SqlEditor = forwardRef<SqlEditorHandle, {
   changeRef.current = onChange;
   const runRef = useRef(onRun);
   runRef.current = onRun;
-  const valueRef = useRef(value);
-  valueRef.current = value;
+  // güncel belge: şema gelince editör yeniden kurulurken yazılmış metin korunur (ilk değer yalnız ilk kurulumda)
+  const docRef = useRef(value);
+  // editörün kendi bildirdiği son metin: dışarıdan gelen value bununla aynıysa belgeye yeniden yazılmaz
+  const emitted = useRef(value);
 
   // şema gelince (IntelliSense için) kurulur; şema yoksa da düz SQL editörü olarak çalışır
   useEffect(() => {
@@ -73,7 +75,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, {
     const ev = new EditorView({
       parent: host.current,
       state: EditorState.create({
-        doc: valueRef.current,
+        doc: docRef.current,
         extensions: [
           Prec.highest(keymap.of([
             { key: "Mod-Enter", run: () => { runRef.current?.(); return true; } },
@@ -86,7 +88,13 @@ export const SqlEditor = forwardRef<SqlEditorHandle, {
           editorTheme,
           EditorView.lineWrapping,
           placeholder(placeholderText),
-          EditorView.updateListener.of((u) => { if (u.docChanged) changeRef.current?.(u.state.doc.toString()); }),
+          EditorView.updateListener.of((u) => {
+            if (!u.docChanged) return;
+            const text = u.state.doc.toString();
+            docRef.current = text;
+            emitted.current = text;
+            changeRef.current?.(text);
+          }),
         ],
       }),
     });
@@ -94,8 +102,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, {
     return () => { ev.destroy(); view.current = null; };
   }, [schema, placeholderText]);
 
-  // dışarıdan farklı bir değer gelirse (ör. başka sorgu sekmesi) belge değiştirilir
+  // dışarıdan gerçekten yeni bir değer gelirse (editörün kendi değişikliği değilse) belge değiştirilir
   useEffect(() => {
+    if (value === emitted.current) return;
+    emitted.current = value;
+    docRef.current = value;
     const v = view.current;
     if (v && v.state.doc.toString() !== value) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } });
   }, [value]);
@@ -103,11 +114,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, {
   useImperativeHandle(ref, () => ({
     runText: () => {
       const v = view.current;
-      if (!v) return valueRef.current.trim();
+      if (!v) return docRef.current.trim();
       const sel = v.state.selection.main;
       return (sel.empty ? v.state.doc.toString() : v.state.sliceDoc(sel.from, sel.to)).trim();
     },
-    text: () => view.current?.state.doc.toString() ?? valueRef.current,
+    text: () => view.current?.state.doc.toString() ?? docRef.current,
     insert: (text) => {
       const v = view.current;
       if (!v) return;
