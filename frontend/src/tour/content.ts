@@ -57,6 +57,7 @@ export const SLIDES: Slide[] = [
       "**İhtiyaç:** kullanıcı ne görmek istediğini anlatır; agent KPI, kırılım ve dönemi netleştirir.",
       "**Veri:** agent veri sözlüğünden tabloları bulur, ilişkileri önerir; **kullanıcı onaylamadan** SQL yazılmaz.",
       "**Tasarım:** dashboard oluşur; değişiklikler sohbetle yapılır, her adım kayıtlı ve geri dönülebilir.",
+      "**Hazır sorgu:** elinde SQL olan kullanıcı **sorgu moduna** geçip sorgu sonucunu doğrudan dashboard'a çevirir.",
     ],
     notes: "Ekranda veri fazı: agent tabloları ve yeni ilişki önerisini sunup onay soruyor. Onay olmadan kayıt yok — bu, kontrolün kullanıcıda kaldığını gösterir.",
   },
@@ -212,8 +213,27 @@ export const GUIDE: GuideSection[] = [
         "Şube bazında mevduat bakiyelerini son gün itibarıyla, müşteri segmentine göre görmek istiyorum.",
       ] },
       { kind: "tip", text: "Faz adımlarına (İhtiyaç / Veri / Tasarım) tıklayarak geri dönebilir, kayıtlı içerikle ileri geçebilirsiniz." },
+      { kind: "tip", text: "Hazır bir SQL sorgunuz varsa veriyi konuşarak bulmanız gerekmez: sol paneldeki **Sorgu** moduna geçin (bkz. **Hazır sorguyla rapor**)." },
       { kind: "shot", src: "04-veri", caption: "Veri sekmesi: veri kümeleri, alanları, SQL'i ve önizlemesi." },
       { kind: "warn", text: "Günlük anlık görüntü tablolarında (DataDate) gün seçilmeden toplama yapılmaz; agent 'son gün' kuralını kendisi uygular." },
+    ],
+  },
+  {
+    id: "sorgu-modu", title: "Hazır sorguyla rapor (sorgu modu)", roles: ["tasarimci"], summary: "Elinizdeki SQL sorgusunun sonucuyla doğrudan dashboard hazırlayın.",
+    blocks: [
+      { kind: "p", text: "Veriyi agent ile konuşarak belirlemek yerine **hazır bir sorgunuz** varsa sorgu modunu kullanın: sorgu sonucu raporun veri kümesi olur, tasarımı yine sohbetle yaparsınız." },
+      { kind: "steps", items: [
+        "Raporu açın; İhtiyaç ya da Veri fazında sol panelin üstündeki **Sohbet | Sorgu** seçiminden **Sorgu**'ya geçin.",
+        "Sorgunuzu yapıştırın, bir **ad** (ör. `sube_teminat`) ve isterseniz açıklama verin. KPI, trend ve detay için **+ Sorgu** ile ayrı sorgular ekleyebilirsiniz.",
+        "**Önizle** (Ctrl+Enter) ile sonucu görün: önizlemede çalışan sorgu dashboard'da da aynı kurallarla çalışır.",
+        "**Dashboard'a geç** deyin: sorgular veri kümesi olarak kaydedilir, Tasarım fazına geçilir; agent veriyi özetleyip nasıl bir tasarım istediğinizi sorar.",
+      ] },
+      { kind: "list", items: [
+        "**Sorgu Çalıştır ekranından:** sorguyu yazıp **Dashboard hazırla** deyin; **yeni rapor** açılır ya da **mevcut bir rapora** eklenir. Rapor tasarım fazındaysa sorgu doğrudan veri kümesi olarak eklenir (aynı adlı varsa güncellenir).",
+        "**Tam sayfa:** İhtiyaç / Veri fazında sol paneli **Tam sayfa** düğmesiyle tüm genişliğe açabilir, **Daralt** ile eski düzene dönebilirsiniz.",
+        "Taslak sorgular raporda saklanır; sohbet moduna geçip dönseniz ya da sayfayı yenileseniz de kaybolmaz.",
+      ] },
+      { kind: "warn", text: "Sorgu modu da aynı güvenlik kurallarına tabidir: yalnız SELECT / WITH, yetkili şema ve tablolar; yetkiniz yoksa kişisel veri kolonları reddedilir. Ad küçük harf, rakam ve alt çizgiden oluşur (Türkçe karakterler sadeleştirilir)." },
     ],
   },
   {
@@ -339,6 +359,7 @@ export const GUIDE: GuideSection[] = [
         "Soldaki ağaçta yalnız **yetkili** tablo ve view'lar görünür; tıklayınca SELECT editöre eklenir.",
         "Çalıştırmak için **Ctrl+Enter**. Yazma sorguları ve yetkiniz olmayan kişisel veri kolonları reddedilir.",
         "Çalıştırılan SQL (NOLOCK, satır sınırı eklenmiş hali) sonuçla birlikte gösterilir.",
+        "**Dashboard hazırla:** sorgunun sonucuyla yeni rapor açın ya da mevcut rapora ekleyin (bkz. **Hazır sorguyla rapor**).",
       ] },
       { kind: "shot", src: "05-model", caption: "Veri Modeli: tablolar, ilişkiler ve kaynakları (onaylı / rapora özel / SQL JOIN'den)." },
     ],

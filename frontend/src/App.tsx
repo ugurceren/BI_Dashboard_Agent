@@ -15,6 +15,8 @@ import { Presentation } from "./tour/Presentation";
 import { Guide } from "./tour/Guide";
 import { AccessPage } from "./components/AccessPage";
 import { ModelTab } from "./components/ModelTab";
+import { QueryMode } from "./components/QueryMode";
+import "./components/querymode.css";
 import { Vitrin } from "./components/Vitrin";
 import { ReportView } from "./components/ReportView";
 import { AdminPage } from "./components/AdminPage";
@@ -57,6 +59,7 @@ const LS_THEME = "bi.theme";
 const MOCK = new URLSearchParams(window.location.search).has("mock");
 const LS_SESSION = MOCK ? "bi.mock.session" : "bi.session";
 const LS_WIDTH = "bi.chatWidth";
+const LS_CHAT_FULL = "bi.chatFull";
 
 const lsGet = (k: string) => {
   try { return localStorage.getItem(k); } catch { return null; }
@@ -117,6 +120,8 @@ export default function App() {
   useEffect(() => { if (appMode === "vitrin" || route.view === "landing") void loadVitrin(); }, [appMode, route.view, loadVitrin]);
   const openDesign = (sid: string) => { window.location.hash = `#/r/${sid}`; };
   const [chatWidth, setChatWidth] = useState(() => Math.min(640, Math.max(320, Number(lsGet(LS_WIDTH)) || 400)));
+  // İhtiyaç / Veri fazında sol panel (sohbet / sorgu modu) tam genişliğe açılabilir; tasarımda dashboard sağ panelde olduğu için kapalı
+  const [chatFullPref, setChatFullPref] = useState(() => lsGet(LS_CHAT_FULL) === "1");
   const chatRef = useRef<HTMLElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -457,6 +462,18 @@ export default function App() {
     }
   };
 
+  // ---- sohbet / sorgu modu ----
+  const setDataMode = async (mode: "chat" | "query") => {
+    if (!state || state.data_mode === mode) return;
+    setState({ ...state, data_mode: mode });
+    try {
+      setState(await api.saveQueryDrafts(state.id, { mode }));
+    } catch (e) {
+      showToast(`Mod değiştirilemedi: ${errMsg(e)}`);
+    }
+  };
+  const toggleChatFull = () => { const v = !chatFullPref; setChatFullPref(v); lsSet(LS_CHAT_FULL, v ? "1" : "0"); };
+
   const loadDemo = async () => {
     if (!state) return;
     try {
@@ -487,6 +504,9 @@ export default function App() {
   useEffect(() => { lsSet(LS_WIDTH, String(chatWidth)); }, [chatWidth]);
 
   const busy = streaming || !!state?.busy;
+  const preDesign = !!state && state.phase !== "design";
+  const queryMode = preDesign && state?.data_mode === "query";
+  const chatFull = chatFullPref && preDesign;
   const items = useMemo(() => {
     const base = state?.transcript ?? [];
     const all = [...base, ...localItems];
@@ -572,7 +592,12 @@ export default function App() {
       ) : route.view === "settings" ? (
         <main className="main"><SettingsPage api={api} onSaved={() => { void refreshHealth(); void refreshSessions(); }} /></main>
       ) : route.view === "query" ? (
-        <main className="main"><QueryPage api={api} theme={theme} /></main>
+        <main className="main"><QueryPage api={api} theme={theme} onOpenReport={(id) => {
+          // aynı rapor zaten yüklüyse rota oturumu yeniden çekmez: eski taslaklar görünmesin diye bırakılır, yeniden açılır
+          if (id === sessionId) { setState(null); setSessionId(null); }
+          window.location.hash = `#/r/${id}`;
+          void refreshSessions();
+        }} /></main>
       ) : route.view === "model" ? (
         <main className="main"><div className="page-model"><ModelTab api={api} state={null} /></div></main>
       ) : route.view === "viewer" ? (
@@ -606,20 +631,47 @@ export default function App() {
             exportUrl={(id) => api.exportUrl(id)} />
         </main>
       ) : (
-      <main className="main">
-        <aside className="chat" ref={chatRef} style={{ width: chatWidth }}>
+      <main className={`main${chatFull ? " is-chat-full" : ""}`}>
+        <aside className="chat" ref={chatRef} style={chatFull ? undefined : { width: chatWidth }}>
           <div className="chat-head">
             <PhaseStepper phase={state?.phase ?? "requirements"} disabled={busy || !state} onBack={backToPhase}
               reachable={{ data: !!state?.requirements, design: !!state?.datasets?.length }} />
+            {preDesign ? (
+              <div className="chat-tools">
+                <div className="chat-mode" role="group" aria-label="Çalışma modu">
+                  <button type="button" className={!queryMode ? "is-on" : undefined} aria-pressed={!queryMode} disabled={!state || busy}
+                    onClick={() => void setDataMode("chat")} title="Veriyi agent ile konuşarak belirleyin">Sohbet</button>
+                  <button type="button" className={queryMode ? "is-on" : undefined} aria-pressed={queryMode} disabled={!state || busy}
+                    onClick={() => void setDataMode("query")} title="Hazır SQL sorgunuzu yapıştırın; sonucu ile dashboard hazırlanır">Sorgu</button>
+                </div>
+                <button type="button" className="btn btn-ghost btn-sm chat-expand" onClick={toggleChatFull} aria-pressed={chatFull}
+                  aria-label={chatFull ? "Paneli daralt" : "Paneli tam sayfa genişlet"}
+                  title={chatFull ? "Sağ paneli geri getir (eski düzen)" : "Tam sayfa genişlet"}>
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path d={chatFull ? "M6 2.5V6H2.5M10 2.5V6h3.5M6 13.5V10H2.5M10 13.5V10h3.5" : "M2.5 6V2.5H6M13.5 6V2.5H10M2.5 10v3.5H6M13.5 10v3.5H10"}
+                      fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="btn-label">{chatFull ? "Daralt" : "Tam sayfa"}</span>
+                </button>
+              </div>
+            ) : null}
           </div>
-          <Transcript
-            items={items}
-            status={status}
-            busy={busy}
-            empty={<EmptyChat api={api} onPick={(s) => void send(s, [])} onDemo={() => void loadDemo()} onOpenReport={goReport} disabled={!state || busy} />}
-          />
-          <Composer disabled={!state || busy} busy={busy} onSend={(t, im) => void send(t, im)} visionReady={health ? health.vision.configured : null} dropTarget={chatRef} />
+          {queryMode && state ? (
+            <QueryMode api={api} state={state} disabled={busy} onState={(s) => { setState(s); void refreshSessions(); }}
+              onSubmitted={() => void send("Sorgularımın sonucuyla dashboard tasarımına başlayalım.", [])} />
+          ) : (
+            <>
+              <Transcript
+                items={items}
+                status={status}
+                busy={busy}
+                empty={<EmptyChat api={api} onPick={(s) => void send(s, [])} onDemo={() => void loadDemo()} onOpenReport={goReport} disabled={!state || busy} />}
+              />
+              <Composer disabled={!state || busy} busy={busy} onSend={(t, im) => void send(t, im)} visionReady={health ? health.vision.configured : null} dropTarget={chatRef} />
+            </>
+          )}
         </aside>
+        {chatFull ? null : <>
         <div className="resizer" onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Panel genişliği" />
         <RightPanel
           api={api}
@@ -636,6 +688,7 @@ export default function App() {
             selections, onSelections: setSelections, cross, onCross: setCross, dataDate: filterInfo.data_date,
           } : undefined}
         />
+        </>}
       </main>
       )}
       {toast ? (

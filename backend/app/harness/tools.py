@@ -230,8 +230,10 @@ def _error_hints(ctx: ToolContext, msg: str, query_tables: list[str], sql: str =
     return hints
 
 
-def _build_dataset(ctx: ToolContext, raw: dict[str, Any]) -> tuple[Dataset | None, dict[str, Any] | None, list[str]]:
-    """SQL'i doğrular, çalıştırır, alan tiplerini/etiketlerini çıkarır."""
+def _build_dataset(ctx: ToolContext, raw: dict[str, Any], user_sql: bool = False) -> tuple[Dataset | None, dict[str, Any] | None, list[str]]:
+    """SQL'i doğrular, çalıştırır, alan tiplerini/etiketlerini çıkarır.
+    user_sql: kullanıcının sorgu modundan gelen hazır SQL'i (modele yönelik "KPI tek satır" kuralı uygulanmaz;
+    doğrulama ve yetki kuralları aynıdır, dashboard çizilirken de aynı doğrulamadan geçer)."""
     did = str(raw.get("id") or "").strip()
     sql = str(raw.get("sql") or "").strip()
     if not sql and raw.get("verified") is not None:
@@ -251,7 +253,7 @@ def _build_dataset(ctx: ToolContext, raw: dict[str, Any]) -> tuple[Dataset | Non
                             "tablolardan SQL ile hesaplayın."]
     if not res.rows:
         return None, None, [f"[{did}] Sorgu hiç satır döndürmedi; filtreleri/tarih aralığını kontrol edin."]
-    if did.lower().startswith("kpi") and len(res.rows) > 1:
+    if not user_sql and did.lower().startswith("kpi") and len(res.rows) > 1:
         return None, None, [f"[{did}] KPI dataset'i TEK satır olmalı ama {len(res.rows)} satır döndü (ör. yıl başına bir satır). "
                             "Dönemleri kolonlara çevirin: bu dönemin değeri (sales_amount) + değişim oranı "
                             "(sales_growth = (bu - önceki) / önceki), CASE WHEN YEAR(...) = ... ile tek SELECT'te."]

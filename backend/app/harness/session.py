@@ -73,6 +73,13 @@ class DesignBrief(BaseModel):
     style_notes: list[str] | None = None
 
 
+class QueryDraft(BaseModel):
+    """Sorgu modunda kullanıcının yazdığı / yapıştırdığı sorgu (henüz dataset değil)."""
+    id: str = ""          # dataset id'si olacak ad (snake_case)
+    title: str = ""       # açıklama / görünen ad
+    sql: str = ""
+
+
 class Session(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
     title: str = "Yeni rapor"  # DEFAULT_TITLE
@@ -99,6 +106,9 @@ class Session(BaseModel):
     title_locked: bool = False        # kullanıcı adı elle verdiyse True: agent başlığı değiştirmez
     owner: str | None = None          # oluşturan kullanıcı (DOMAIN\kullanıcı)
     owner_name: str | None = None     # görünen ad
+    # İhtiyaç / Veri fazında çalışma modu: sohbet (agent veriyi bulur) ya da sorgu (kullanıcının hazır SQL'i)
+    data_mode: Literal["chat", "query"] = "chat"
+    query_drafts: list[QueryDraft] = Field(default_factory=list)
 
     def public(self) -> dict[str, Any]:
         return self.model_dump(exclude={"llm_messages", "user_role", "dataset_profiles", "phase_memory"})

@@ -249,6 +249,16 @@ export interface SessionState {
   spec_version: number;
   busy: boolean;
   status?: "idea" | "design" | "test" | "live" | null;
+  /** İhtiyaç / Veri fazında çalışma modu: sohbet ya da hazır sorgu */
+  data_mode?: "chat" | "query";
+  query_drafts?: QueryDraft[];
+}
+
+/** Sorgu modundaki sorgu: kaydedilince bu id ile veri kümesi olur. */
+export interface QueryDraft {
+  id: string;
+  title: string;
+  sql: string;
 }
 
 export interface SessionSummary {

@@ -64,4 +64,52 @@ test.describe("Sorgu Çalıştır", () => {
     await expect(page.getByTestId("query-result").locator("tbody tr").first()).toBeVisible();
     await expect(page.locator(".qp-res-head")).toContainText("satır");
   });
+
+  test("hazır sorgu → Dashboard hazırla → sorgu modu (önizleme, tam sayfa) → tasarım", async ({ page }) => {
+    await setSql(page, "SELECT t.SalesTerritoryRegion AS region, SUM(f.SalesAmount) AS sales_amount FROM dbo.FactResellerSales f "
+      + "JOIN dbo.DimSalesTerritory t ON t.SalesTerritoryKey = f.SalesTerritoryKey GROUP BY t.SalesTerritoryRegion");
+    await page.getByRole("button", { name: "Dashboard hazırla" }).click();
+    const dlg = page.getByRole("dialog", { name: "Bu sorguyla dashboard hazırla" });
+    await dlg.getByLabel("Açıklama").fill("Bölge satışları");
+    await expect(dlg.getByLabel("Veri kümesi adı")).toHaveValue("bolge_satislari");
+    await dlg.getByRole("button", { name: "Gönder ve aç" }).click();
+
+    await expect(page).toHaveURL(/#\/r\/[A-Za-z0-9]+/);
+    const qm = page.getByTestId("query-mode");
+    await expect(qm).toBeVisible();                                             // rapor sorgu modunda açılır
+    await expect(qm.getByRole("tab", { name: /bolge_satislari/ })).toBeVisible();
+
+    await page.getByRole("button", { name: "Paneli tam sayfa genişlet" }).click();               // sol panel tam genişlik, sağ panel gizli
+    await expect(page.locator(".right")).toHaveCount(0);
+    await page.getByRole("button", { name: "Paneli daralt" }).click();
+    await expect(page.locator(".right")).toBeVisible();
+
+    await page.getByRole("button", { name: "Sohbet", exact: true }).click();     // moda geçiş: taslak kaybolmaz
+    await expect(qm).toHaveCount(0);
+    await page.getByRole("button", { name: "Sorgu", exact: true }).click();
+    await expect(page.getByTestId("query-mode").getByRole("tab", { name: /bolge_satislari/ })).toBeVisible();
+
+    await page.getByRole("button", { name: /^Önizle/ }).click();
+    await expect(page.getByTestId("qm-result").locator("tbody tr").first()).toBeVisible();
+
+    // açık rapora Sorgu Çalıştır'dan ikinci sorgu: rapor yeniden yüklenir, yeni sorgu sekmesi görünür
+    const reportId = /#\/r\/([A-Za-z0-9]+)/.exec(page.url())![1];
+    await page.getByRole("button", { name: "Sorgu Çalıştır" }).click();
+    await setSql(page, "SELECT COUNT(*) AS urun_adedi FROM dbo.DimProduct");
+    await page.getByRole("button", { name: "Dashboard hazırla" }).click();
+    await dlg.getByLabel("Veri kümesi adı").fill("urun_ozet");
+    await dlg.getByRole("radio", { name: "Mevcut rapor" }).check();
+    await dlg.getByRole("combobox", { name: "Rapor" }).selectOption(reportId);
+    await dlg.getByRole("button", { name: "Gönder ve aç" }).click();
+    await expect(page).toHaveURL(new RegExp(`#/r/${reportId}`));
+    await expect(page.getByTestId("query-mode").getByRole("tab", { name: /urun_ozet/ })).toBeVisible();
+    await expect(page.getByTestId("query-mode").getByRole("tab", { name: /bolge_satislari/ })).toBeVisible();
+
+    await page.getByRole("button", { name: /Dashboard'a geç/ }).click();
+
+    await expect(page.locator(".step.is-current")).toContainText("Tasarım");      // veri kümesi kaydedildi, tasarım fazı
+    await expect(page.getByTestId("query-mode")).toHaveCount(0);
+    await expect(page.locator(".transcript")).toContainText("Sorgu modundan 2 veri kümesi kaydedildi");
+    await expect(page.getByRole("tab", { name: /Veri/ })).toContainText("2");
+  });
 });

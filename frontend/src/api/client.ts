@@ -1,5 +1,5 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
-import type { AccessInfo, AdminOverview, AuditEvent, Grant, PlatformRole, PlatformSettings, Publication, VitrinCard, VitrinReport, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult, SuggestionsResponse } from "../types";
+import type { AccessInfo, AdminOverview, AuditEvent, Grant, PlatformRole, PlatformSettings, Publication, VitrinCard, VitrinReport, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, QueryDraft, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult, SuggestionsResponse } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -51,6 +51,12 @@ export interface Api {
   setStatus(id: string, status: string): Promise<SessionState>;
   sendMessage(id: string, body: MessageBody, onEvent: (ev: StreamEvent) => void, signal?: AbortSignal): Promise<void>;
   setPhase(id: string, phase: Phase): Promise<SessionState>;
+  /** sorgu modu: mod ve taslak sorgular (dataset değil) */
+  saveQueryDrafts(id: string, body: { mode?: "chat" | "query"; drafts?: QueryDraft[] }): Promise<SessionState>;
+  /** sorgu modu önizlemesi: dataset kaydı ve dashboard ile aynı doğrulama */
+  queryPreview(id: string, sql: string): Promise<QueryRunResult>;
+  /** taslak sorguları dataset olarak kaydeder; İhtiyaç / Veri fazındaysa tasarıma geçer (hatalar ApiError.detail) */
+  datasetsFromQuery(id: string, drafts: QueryDraft[]): Promise<SessionState>;
   putSpec(id: string, spec: ReportSpec): Promise<SessionState>;
   loadDemo(id: string): Promise<SessionState>;
   dashboardData(id: string, selections?: Selection[]): Promise<DashboardData>;
@@ -237,6 +243,9 @@ export const httpApi: Api = {
   renameSession: (id, title, overwrite = false) =>
     req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/title`, { method: "PUT", body: JSON.stringify({ title, overwrite }) }),
   setPhase: (id, phase) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/phase`, { method: "POST", body: JSON.stringify({ phase }) }),
+  saveQueryDrafts: (id, body) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/query-drafts`, { method: "PUT", body: JSON.stringify(body) }),
+  queryPreview: (id, sql) => req<QueryRunResult>(`/api/sessions/${encodeURIComponent(id)}/query-preview`, { method: "POST", body: JSON.stringify({ sql }) }),
+  datasetsFromQuery: (id, drafts) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/datasets/from-query`, { method: "POST", body: JSON.stringify({ datasets: drafts }) }),
   putSpec: (id, spec) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/spec`, { method: "PUT", body: JSON.stringify(spec) }),
   loadDemo: (id) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/demo`, { method: "POST" }),
   dashboardData: (id, selections) =>

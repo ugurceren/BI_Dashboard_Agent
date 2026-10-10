@@ -40,8 +40,9 @@ from app import authz
 from app.identity import Identity, current_identity
 from app.meta.store import MetaStore
 from app.harness.agent import Agent, Audit, Event
-from app.harness.session import PHASES, Requirements, SessionStore, TranscriptItem, now_iso
-from app.harness.tools import Services, ToolContext, _build_dataset, _short_db_error, _validate_spec
+from app.harness.session import PHASES, QueryDraft, Requirements, SessionStore, TranscriptItem, now_iso
+from app.harness.tools import (_DESIGN_KICKOFF, Services, ToolContext, _build_dataset, _run_validated, _short_db_error,
+                               _validate_spec, add_join_relationships)
 from app.llm.gateway import LLMGateway
 
 
@@ -597,6 +598,123 @@ def set_phase(sid: str, body: PhaseIn, request: Request) -> dict[str, Any]:
         else:
             s.add(TranscriptItem(role="system", content=f"Kullanıcı '{body.phase}' fazına döndü"))
             s.llm_messages.append({"role": "user", "content": "[HARNESS] Kullanıcı bu faza geri döndü. Mevcut durumu kısaca özetle ve ne değiştirmek istediğini sor."})
+        state.store.save(s)
+        return s.public()
+
+
+# --------------------------------------------------------------------------- sorgu modu (hazır SQL ile rapor)
+QUERY_PREVIEW_ROWS = 200
+MAX_QUERY_DRAFTS = 20
+
+
+class QueryDraftIn(BaseModel):
+    id: str = ""
+    title: str = ""
+    sql: str = ""
+
+
+class QueryDraftsIn(BaseModel):
+    mode: str | None = None                       # "chat" | "query"
+    drafts: list[QueryDraftIn] | None = None
+
+
+@app.put("/api/sessions/{sid}/query-drafts")
+def put_query_drafts(sid: str, body: QueryDraftsIn, request: Request) -> dict[str, Any]:
+    """Sorgu modu ve taslak sorgular (henüz dataset değil); sayfa yenilense de kaybolmasın."""
+    _own_session(request, sid)
+    if body.mode is not None and body.mode not in ("chat", "query"):
+        raise HTTPException(400, "Geçersiz mod (chat | query).")
+    if body.drafts is not None:
+        if len(body.drafts) > MAX_QUERY_DRAFTS:
+            raise HTTPException(400, f"En çok {MAX_QUERY_DRAFTS} sorgu.")
+        if any(len(d.sql) > 20000 for d in body.drafts):
+            raise HTTPException(413, "Sorgu çok uzun (en çok 20.000 karakter).")
+    with state.store.lock(sid):
+        s = _session(sid)
+        if body.mode:
+            s.data_mode = body.mode  # type: ignore[assignment]
+        if body.drafts is not None:
+            s.query_drafts = [QueryDraft(**d.model_dump()) for d in body.drafts]
+        state.store.save(s)
+        return s.public()
+
+
+@app.post("/api/sessions/{sid}/query-preview")
+def query_preview(sid: str, body: QueryIn, request: Request) -> dict[str, Any]:
+    """Sorgu modu önizlemesi: dataset kaydı ve dashboard ile AYNI doğrulama (önizlemede çalışan sorgu dashboard'da da çalışır).
+    Rol, oturumun açıldığı andaki değil kullanıcının güncel rolüdür."""
+    s, ident = _own_session(request, sid)
+    sql = (body.sql or "").strip()
+    if len(sql) > 20000:
+        raise HTTPException(413, "Sorgu çok uzun (en çok 20.000 karakter).")
+    ctx = ToolContext(s.model_copy(update={"user_role": ident.role}), state.services)   # oturum nesnesi değiştirilmez
+    res, errors, tables, warnings = _run_validated(ctx, sql, QUERY_PREVIEW_ROWS)
+    Audit(get_settings().audit_log).write(event="query_preview", session=sid, user=ident.username, role=ident.role,
+                                          sql=sql[:4000], ok=not errors, errors=errors or None, tables=tables)
+    if errors or res is None:
+        return {"ok": False, "errors": errors, "warnings": warnings, "tables": tables}
+    return {"ok": True, "columns": res.columns, "types": res.types, "rows": res.rows, "truncated": res.truncated,
+            "row_limit": QUERY_PREVIEW_ROWS, "elapsed_ms": res.elapsed_ms, "tables": tables, "warnings": warnings}
+
+
+class FromQueryIn(BaseModel):
+    datasets: list[QueryDraftIn]
+
+
+@app.post("/api/sessions/{sid}/datasets/from-query")
+def datasets_from_query(sid: str, body: FromQueryIn, request: Request) -> Any:
+    """Sorgu modundaki hazır SQL'leri dataset olarak kaydeder (agent'ın save_datasets'iyle aynı doğrulama ve profil).
+    İhtiyaç / Veri fazındaysa Tasarım fazına geçilir ve agent'a veriyi özetleyip tasarımı sorma talimatı verilir;
+    zaten tasarımdaysa dataset'ler eklenir / güncellenir (görseller korunur)."""
+    _, ident = _own_session(request, sid)
+    items = [d for d in body.datasets if d.sql.strip()]
+    if not items:
+        raise HTTPException(400, "En az bir sorgu gerekli.")
+    ids = [d.id.strip() for d in items]
+    if len(set(ids)) != len(ids):
+        return JSONResponse({"detail": ["Sorgu adları benzersiz olmalı."]}, status_code=422)
+    with state.store.lock(sid):
+        s = _session(sid)
+        s.user_role = ident.role   # güncel rol (rolü geri alınan kullanıcı eski yetkiyle kaydedemesin)
+        ctx = ToolContext(s, state.services)
+        built, errors = [], []
+        for d in items:
+            ds, prof, errs = _build_dataset(ctx, {"id": d.id.strip(), "sql": d.sql, "description": d.title.strip()}, user_sql=True)
+            if errs:
+                errors += errs
+            else:
+                built.append((ds, prof))
+        if errors:
+            return JSONResponse({"detail": errors}, status_code=422)
+        for ds, prof in built:
+            s.datasets = [x for x in s.datasets if x.id != ds.id] + [ds]
+            s.dataset_profiles[ds.id] = prof
+            if s.spec:
+                s.spec.datasets = [x for x in s.spec.datasets if x.id != ds.id] + [ds]
+        if s.spec:
+            s.spec_version += 1
+        if not s.requirements:
+            title = s.title if s.title not in ("Yeni rapor", "") else (items[0].title.strip() or "Sorgu raporu")
+            s.requirements = Requirements(report_title=title, business_goal="Kullanıcının hazır SQL sorgularıyla hazırlanan rapor",
+                                          notes="Gereksinim sohbeti yapılmadı; veri kullanıcının sorgularından geldi.")
+            if not s.title_locked and s.title in ("Yeni rapor", "") and title != "Sorgu raporu":
+                s.title = title
+        add_join_relationships(ctx)
+        s.query_drafts = [QueryDraft(**d.model_dump()) for d in body.datasets]
+        names = ", ".join(ds.id for ds, _ in built)
+        tables = sorted({t for ds, _ in built for t in state.services.validator.validate(ds.sql, state.services.policy(ident.role)).tables})
+        if s.phase != "design":
+            s.set_phase("design")
+            s.add(TranscriptItem(role="system", content=f"Sorgu modundan {len(built)} veri kümesi kaydedildi ({names}); tasarım fazına geçildi."))
+            s.llm_messages.append({"role": "user", "content": f"[HARNESS] Kullanıcı ihtiyaç sohbeti yapmadan kendi hazır SQL sorgularıyla "
+                                   f"{len(built)} dataset kaydetti ({names}). Ayrıntılı gereksinim kaydı yok; raporun amacını dataset'lerin kolonlarından ve "
+                                   "profillerinden anla. " + _DESIGN_KICKOFF})
+        else:
+            s.add(TranscriptItem(role="system", content=f"Sorgu modundan veri kümesi eklendi / güncellendi: {names}."))
+            s.llm_messages.append({"role": "user", "content": f"[HARNESS] Kullanıcı sorgu modundan dataset ekledi / güncelledi: {names}. "
+                                   "Kısaca özetle ve bu veriyle ne eklemek istediğini sor."})
+        Audit(get_settings().audit_log).write(event="datasets_from_query", session=sid, user=ident.username, role=ident.role,
+                                              datasets=[ds.id for ds, _ in built], tables=tables)
         state.store.save(s)
         return s.public()
 

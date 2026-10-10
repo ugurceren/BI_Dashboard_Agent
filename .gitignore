@@ -25,3 +25,5 @@ frontend/e2e/.run*.log
 
 # start.bat yerel işareti (son derlenen sürüm)
 frontend/dist-viewer/.rev
+# build:viewer public/ klasörünü kopyalar (tanıtım görselleri); HTML dışa aktarma şablonu için gereksiz
+frontend/dist-viewer/tanitim/

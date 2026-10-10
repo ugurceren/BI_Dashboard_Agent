@@ -156,6 +156,8 @@ interface SessionState {
   spec: ReportSpec | null;
   spec_version: number;         // spec her değiştiğinde +1
   busy: boolean;
+  data_mode: "chat" | "query";  // İhtiyaç / Veri fazında çalışma modu: sohbet ya da hazır sorgu
+  query_drafts: { id: string; title: string; sql: string }[];   // sorgu modundaki taslaklar (henüz dataset değil)
 }
 ```
 
@@ -170,6 +172,9 @@ interface SessionState {
 | DELETE | `/api/sessions/{id}` | – | `{ ok }` |
 | POST | `/api/sessions/{id}/messages` | `{ content: string, images?: string[] }` (data URL) | **SSE akışı** (aşağıda) |
 | POST | `/api/sessions/{id}/phase` | `{ phase }` | `SessionState` (geri dönmek için) |
+| PUT | `/api/sessions/{id}/query-drafts` | `{ mode?: "chat" \| "query", drafts?: [{ id, title, sql }] }` | `SessionState` (sorgu modu ve taslakları; en çok 20) |
+| POST | `/api/sessions/{id}/query-preview` | `{ sql }` | Sorgu Çalıştır yanıtı gibi (`ok, columns, types, rows, truncated, warnings` ya da `errors`); dataset kaydıyla **aynı** doğrulama, en çok 200 satır |
+| POST | `/api/sessions/{id}/datasets/from-query` | `{ datasets: [{ id, title, sql }] }` | `SessionState` ya da `422 { detail: string[] }`. Sorgular dataset olur; İhtiyaç / Veri fazındaysa Tasarım fazına geçilir (gereksinim yoksa sorgulardan kısa bir özet), tasarımdaysa dataset eklenir / güncellenir. Denetim: `datasets_from_query` |
 | PUT | `/api/sessions/{id}/spec` | `ReportSpec` | `SessionState` veya `422 { detail: string[] }` |
 | POST | `/api/sessions/{id}/demo` | – | Demo spec + dataset'leri yükler, `SessionState` |
 | GET | `/api/sessions/{id}/dashboard-data` | – | `{ datasets: { [id]: { columns: string[], rows: any[][], error?: string } }, applied: {} }` |

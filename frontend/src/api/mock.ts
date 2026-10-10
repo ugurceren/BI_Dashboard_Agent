@@ -58,7 +58,7 @@ const sessions = new Map<string, MockSession>();
 
 function newSession(title = "Yeni rapor"): MockSession {
   const s: MockSession = {
-    id: uid("s"),
+    id: uid("s").replace(/_/g, ""),   // rota yalnız harf / rakam kabul eder (#/r/<id>)
     title,
     phase: "requirements",
     transcript: [],
@@ -255,6 +255,34 @@ export const mockApi: Api = {
     s.busy = false;
     onEvent({ event: "state", data: state(s) });
     onEvent({ event: "done", data: {} });
+  },
+  async saveQueryDrafts(id, body) {
+    const s = get(id);
+    if (body.mode) s.data_mode = body.mode;
+    if (body.drafts) s.query_drafts = clone(body.drafts);
+    return state(s);
+  },
+  async queryPreview(_id, sql) {
+    await sleep(80);
+    if (!/^\s*(select|with)\b/i.test(sql.replace(/^\s*--.*$/gm, ""))) return { ok: false, errors: ["Yalnızca SELECT / WITH sorguları çalıştırılabilir."] };
+    return { ok: true, columns: ["region", "sales_amount"], types: ["string", "number"], rows: [["Avrupa", 1200.5], ["Kuzey Amerika", 980]], truncated: false, row_limit: 200, elapsed_ms: 5, warnings: [] };
+  },
+  async datasetsFromQuery(id, drafts) {
+    await sleep(120);
+    const bad = drafts.filter((d) => !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(d.id)).map((d) => `[${d.id}] dataset id snake_case olmalı`);
+    if (bad.length) throw new ApiError(422, bad[0], bad);
+    const s = get(id);
+    for (const d of drafts) {
+      s.datasets = [...s.datasets.filter((x) => x.id !== d.id), { id: d.id, description: d.title, sql: d.sql,
+        fields: [{ name: "region", label: "Bölge", type: "string" }, { name: "sales_amount", label: "Satış", type: "number", format: "currency" }] }];
+    }
+    s.query_drafts = clone(drafts);
+    if (s.phase !== "design") {
+      s.phase = "design";
+      s.requirements = s.requirements ?? { report_title: s.title, business_goal: "Hazır sorgularla", audience: "", kpis: [], dimensions: [], time_range: "", filters: [] };
+      s.transcript.push(item("system", `Sorgu modundan ${drafts.length} veri kümesi kaydedildi; tasarım fazına geçildi.`, "design"));
+    }
+    return state(s);
   },
   async setPhase(id, phase) {
     const s = get(id);
