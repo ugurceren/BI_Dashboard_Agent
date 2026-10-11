@@ -284,6 +284,7 @@ export const mockApi: Api = {
     }
     return state(s);
   },
+  async cancelTurn() { return { ok: true, running: false }; },
   async setPhase(id, phase) {
     const s = get(id);
     s.phase = phase;

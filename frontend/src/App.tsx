@@ -462,6 +462,13 @@ export default function App() {
     }
   };
 
+  // ---- Durdur: backend turu keser (bekleyen LLM isteğinin bağlantısı kapatılır); tarayıcı akışı "done" ile kendisi biter ----
+  const stopTurn = () => {
+    if (!state) return;
+    setStatus("Durduruluyor…");
+    api.cancelTurn(state.id).catch((e) => showToast(`Durdurulamadı: ${errMsg(e)}`));
+  };
+
   // ---- sohbet / sorgu modu ----
   // hızlı geçişlerde cevaplar sırasız gelebilir: yalnız son isteğin cevabı uygulanır (eskisi paneli geri çevirip sıfırlıyordu)
   const modeSeq = useRef(0);
@@ -672,7 +679,7 @@ export default function App() {
                 busy={busy}
                 empty={<EmptyChat api={api} onPick={(s) => void send(s, [])} onDemo={() => void loadDemo()} onOpenReport={goReport} disabled={!state || busy} />}
               />
-              <Composer disabled={!state || busy} busy={busy} onSend={(t, im) => void send(t, im)} visionReady={health ? health.vision.configured : null} dropTarget={chatRef} />
+              <Composer disabled={!state || busy} busy={busy} onSend={(t, im) => void send(t, im)} onStop={stopTurn} visionReady={health ? health.vision.configured : null} dropTarget={chatRef} />
             </>
           )}
         </aside>

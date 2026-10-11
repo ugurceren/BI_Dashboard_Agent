@@ -171,6 +171,7 @@ interface SessionState {
 | GET | `/api/sessions/{id}` | – | `SessionState` |
 | DELETE | `/api/sessions/{id}` | – | `{ ok }` |
 | POST | `/api/sessions/{id}/messages` | `{ content: string, images?: string[] }` (data URL) | **SSE akışı** (aşağıda) |
+| POST | `/api/sessions/{id}/cancel` | `{}` | `{ ok, running }` — çalışan turu durdurur: bekleyen LLM isteğinin bağlantısı kapatılır (sunucu üretimi bırakır), tur hata olmadan biter, transkripte "Yanıt kullanıcı tarafından durduruldu." eklenir. Denetim: `turn_cancelled` |
 | POST | `/api/sessions/{id}/phase` | `{ phase }` | `SessionState` (geri dönmek için) |
 | PUT | `/api/sessions/{id}/query-drafts` | `{ mode?: "chat" \| "query", drafts?: [{ id, title, sql }] }` | `SessionState` (sorgu modu ve taslakları; en çok 20) |
 | POST | `/api/sessions/{id}/query-preview` | `{ sql }` | Sorgu Çalıştır yanıtı gibi (`ok, columns, types, rows, truncated, warnings` ya da `errors`); dataset kaydıyla **aynı** doğrulama, en çok 200 satır |

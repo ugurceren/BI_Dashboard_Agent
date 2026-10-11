@@ -12,10 +12,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 import openai
 from openai import OpenAI
 
@@ -40,6 +44,14 @@ class LLMUnavailable(LLMError):
     def __init__(self, msg: str, status: int | None = None, retry_after: float | None = None, timeout: bool = False):
         super().__init__(msg)
         self.status, self.retry_after, self.timeout = status, retry_after, timeout
+
+
+class LLMCancelled(LLMError):
+    """Kullanıcı yanıtı durdurdu: istek bağlantısı kapatıldı (LM Studio / llama.cpp üretimi bırakır)."""
+
+
+# iptal edilebilir istekler: HTTP çağrısı bu havuzda, bekleyen iş parçacığı iptali yoklar
+_CALLS = ThreadPoolExecutor(max_workers=16, thread_name_prefix="llm-call")
 
 
 class ContextOverflow(LLMError):
@@ -179,6 +191,8 @@ def _to_prompt_mode(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
 
 
 class LLMGateway:
+    supports_cancel = True   # chat(..., cancel=threading.Event) desteklenir
+
     def __init__(self, settings: Settings):
         self.s = settings
         # max_retries=0: geçici hatalarda (502 / 503 / 504 …) yeniden denemeyi agent bekleyerek yapar (LLMUnavailable);
@@ -242,8 +256,9 @@ class LLMGateway:
         return None
 
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-             max_tokens: int | None = None, _retried: bool = False) -> AssistantTurn:
-        turn = self._chat(messages, tools, max_tokens)
+             max_tokens: int | None = None, _retried: bool = False, cancel: threading.Event | None = None) -> AssistantTurn:
+        """cancel: kurulursa istek bağlantısı kapatılır ve LLMCancelled fırlatılır (kullanıcı "Durdur" dedi)."""
+        turn = self._chat(messages, tools, max_tokens, cancel)
         # Düşünen modeller (Qwen3 vb.) çıktı sınırının tamamını <think> bölümüne harcayıp görünür yanıt yazamayabilir:
         # yanıt boş kesildiyse bir kez iki kat sınırla yeniden istenir (bağlam penceresinin dörtte birini aşmadan).
         if turn.truncated and not turn.content.replace(TRUNCATED_NOTE.strip(), "").strip() and not turn.tool_calls and not _retried:
@@ -268,29 +283,29 @@ class LLMGateway:
                 nudge = {"role": "user", "content": "[HARNESS] Önceki denemede yanıtın düşünme aşamasında uzunluk sınırına takıldı ve "
                                                     "görünür yanıt yazılamadı. Kısa düşün: doğrudan yanıt ver ya da gereken aracı çağır."}
                 try:
-                    return self.chat([*messages, nudge], tools, bigger, _retried=True)
+                    return self.chat([*messages, nudge], tools, bigger, _retried=True, cancel=cancel)
                 except LLMError as e:   # sunucu bu sınırı kabul etmezse (ör. azami çıktı aşıldı) ilk sonuç gösterilir
                     log.warning("Yüksek sınırla yeniden deneme başarısız: %s", e)
                     return turn
             bigger = min(limit * 2, max(limit, (ctx // 4) if ctx else limit * 2))
             if bigger > limit:
                 log.info("LLM yanıtı düşünme bölümünde kesildi; %d → %d token ile yeniden deneniyor", limit, bigger)
-                return self.chat(messages, tools, bigger, _retried=True)
+                return self.chat(messages, tools, bigger, _retried=True, cancel=cancel)
         return turn
 
     def _chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-              max_tokens: int | None = None) -> AssistantTurn:
+              max_tokens: int | None = None, cancel: threading.Event | None = None) -> AssistantTurn:
         use_native = bool(tools) and self.tool_mode in ("auto", "native")
         try:
             if use_native:
-                resp = self._create(messages, tools, max_tokens)
+                resp = self._create(messages, tools, max_tokens, cancel)
             else:
-                resp = self._create(_to_prompt_mode(messages, tools), None, max_tokens)
+                resp = self._create(_to_prompt_mode(messages, tools), None, max_tokens, cancel)
         except openai.BadRequestError as e:
             if use_native and self.tool_mode == "auto" and _looks_like_tool_unsupported(e):
                 log.warning("Sunucu native tool calling desteklemiyor, prompt moduna geçiliyor: %s", e)
                 self.tool_mode = "prompt"
-                return self._chat(messages, tools, max_tokens)
+                return self._chat(messages, tools, max_tokens, cancel)
             text = _err_text(e)
             ctx = _CTX_RE.search(text)
             if ctx or any(h in text.lower() for h in _OVERFLOW_HINTS):
@@ -333,7 +348,8 @@ class LLMGateway:
             content += TRUNCATED_NOTE
         return AssistantTurn(content.strip(), calls, usage, truncated=cut)
 
-    def _create(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, max_tokens: int | None = None):
+    def _create(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, max_tokens: int | None = None,
+                cancel: threading.Event | None = None):
         kwargs: dict[str, Any] = dict(model=self.s.llm_model, messages=messages, temperature=self.s.llm_temperature)
         limit = max_tokens or self.max_output_tokens()
         if limit:                       # sınır yoksa gönderilmez: modelin kendi (yüksek) sınırı geçerli
@@ -343,7 +359,22 @@ class LLMGateway:
             kwargs["tool_choice"] = "auto"
         if self.s.llm_extra_body:
             kwargs["extra_body"] = self.s.llm_extra_body
-        return self.client.chat.completions.create(**kwargs)
+        if cancel is None:
+            return self.client.chat.completions.create(**kwargs)
+        # iptal edilebilir istek: kendi HTTP bağlantısıyla ayrı iş parçacığında; "Durdur" gelince bağlantı kapatılır,
+        # bekleyen çağrı hemen çözülür ve sunucu (LM Studio / llama.cpp) bağlantı kopunca üretimi bırakır
+        http = httpx.Client(timeout=self.s.llm_timeout_s)
+        fut = _CALLS.submit(self.client.with_options(http_client=http).chat.completions.create, **kwargs)
+        try:
+            while True:
+                try:
+                    return fut.result(timeout=0.25)
+                except FutureTimeout:
+                    if cancel.is_set():
+                        http.close()
+                        raise LLMCancelled("Yanıt kullanıcı tarafından durduruldu.") from None
+        finally:
+            http.close()
 
     # ------------------------------------------------------------------ görsel
     @property

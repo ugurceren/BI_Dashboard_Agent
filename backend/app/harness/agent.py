@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
@@ -23,14 +26,29 @@ from app.harness.rules import phase_rules
 from app.harness.session import Session, SessionStore, ToolInfo, TranscriptItem, now_iso
 from app.harness.tools import TOOLS_BY_NAME, Services, ToolContext, ToolResult, to_llm_content, tools_for
 from app.harness.vision import analyze_design_images
-from app.llm.gateway import AssistantTurn, ContextOverflow, LLMError, LLMGateway, LLMUnavailable, ToolCall
+from app.llm.gateway import AssistantTurn, ContextOverflow, LLMCancelled, LLMError, LLMGateway, LLMUnavailable, ToolCall
 
 log = logging.getLogger(__name__)
 
 FULL_TOOL_RESULTS = 12    # son N araç sonucu tam, daha eskiler kısaltılır
 # LLM sunucusu geçici hata verdiğinde (502 / 503 / 504 / 429, bağlantı) bekleyip yeniden deneme aralıkları (sn).
-# İstemci zaman aşımında (llm_timeout_s) yalnız ilk aralıkla bir kez denenir; sunucu Retry-After verirse en çok 30 sn ona uyulur.
+# İstemci zaman aşımında (llm_timeout_s) yeniden denenmez: model yanıtı o sürede üretemiyordur, aynı uzun iş baştan yapılır
+# ve kullanıcı bir kez daha beklerdi. Sunucu Retry-After verirse en çok 30 sn ona uyulur.
 LLM_RETRY_DELAYS: tuple[float, ...] = (2, 5, 10, 20)
+HEARTBEAT_AFTER_S = 8      # LLM yanıtı bundan uzun sürerse "Model yanıt üretiyor… N sn" durumu gösterilir
+HEARTBEAT_EVERY_S = 5
+_LLM_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="agent-llm")
+
+
+class TurnStopped(Exception):
+    """Kullanıcı "Durdur" dedi: tur hata olmadan biter."""
+
+
+def _wait(ev: threading.Event, seconds: float) -> bool:
+    """Yeniden denemeden önce bekle; durdurulursa True (testlerde değiştirilir)."""
+    return ev.wait(seconds)
+
+
 CHARS_PER_TOKEN = 2.5     # token tahmini (Türkçe metin + JSON için ihtiyatlı: gerçek ~3–3.5)
 CONTEXT_MARGIN = 512      # token: tahmin hatası payı
 OLD_TOOL_RESULT_CHARS = 700
@@ -165,6 +183,15 @@ class Agent:
         self.store = store
         self.audit = Audit(services.settings.audit_log)
         self._actors: dict[str, str | None] = {}   # oturum → şu an mesajı işlenen kullanıcı (denetim kaydı)
+        self._cancel: dict[str, threading.Event] = {}   # oturum → çalışan turun durdurma bayrağı
+
+    def cancel(self, sid: str) -> bool:
+        """Çalışan turu durdurur (bekleyen LLM isteğinin bağlantısı kapatılır). Çalışan tur yoksa False."""
+        ev = self._cancel.get(sid)
+        if ev is None:
+            return False
+        ev.set()
+        return True
 
     # ------------------------------------------------------------------ public
     def _budget(self, sys_prompt: str, schemas: list[dict[str, Any]]) -> tuple[int, int | None]:
@@ -191,6 +218,7 @@ class Agent:
             yield Event("done", {})
             return
         s: Session | None = None
+        self._cancel[sid] = threading.Event()
         try:
             s = self.store.get(sid)
             s.busy = True
@@ -199,6 +227,13 @@ class Agent:
             self._actors[sid] = user
             self.store.save(s)
             yield from self._turn(s, text.strip(), images or [])
+        except (TurnStopped, LLMCancelled):
+            log.info("Tur kullanıcı tarafından durduruldu (%s)", sid)
+            self.audit.write(session=sid, user=user or self._actors.get(sid), event="turn_cancelled", phase=s.phase if s else None)
+            if s:
+                s.llm_messages.append({"role": "user", "content": "[HARNESS] Kullanıcı önceki yanıtı durdurdu. Yarım kalan işi "
+                                       "kendiliğinden sürdürme; kullanıcının yeni mesajına göre devam et."})
+                yield self._emit(s, TranscriptItem(role="system", content="Yanıt kullanıcı tarafından durduruldu."))
         except LLMError as e:
             log.warning("LLM hatası: %s", e)
             self.audit.write(session=sid, user=user or self._actors.get(sid), event="llm_failed",
@@ -215,6 +250,7 @@ class Agent:
                 self.store.save(s)
                 yield Event("state", s.public())
             self._actors.pop(sid, None)
+            self._cancel.pop(sid, None)
             lock.release()
             yield Event("done", {})
 
@@ -243,12 +279,15 @@ class Agent:
 
         s.llm_messages.append({"role": "user", "content": llm_text or "(boş mesaj)"})
         self.store.save(s)
+        stop = self._cancel.get(s.id) or threading.Event()
 
         empty_retries = 0
         claim_nudges = 0
         loop_nudged = False
         start_version, start_datasets = s.spec_version, len(s.datasets)
         for step in range(self.services.settings.max_agent_steps):
+            if stop.is_set():
+                raise TurnStopped()
             yield Event("status", {"text": "Düşünüyor…" if step == 0 else "Devam ediyor…"})
             tools = tools_for(s.phase)
             remaining = self.services.settings.max_agent_steps - step
@@ -262,11 +301,10 @@ class Agent:
                 messages = [{"role": "system", "content": sys_prompt}] + _trim(s.llm_messages, budget)
                 t_try = time.perf_counter()
                 try:
-                    turn: AssistantTurn = (self.llm.chat(messages, schemas, max_tokens=max_out) if max_out
-                                           else self.llm.chat(messages, schemas))
+                    turn: AssistantTurn = yield from self._call_llm(messages, schemas, max_out, stop)
                     break
                 except LLMUnavailable as e:
-                    delays = LLM_RETRY_DELAYS[:1] if e.timeout else LLM_RETRY_DELAYS
+                    delays = () if e.timeout else LLM_RETRY_DELAYS
                     retry = unavailable < len(delays)
                     # her başarısız deneme kaydedilir: hata kodu, bekleme süresi ve istek büyüklüğü (kök neden için)
                     est = int((sum(len(json.dumps(m, ensure_ascii=False)) for m in messages)
@@ -275,6 +313,10 @@ class Agent:
                                      attempt=unavailable + 1, status=e.status, timeout=e.timeout or None,
                                      ms=int((time.perf_counter() - t_try) * 1000), prompt_tokens_est=est,
                                      max_tokens=max_out, retry=retry, error=str(e)[:200])
+                    if not retry and e.timeout:
+                        raise LLMError(f"{e} Model yanıtı bu sürede tamamlayamadı (uzun çıktı: büyük dashboard ya da tablo). "
+                                       "İsteği daha küçük adımlara bölün (ör. önce KPI kartları, sonra grafikler) ya da yöneticiniz "
+                                       "LLM_TIMEOUT_S süresini artırsın.") from e
                     if not retry:
                         raise LLMError(f"{e} {unavailable + 1} deneme yapıldı, sunucu yanıt vermedi. Birkaç dakika sonra "
                                        "tekrar deneyin; sorun sürerse saatini belirterek LLM platform ekibine bildirin.") from e
@@ -286,7 +328,8 @@ class Agent:
                     why = f"{e.status}" if e.status else ("zaman aşımı" if e.timeout else "bağlantı yok")
                     yield Event("status", {"text": f"LLM sunucusu yanıt vermedi ({why}); {wait:g} sn sonra yeniden "
                                                    f"deneniyor ({unavailable}/{len(delays)})…"})
-                    time.sleep(wait)
+                    if _wait(stop, wait):
+                        raise TurnStopped()
                 except ContextOverflow as e:
                     overflows += 1
                     if overflows == 3:
@@ -332,6 +375,8 @@ class Agent:
                 if result.ok and result.next_phase:
                     next_phase, kickoff = result.next_phase, result.kickoff
             self.store.save(s)
+            if stop.is_set() and not next_phase:   # araçların sonuçları kaydedildi; faz geçişi yarıda bırakılmaz
+                raise TurnStopped()
 
             # model önerisi hazır ama model kullanıcıya sormadan araç çağırmayı sürdürüyor: turu sistem bitirir ve
             # öneriyi onay sorusuyla gösterir (SQL'den önce kullanıcı onayı kuralı)
@@ -380,6 +425,29 @@ class Agent:
             "Bu istek için adım sınırına ulaştım. Şu ana kadarki ilerleme kaydedildi; "
             "\"devam et\" yazarak kaldığım yerden sürdürebilirsiniz.")))
         s.llm_messages.append({"role": "assistant", "content": "(adım sınırına ulaşıldı)"})
+
+    def _call_llm(self, messages: list[dict[str, Any]], schemas: list[dict[str, Any]], max_out: int | None,
+                  stop: threading.Event) -> Iterator[Event]:
+        """LLM çağrısı ayrı iş parçacığında: beklerken "Model yanıt üretiyor… N sn" durumu gönderilir (uzun yanıtta
+        kullanıcı ne olduğunu görür, ara katmanlar sessiz bağlantıyı kesmez) ve "Durdur" yoklanır. Gateway iptali
+        destekliyorsa bağlantıyı kapatır (sunucu üretimi bırakır); desteklemiyorsa beklemeden tur bitirilir."""
+        kwargs: dict[str, Any] = {"max_tokens": max_out} if max_out else {}
+        if getattr(self.llm, "supports_cancel", False):
+            kwargs["cancel"] = stop
+        fut = _LLM_POOL.submit(self.llm.chat, messages, schemas, **kwargs)
+        t0 = time.monotonic()
+        last = 0.0
+        while True:
+            try:
+                return fut.result(timeout=0.5)
+            except FutureTimeout:
+                waited = time.monotonic() - t0
+                if stop.is_set() and "cancel" not in kwargs:
+                    raise TurnStopped() from None
+                if waited >= HEARTBEAT_AFTER_S and waited - last >= HEARTBEAT_EVERY_S:
+                    last = waited
+                    yield Event("status", {"text": f"Model yanıt üretiyor… {int(waited)} sn"
+                                                   + (" (durduruluyor)" if stop.is_set() else "")})
 
     def _run_tool(self, s: Session, call: ToolCall) -> Iterator[Event]:
         tool = TOOLS_BY_NAME.get(call.name)

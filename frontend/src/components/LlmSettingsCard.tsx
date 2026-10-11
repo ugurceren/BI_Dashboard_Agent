@@ -196,6 +196,15 @@ export function LlmSettingsCard({ api, imported, onSaved, layout = { collapsed: 
             <p className="muted small">Boş bırakın: uygulama sınır koymaz, modelin kendi sınırı geçerlidir; konuşma geçmişi de modelin
               bağlam penceresinin tamamına göre ayarlanır. Yalnız sunucu sınır istiyorsa bir değer girin.</p>
           </div>
+          <div className="st-field">
+            <label htmlFor="llm-timeout">Yanıt Bekleme Süresi (sn)</label>
+            <input id="llm-timeout" className="st-input" type="number" min={30} max={1800} step={30}
+              value={llm.timeout_s ?? ""} placeholder="180"
+              onChange={(e) => upd({ timeout_s: e.target.value ? Number(e.target.value) : null })} />
+            <p className="muted small">Model bir yanıtı bu sürede bitiremezse istek kesilir. Yavaş yerel modelde (ör. saniyede ~25 token) büyük
+              dashboard yanıtları için 600 önerilir. LLM bir ağ geçidinin (nginx) arkasındaysa onun bekleme süresi ayrıca geçerlidir; o daha
+              kısaysa 504 alınır ve platform ekibinin artırması gerekir. Kullanıcı uzun yanıtı sohbetteki <b>Durdur</b> ile kesebilir.</p>
+          </div>
           <details className="st-adv">
             <summary>Gelişmiş</summary>
             <div className="st-field">

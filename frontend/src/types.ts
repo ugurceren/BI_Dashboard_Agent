@@ -556,6 +556,8 @@ export interface LlmSettings {
   base_url: string; model: string; tool_mode: ToolMode; extra_body?: Record<string, unknown> | null;
   /** yanıt token sınırı; null = otomatik */
   max_tokens?: number | null;
+  /** yanıt bekleme süresi (sn); null = .env / varsayılan 180 */
+  timeout_s?: number | null;
   api_key?: string | null; has_api_key?: boolean;
   vision: LlmVision;
 }

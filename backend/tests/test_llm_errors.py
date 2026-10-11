@@ -76,7 +76,7 @@ def _audit(settings, event):
 
 def test_agent_waits_and_retries_then_succeeds(settings, services, monkeypatch):
     waits = []
-    monkeypatch.setattr(agent_mod.time, "sleep", waits.append)
+    monkeypatch.setattr(agent_mod, "_wait", lambda _ev, sec: waits.append(sec) or False)
     llm = FlakyLLM(2, [AssistantTurn("Merhaba, hangi raporu istiyorsunuz?")], settings)
     store = SessionStore(settings.sessions_dir)
     s = store.create("standart")
@@ -92,7 +92,7 @@ def test_agent_waits_and_retries_then_succeeds(settings, services, monkeypatch):
 
 
 def test_agent_gives_up_with_clear_message(settings, services, monkeypatch):
-    monkeypatch.setattr(agent_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(agent_mod, "_wait", lambda _ev, _sec: False)
     llm = FlakyLLM(99, [], settings)
     store = SessionStore(settings.sessions_dir)
     s = store.create("standart")
@@ -104,3 +104,113 @@ def test_agent_gives_up_with_clear_message(settings, services, monkeypatch):
     assert len(errs) == 5 and errs[-1]["retry"] is False
     assert len(_audit(settings, "llm_failed")) == 1
     assert not store.get(s.id).busy
+
+
+class SlowLLM(FakeLLM):
+    """İstemci zaman aşımı: yeniden denenmemeli (model o sürede yanıtı üretemiyor)."""
+
+    def chat(self, messages, tools=None):
+        self.calls.append({"messages": messages})
+        raise LLMUnavailable("LLM sunucusu 600 sn içinde yanıt vermedi (zaman aşımı).", timeout=True)
+
+
+def test_agent_does_not_retry_client_timeout(settings, services, monkeypatch):
+    waits = []
+    monkeypatch.setattr(agent_mod, "_wait", lambda _ev, sec: waits.append(sec) or False)
+    llm = SlowLLM([], settings)
+    store = SessionStore(settings.sessions_dir)
+    s = store.create("standart")
+    events = list(Agent(llm, services, store).run_turn(s.id, "dashboard tasarla"))
+    err = next(e for e in events if e.type == "error").data["message"]
+    assert len(llm.calls) == 1 and waits == []
+    assert "küçük adımlara" in err
+    errs = _audit(settings, "llm_error")
+    assert len(errs) == 1 and errs[0]["timeout"] is True and errs[0]["retry"] is False
+
+
+# ------------------------------------------------------------------ Durdur
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from app.llm.gateway import LLMCancelled
+
+
+class BlockingLLM(FakeLLM):
+    """İptali destekleyen sahte model: cancel kurulana kadar bekler (uzun yanıt)."""
+
+    supports_cancel = True
+
+    def __init__(self, settings):
+        super().__init__([AssistantTurn("sonraki yanıt")], settings)
+        self.started = threading.Event()
+        self.block = True
+
+    def chat(self, messages, tools=None, cancel=None, **_):
+        self.calls.append({"messages": messages})
+        if self.block:
+            self.block = False
+            self.started.set()
+            assert cancel is not None and cancel.wait(10), "iptal gelmedi"
+            raise LLMCancelled("Yanıt kullanıcı tarafından durduruldu.")
+        return self.script.pop(0)
+
+
+def test_cancel_stops_turn_without_error_and_session_is_usable(settings, services):
+    llm = BlockingLLM(settings)
+    store = SessionStore(settings.sessions_dir)
+    agent = Agent(llm, services, store)
+    s = store.create("standart")
+    assert agent.cancel(s.id) is False                       # çalışan tur yok
+    events = []
+    th = threading.Thread(target=lambda: events.extend(agent.run_turn(s.id, "büyük bir dashboard tasarla")))
+    th.start()
+    assert llm.started.wait(10)
+    assert agent.cancel(s.id) is True
+    th.join(10)
+    assert not th.is_alive()
+    assert not any(e.type == "error" for e in events) and events[-1].type == "done"
+    s = store.get(s.id)
+    assert not s.busy and s.transcript[-1].content == "Yanıt kullanıcı tarafından durduruldu."
+    assert "durdurdu" in s.llm_messages[-1]["content"]
+    assert _audit(settings, "turn_cancelled")
+    later = list(agent.run_turn(s.id, "devam"))              # kilit bırakıldı, sonraki mesaj çalışır
+    assert not any(e.type == "error" for e in later)
+    assert store.get(s.id).transcript[-1].content == "sonraki yanıt"
+
+
+class _Slow(BaseHTTPRequestHandler):
+    """Yanıtı 10 sn geciktiren sahte LLM sunucusu (uzun üretim)."""
+
+    def do_POST(self):  # noqa: N802
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        time.sleep(10)
+
+    def log_message(self, *a):
+        pass
+
+
+def test_gateway_cancel_closes_connection_quickly(settings):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Slow)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        settings.llm_base_url = f"http://127.0.0.1:{srv.server_address[1]}/v1"
+        gw = LLMGateway(settings)
+        ev = threading.Event()
+        threading.Timer(0.5, ev.set).start()
+        t0 = time.monotonic()
+        with pytest.raises(LLMCancelled):
+            gw.chat([{"role": "user", "content": "x"}], cancel=ev)
+        assert time.monotonic() - t0 < 3, "iptal hemen dönmeli (sunucu 10 sn bekletiyor)"
+    finally:
+        srv.shutdown()
+
+
+def test_timeout_setting_from_ui_overrides_env(settings, monkeypatch):
+    from app.data import connections as conns
+    monkeypatch.setattr(conns, "load_connections", lambda: {"llm": {"base_url": "http://x/v1", "model": "m", "timeout_s": 600}})
+    eff = conns.llm_settings(settings)
+    assert eff.llm_timeout_s == 600 and conns.llm_effective(settings)["timeout_s"] == 600
+    monkeypatch.setattr(conns, "load_connections", lambda: {"llm": {"base_url": "http://x/v1", "model": "m"}})
+    assert conns.llm_settings(settings).llm_timeout_s == settings.llm_timeout_s     # boş: .env / varsayılan

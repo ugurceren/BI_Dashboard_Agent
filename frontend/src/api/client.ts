@@ -51,6 +51,8 @@ export interface Api {
   setStatus(id: string, status: string): Promise<SessionState>;
   sendMessage(id: string, body: MessageBody, onEvent: (ev: StreamEvent) => void, signal?: AbortSignal): Promise<void>;
   setPhase(id: string, phase: Phase): Promise<SessionState>;
+  /** çalışan agent turunu durdurur (bekleyen LLM isteği kesilir) */
+  cancelTurn(id: string): Promise<{ ok: boolean; running: boolean }>;
   /** sorgu modu: mod ve taslak sorgular (dataset değil) */
   saveQueryDrafts(id: string, body: { mode?: "chat" | "query"; drafts?: QueryDraft[] }): Promise<SessionState>;
   /** sorgu modu önizlemesi: dataset kaydı ve dashboard ile aynı doğrulama */
@@ -243,6 +245,7 @@ export const httpApi: Api = {
   renameSession: (id, title, overwrite = false) =>
     req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/title`, { method: "PUT", body: JSON.stringify({ title, overwrite }) }),
   setPhase: (id, phase) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/phase`, { method: "POST", body: JSON.stringify({ phase }) }),
+  cancelTurn: (id) => req<{ ok: boolean; running: boolean }>(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
   saveQueryDrafts: (id, body) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/query-drafts`, { method: "PUT", body: JSON.stringify(body) }),
   queryPreview: (id, sql) => req<QueryRunResult>(`/api/sessions/${encodeURIComponent(id)}/query-preview`, { method: "POST", body: JSON.stringify({ sql }) }),
   datasetsFromQuery: (id, drafts) => req<SessionState>(`/api/sessions/${encodeURIComponent(id)}/datasets/from-query`, { method: "POST", body: JSON.stringify({ datasets: drafts }) }),

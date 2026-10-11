@@ -155,6 +155,8 @@ def llm_overrides() -> dict[str, Any]:
                            "llm_tool_mode": cfg.get("tool_mode") or "auto", "llm_extra_body": cfg.get("extra_body") or None}
     if cfg.get("max_tokens"):                       # arayüzden verilen yanıt token sınırı (.env'dekinin yerine)
         out["llm_max_tokens"] = int(cfg["max_tokens"])
+    if cfg.get("timeout_s"):                        # arayüzden verilen yanıt bekleme süresi (.env LLM_TIMEOUT_S yerine)
+        out["llm_timeout_s"] = float(cfg["timeout_s"])
     v = cfg.get("vision") or {}
     if not v.get("enabled", True) or not v.get("model"):
         out.update(vision_model=None, vision_base_url=None, vision_api_key=None)
@@ -182,6 +184,7 @@ def llm_effective(settings: Settings) -> dict[str, Any]:
         "base_url": s.llm_base_url, "model": s.llm_model, "tool_mode": s.llm_tool_mode,
         "extra_body": s.llm_extra_body, "has_api_key": bool(s.llm_api_key and s.llm_api_key != "EMPTY"),
         "max_tokens": s.llm_max_tokens or None,     # None / 0 = otomatik
+        "timeout_s": s.llm_timeout_s,               # geçerli değer (arayüz > .env > 180)
         "vision": {"enabled": bool(s.vision_model), "model": s.vision_model or "", "same_as_main": vision_same,
                    "base_url": s.vision_base_url or "", "has_api_key": bool(s.vision_api_key)},
     }

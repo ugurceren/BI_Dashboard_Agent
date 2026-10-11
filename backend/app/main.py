@@ -518,6 +518,13 @@ def post_message(sid: str, body: MessageIn, request: Request) -> StreamingRespon
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.post("/api/sessions/{sid}/cancel")
+def cancel_turn(sid: str, request: Request) -> dict[str, Any]:
+    """Çalışan agent turunu durdurur: bekleyen LLM isteğinin bağlantısı kapatılır, tur hata olmadan biter."""
+    _own_session(request, sid)
+    return {"ok": True, "running": state.agent.cancel(sid)}
+
+
 class TitleIn(BaseModel):
     title: str
     overwrite: bool = False   # aynı isimde başka rapor varsa üstüne yaz (o rapor silinir)
@@ -1409,6 +1416,7 @@ class LlmIn(BaseModel):
     tool_mode: str = "auto"          # auto | native | prompt
     extra_body: dict[str, Any] | None = None
     max_tokens: int | None = None    # yanıt token sınırı; boş = otomatik (bağlam penceresine göre, en çok 16384)
+    timeout_s: float | None = None   # yanıt bekleme süresi (sn); boş = .env LLM_TIMEOUT_S (varsayılan 180)
     vision: VisionIn = VisionIn()
 
     @field_validator("api_key")
@@ -1554,6 +1562,7 @@ def save_llm(body: LlmIn, request: Request) -> dict[str, Any]:
         "base_url": body.base_url.strip(), "model": body.model.strip(), "tool_mode": body.tool_mode,
         "extra_body": body.extra_body, "api_key_enc": conns.protect(main_key),
         "max_tokens": max(256, min(int(body.max_tokens), 131072)) if body.max_tokens else None,
+        "timeout_s": max(30.0, min(float(body.timeout_s), 1800.0)) if body.timeout_s else None,
         "vision": {"enabled": v.enabled and bool(v.model.strip()), "same_as_main": v.same_as_main, "model": v.model.strip(),
                    "base_url": "" if v.same_as_main else v.base_url.strip(),
                    "api_key_enc": "" if v.same_as_main else conns.protect(vis_key)},

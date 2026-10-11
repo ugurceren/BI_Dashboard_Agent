@@ -277,9 +277,11 @@ export function EmptyChat({ api, onPick, onDemo, onOpenReport, disabled }: {
 
 // ---------- yazma alanı ----------
 
-export function Composer({ disabled, busy, onSend, visionReady, dropTarget }: {
+export function Composer({ disabled, busy, onSend, onStop, visionReady, dropTarget }: {
   disabled: boolean;
   busy: boolean;
+  /** agent yanıtlarken "Durdur" (bekleyen LLM isteği kesilir) */
+  onStop?: () => void;
   onSend: (text: string, images: string[]) => void;
   visionReady: boolean | null;
   dropTarget: RefObject<HTMLElement | null>;
@@ -418,9 +420,15 @@ export function Composer({ disabled, busy, onSend, visionReady, dropTarget }: {
           onPaste={onPaste}
           disabled={disabled}
         />
-        <button type="button" className="send-btn" onClick={send} disabled={!canSend} aria-label="Gönder" title="Gönder">
-          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 16V4M5 9l5-5 5 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
+        {busy && onStop ? (
+          <button type="button" className="send-btn is-stop" onClick={onStop} aria-label="Durdur" title="Yanıtı durdur (model üretmeyi bırakır)">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="2" fill="currentColor" /></svg>
+          </button>
+        ) : (
+          <button type="button" className="send-btn" onClick={send} disabled={!canSend} aria-label="Gönder" title="Gönder">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 16V4M5 9l5-5 5 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        )}
       </div>
       <div className="composer-hint">
         <span>Enter gönder · Shift+Enter yeni satır</span>
