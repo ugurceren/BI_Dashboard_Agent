@@ -91,7 +91,7 @@
 .tr-guide-head h1 { font-size: 20px; margin: 6px 0 4px; letter-spacing: -0.01em; }
 .tr-link { all: unset; cursor: pointer; font-size: 13px; color: var(--accent); }
 .tr-link:focus-visible, .tr-nav-item:focus-visible, .tr-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.tr-present-link { display: inline-block; margin-top: 2px; font-weight: 600; }
+.tr-present-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; font-weight: 600; }
 .tr-search { box-sizing: border-box; min-height: 36px; appearance: none; font: inherit; font-size: 13px; height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 .tr-roles-filter { display: flex; flex-wrap: wrap; gap: 6px; }
 .tr-chip { all: unset; cursor: pointer; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }

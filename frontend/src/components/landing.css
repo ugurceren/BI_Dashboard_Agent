@@ -127,3 +127,4 @@
   .ld-stage { flex-basis: 190px; }
   .ld-body { padding: 4px 20px 22px; }
 }
+.ld-intro-btn { display: inline-flex; align-items: center; gap: 7px; }

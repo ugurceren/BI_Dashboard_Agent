@@ -4,7 +4,7 @@ import { expect, test } from "./fixtures";
 
 test("sunum: açılış sayfasından açılır, klavyeyle gezilir, görseller yüklenir, Esc ile çıkılır", async ({ page }) => {
   await page.goto("/#/giris");
-  await page.getByRole("button", { name: /Tanıtımı izle/ }).click();
+  await page.getByRole("button", { name: /Tanıtım sunumu/ }).click();
   const deck = page.getByTestId("presentation");
   await expect(deck).toBeVisible();
   await expect(page).toHaveURL(/#\/tanitim\/1$/);

@@ -99,7 +99,7 @@ export function Guide({ me, section, onExit, onPresent }: {
         <div className="tr-guide-head">
           <button type="button" className="tr-link" onClick={onExit}>← Geri</button>
           <h1>Kullanım kılavuzu</h1>
-          <button type="button" className="tr-link tr-present-link" onClick={onPresent}>▶ Tanıtımı izle</button>
+          <button type="button" className="tr-link tr-present-link" onClick={onPresent}><span aria-hidden="true">▶</span> Tanıtım sunumu</button>
         </div>
         <input className="tr-search" type="search" placeholder="Kılavuzda ara…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Kılavuzda ara" />
         <div className="tr-roles-filter" role="group" aria-label="Role göre">

@@ -35,7 +35,7 @@ export function Landing({ me, vitrin, sessions, health, onChoose, onSystem, onTo
         <h1>{firstName ? `Hoş geldiniz, ${firstName}.` : "Hoş geldiniz."}</h1>
         <p>Raporları keşfedin, yenisini tasarlayın ya da sistemi yönetin.</p>
         <div className="ld-intro">
-          <button type="button" className="ld-intro-btn is-primary" onClick={onTour}><span aria-hidden="true">▶</span> Tanıtımı izle</button>
+          <button type="button" className="ld-intro-btn is-primary" onClick={onTour} title="BI Lens'i tanıtan slayt sunumu"><span aria-hidden="true">▶</span> Tanıtım sunumu</button>
           <button type="button" className="ld-intro-btn" onClick={onGuide}>Kullanım kılavuzu</button>
         </div>
       </section>

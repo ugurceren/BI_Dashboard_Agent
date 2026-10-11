@@ -106,6 +106,7 @@ async function main() {
   const shot = async (name, ms) => { await settle(page, ms); await page.screenshot({ path: path.join(OUT, `${name}.jpg`), type: "jpeg", quality: 80 }); console.log("✓", name); };
 
   await page.goto("/#/giris"); await shot("01-giris", 2000);
+  if (process.argv.includes("--yalniz-giris")) { await browser.close(); return; }   // yalnız giriş sayfası görselini yenile
 
   // sohbetle rapor (sahte LLM senaryosu): ihtiyaç → model önerisi → onay → veri → tasarım
   const chatS = await api("POST", "/api/sessions", {});

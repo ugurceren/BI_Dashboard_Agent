@@ -39,7 +39,7 @@ export function Presentation({ index, onGo, onExit, onGuide }: {
     <div className="tr-present" data-testid="presentation" aria-roledescription="sunum">
       <header className="tr-bar">
         <button type="button" className="tr-ghost" onClick={onExit} title="Sunumdan çık (Esc)">← Çık</button>
-        <span className="tr-bar-title">BI Lens · Tanıtım</span>
+        <span className="tr-bar-title">BI Lens · Tanıtım sunumu</span>
         <span className="tr-spacer" />
         <button type="button" className="tr-ghost" onClick={() => setNotes((n) => !n)} aria-pressed={notes} title="Konuşmacı notu (N)">Not</button>
         <button type="button" className="tr-ghost" onClick={onGuide} title="Kullanım kılavuzu">Kılavuz</button>
