@@ -71,10 +71,13 @@ def test_update_report_mode_switch_resets_surface_colors(ctx):
 
 def test_color_names_become_hex(ctx):
     """Yerel model 'lacivert' yazınca tarayıcı tanımıyor, kart eski renkte kalıyordu: adlar hex'e çevrilir."""
-    r = h_update_visual(ctx, {"id": "k1", "changes": {"options": {"background": "Lacivert", "textColor": "beyaz", "color": "koyu mavi"}}})
+    r = h_update_visual(ctx, {"id": "k1", "changes": {"options": {"background": "Lacivert", "textColor": "beyaz", "color": "açık mavi"}}})
     assert r.ok, r.content
     o = _kpi(ctx)
-    assert (o.background, o.textColor, o.color) == ("#1e3a8a", "#ffffff", "#1e40af")
+    assert (o.background, o.textColor, o.color) == ("#1e3a8a", "#ffffff", "#60a5fa")
+    # lacivert zemine koyu mavi değer okunmaz: okunabilirlik kuralı aynı tonu açar ve modele not döner
+    r = h_update_visual(ctx, {"id": "k1", "changes": {"options": {"color": "koyu mavi"}}})
+    assert r.ok and _kpi(ctx).color not in ("#1e40af", None) and "KURAL kpi" in str(r.content)
     r = h_update_report(ctx, {"theme": {"accent": "turuncu"}})
     assert r.ok, r.content and ctx.session.spec.theme.accent == "#ea580c"
 

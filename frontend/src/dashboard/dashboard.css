@@ -268,7 +268,8 @@
 /* ---------- KPI ---------- */
 .db-kpi { container-type: inline-size; gap: 0; }
 .db-kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.db-kpi-label { font-size: 12.5px; font-weight: 560; color: var(--db-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* KPI yazıları kart genişliğiyle ölçeklenir (cqi = kartın genişliğinin %1'i): dar kartta okunur, geniş kartta küçük kalmaz */
+.db-kpi-label { font-size: clamp(13px, 4cqi, 18px); font-weight: 600; line-height: 1.3; color: var(--db-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .db-kpi-value {
   margin-top: 6px;
   font-size: clamp(22px, 12.5cqi, 32px);
@@ -283,14 +284,16 @@
 .db-kpi.is-sm .db-kpi-value { font-size: clamp(18px, 9cqi, 24px); }
 .db-kpi.is-lg .db-kpi-value { font-size: clamp(26px, 15cqi, 40px); }
 .db-kpi.is-xl .db-kpi-value { font-size: clamp(30px, 18cqi, 52px); }
-.db-kpi.has-bar { padding-left: calc(var(--db-pad) + 4px); }
+/* sol renkli şerit: içerik şeridin yanından başlar. (--db-pad iki değerli "16px 18px" olduğundan calc(var(--db-pad) + …)
+   geçersizdi ve sol boşluk 0'a düşüp yazılar şeride biniyordu; yatay boşluk --db-pad-x'ten hesaplanır) */
+.db-kpi.has-bar { padding-left: calc(var(--db-pad-x) + 6px); }
 .db-kpi.has-bar::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--db-kpi-bar); }
 .db-kpi-delta-row { display: flex; align-items: center; gap: 7px; margin-top: 8px; min-width: 0; }
 .db-delta {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 11.5px;
+  font-size: clamp(11.5px, 3.2cqi, 14.5px);
   font-weight: 650;
   padding: 2px 7px 2px 5px;
   border-radius: 999px;
@@ -300,13 +303,20 @@
 .db-delta.is-up { color: var(--db-good); background: var(--db-good-bg); }
 .db-delta.is-down { color: var(--db-bad); background: var(--db-bad-bg); }
 .db-delta.is-flat { color: var(--db-muted); background: var(--db-surface-2); padding-left: 7px; }
-.db-kpi-delta-label { font-size: 11.5px; color: var(--db-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* açık temada koyu zeminli KPI kartı: rozet renkleri koyu zemine göre (açık tema rozetleri koyu zeminde okunmuyordu) */
+.db-kpi.is-dark-card .db-delta.is-up { color: #86efac; background: rgba(134, 239, 172, 0.16); }
+.db-kpi.is-dark-card .db-delta.is-down { color: #fca5a5; background: rgba(252, 165, 165, 0.16); }
+.db-kpi.is-dark-card .db-delta.is-flat { color: var(--db-muted); background: rgba(255, 255, 255, 0.1); }
+.db-kpi.is-light-card .db-delta.is-up { color: #047857; background: rgba(4, 120, 87, 0.12); }
+.db-kpi.is-light-card .db-delta.is-down { color: #b91c1c; background: rgba(185, 28, 28, 0.1); }
+.db-kpi.is-light-card .db-delta.is-flat { color: var(--db-muted); background: rgba(0, 0, 0, 0.06); }
+.db-kpi-delta-label { font-size: clamp(11.5px, 3.2cqi, 14.5px); color: var(--db-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .db-kpi-spark { flex: 1; min-height: 28px; margin: 8px -4px -4px; display: flex; }
 .db-kpi-fill { flex: 1; }
 .db-kpi-target { margin-top: 10px; }
 .db-meter { height: 6px; border-radius: 99px; background: var(--db-accent-soft); overflow: hidden; }
 .db-meter-fill { height: 100%; border-radius: 99px; background: var(--db-accent); }
-.db-kpi-target-text { margin-top: 5px; font-size: 11px; color: var(--db-muted); }
+.db-kpi-target-text { margin-top: 5px; font-size: clamp(11px, 3cqi, 14px); color: var(--db-muted); }
 .db-kpi-target-text b { color: var(--db-text); font-weight: 650; }
 
 /* ---------- tablo ---------- */

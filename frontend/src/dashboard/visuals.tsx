@@ -343,7 +343,11 @@ export function KpiVisual(p: VisualProps) {
     ...(fg ? { "--db-text": fg, "--db-muted": alpha(fg, 0.72) } : {}),
     ...(o.accentBar ? { "--db-kpi-bar": o.color ?? theme.accent } : {}),
   } as CSSProperties;
-  const cls = ["db-card", "db-kpi", o.valueSize ? `is-${o.valueSize}` : "", o.accentBar ? "has-bar" : ""].filter(Boolean).join(" ");
+  // kart zemini koyuysa (kullanıcı / model "lacivert zemin" dediyse) değişim rozetleri açık tonlarla çizilir
+  const darkCard = !!o.background && luminance(o.background) < 0.35 && !theme.isDark;
+  const lightCard = !!o.background && luminance(o.background) > 0.6 && theme.isDark;   // koyu temada açık zeminli kart
+  const cls = ["db-card", "db-kpi", o.valueSize ? `is-${o.valueSize}` : "", o.accentBar ? "has-bar" : "",
+    darkCard ? "is-dark-card" : "", lightCard ? "is-light-card" : ""].filter(Boolean).join(" ");
   return (
     <div className={cls} style={cardStyle}>
       <div className="db-kpi-top">

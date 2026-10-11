@@ -20,7 +20,7 @@ from app.data.connector import Connector, QueryError, QueryResult
 from app.data.validator import RolePolicy, SqlValidator
 from app.dictionary.repository import DataDictionary
 from app.harness.session import Phase, Requirements, Session
-from app.spec.models import Dataset, DatasetField, ReportSpec, Theme, semantic_errors
+from app.spec.models import Dataset, DatasetField, ReportSpec, Theme, semantic_errors, to_hex_color
 
 
 @dataclass
@@ -452,7 +452,7 @@ def _validate_spec(ctx: ToolContext, spec_raw: dict[str, Any]) -> tuple[ReportSp
                      "border": "#1f2a44"}.items():
             raw["theme"].setdefault(k, v)
     notes = _layout_visuals([v for v in raw.get("visuals") or [] if isinstance(v, dict)], raw.get("pages")) \
-        + _resolve_filters(ctx, raw)         + _fix_axes(raw) + _chart_rules(ctx, raw)
+        + _resolve_filters(ctx, raw)         + _fix_axes(raw) + _chart_rules(ctx, raw) + _readability_rules(raw)
     if ignored:
         notes.insert(0, f"{_IGNORED}: {', '.join(ignored[:12])}. Bu alanlar şemada yok ve UYGULANMADI. "
                         "Görsel stil için yalnız options.color / background / textColor / valueSize / accentBar (kpi) "
@@ -729,6 +729,102 @@ def _chart_rules(ctx: ToolContext, raw: dict[str, Any]) -> list[str]:
             notes.append(f"KURAL '{vid}': gösterge (gauge) hedef değer ister (options.target); hedef yoksa kpi kullan.")
         if typ == "scatter" and (info(x).get("type") != "number" or not ys or info(ys[0]).get("type") != "number"):
             notes.append(f"KURAL '{vid}': dağılım (scatter) iki sayısal ölçü ister (x ve y); kategori için bar kullan.")
+    return notes
+
+
+# ---------------------------------------------------------------- KPI / tema okunabilirlik kuralları
+# Model renkleri serbest seçer (ör. lacivert zemine koyu mavi değer, koyu temada koyu gri açıklama): kart okunmaz.
+# Kayıttan önce WCAG kontrastı ölçülür, okunmayan seçim düzeltilir ve modele "KURAL" notu döner.
+TEXT_CONTRAST, VALUE_CONTRAST, MUTED_CONTRAST = 4.5, 3.0, 3.0
+_HEX6 = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})([0-9a-fA-F]{2})?$")
+
+
+def _rgb(c: Any) -> tuple[float, float, float] | None:
+    try:
+        c = to_hex_color(str(c)) if c else c        # "lacivert" → #1e3a8a (model renkleri çoğu zaman adla yazar)
+    except ValueError:
+        return None
+    m = _HEX6.match(str(c or "").strip())
+    if not m:
+        return None                      # CSS renk adı vb.: ölçülemez, dokunulmaz
+    h = m.group(1)
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))  # type: ignore[return-value]
+
+
+def _lum(rgb: tuple[float, float, float]) -> float:
+    lin = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in rgb]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def _contrast(a: Any, b: Any) -> float | None:
+    ra, rb = _rgb(a), _rgb(b)
+    if ra is None or rb is None:
+        return None
+    la, lb = sorted((_lum(ra), _lum(rb)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def _hex(rgb: tuple[float, float, float]) -> str:
+    return "#" + "".join(f"{round(max(0, min(1, x)) * 255):02x}" for x in rgb)
+
+
+def _readable(color: str, bg: str, target: float) -> str:
+    """Rengin tonunu koruyarak zemin üzerinde okunur olana kadar açar (koyu zemin) ya da koyulaştırır (açık zemin)."""
+    c, b = _rgb(color), _rgb(bg)
+    if c is None or b is None:
+        return color
+    toward = (1.0, 1.0, 1.0) if _lum(b) < 0.4 else (0.0, 0.0, 0.0)
+    for k in range(1, 11):
+        t = k / 10
+        out = tuple(c[i] + (toward[i] - c[i]) * t for i in range(3))
+        if (_contrast(_hex(out), bg) or 0) >= target:  # type: ignore[arg-type]
+            return _hex(out)  # type: ignore[arg-type]
+    return _hex(toward)
+
+
+def _readability_rules(raw: dict[str, Any]) -> list[str]:
+    notes: list[str] = []
+    theme = raw.setdefault("theme", {}) if isinstance(raw.get("theme"), dict) or raw.get("theme") is None else {}
+    eff = {**Theme().model_dump(), **{k: v for k, v in theme.items() if v is not None}}
+    surface = eff["surface"]
+    dark_surface = (_rgb(surface) is not None and _lum(_rgb(surface)) < 0.4)  # type: ignore[arg-type]
+    # tema: kart yazısı ve açıklama rengi (KPI başlığı, grafik alt başlığı, eksen) kart zemininde okunmalı
+    cr = _contrast(eff["text"], surface)
+    if cr is not None and cr < TEXT_CONTRAST:
+        theme["text"] = "#e5e7eb" if dark_surface else "#0f172a"
+        notes.append(f"KURAL tema: yazı rengi {eff['text']} kart zemini {surface} üzerinde okunmuyor (kontrast {cr:.1f}:1); "
+                     f"{theme['text']} yapıldı.")
+    cr = _contrast(eff["mutedText"], surface)
+    if cr is not None and cr < MUTED_CONTRAST:
+        theme["mutedText"] = _readable(eff["mutedText"], surface, MUTED_CONTRAST + 0.5)
+        notes.append(f"KURAL tema: açıklama rengi {eff['mutedText']} (KPI başlıkları) kart zemininde okunmuyor "
+                     f"(kontrast {cr:.1f}:1); {theme['mutedText']} yapıldı.")
+    for v in raw.get("visuals") or []:
+        if not isinstance(v, dict) or v.get("type") != "kpi":
+            continue
+        opts = v.get("options") if isinstance(v.get("options"), dict) else None
+        if not opts:
+            continue
+        vid = v.get("id")
+        bg = opts.get("background") or surface
+        tc = opts.get("textColor")
+        cr = _contrast(tc, bg) if tc else None
+        if cr is not None and cr < TEXT_CONTRAST:
+            opts.pop("textColor")
+            notes.append(f"KURAL kpi '{vid}': yazı rengi {tc} zemin {bg} üzerinde okunmuyor (kontrast {cr:.1f}:1); "
+                         "zemine göre otomatik okunur renk kullanılıyor.")
+        col = opts.get("color")
+        cr = _contrast(col, bg) if col else None
+        if cr is not None and cr < VALUE_CONTRAST:
+            opts["color"] = _readable(col, bg, VALUE_CONTRAST + 0.5)
+            notes.append(f"KURAL kpi '{vid}': değer / şerit rengi {col} zemin {bg} üzerinde okunmuyor (kontrast {cr:.1f}:1); "
+                         f"aynı tonun okunur hali {opts['color']} kullanıldı.")
+        w = (v.get("position") or {}).get("w") if isinstance(v.get("position"), dict) else None
+        if opts.get("valueSize") == "xl" and isinstance(w, int) and w <= 2:
+            opts["valueSize"] = "lg"
+            notes.append(f"KURAL kpi '{vid}': dar kartta (w={w}) çok büyük değer sığmaz; valueSize lg yapıldı.")
     return notes
 
 

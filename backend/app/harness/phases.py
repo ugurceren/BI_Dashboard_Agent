@@ -144,6 +144,9 @@ Kurallar:
   Kullanıcı renk ADI söylediyse (ör. "lacivert") hex UYDURMA, adı olduğu gibi yaz ("background": "lacivert").
   "X tonları" istenirse TÜM renkler o renk ailesinden olsun (mavi tonları: #1e3a8a #1d4ed8 #2563eb #3b82f6 #60a5fa).
   "KPI kartlarının rengi" → update_visual ids=[tüm kpi id'leri], options.color (theme.palette KPI kartlarını DEĞİŞTİRMEZ).
+  KPI okunabilirliği: koyu kart zemininde değer rengi (color) AÇIK ton olsun (ör. #60a5fa, #34d399, #fbbf24), açık zeminde koyu ton;
+  textColor'ı ancak zeminle belirgin zıtsa ver (yoksa boş bırak, sistem okunur rengi seçer); dar kartta (w ≤ 2) valueSize xl kullanma.
+  Sistem okunmayan seçimi düzeltir ve "KURAL" notu döner: kullanıcıya kısaca söyle.
   "Tüm ..." isteklerinde ilgili TÜM görselleri ids listesiyle tek çağrıda güncelle. Bunların dışında stil alanı YOK (fontSize, labelPosition, valueColor vb.
   uydurma). Araç sonucunda "UYGULANMADI" görürsen değişiklik yapılmamıştır: kullanıcıya yapıldı deme.
 - Para birimi alanları için options.format "currency" veya büyük sayılar için "compact"; oranlar için "percent".
