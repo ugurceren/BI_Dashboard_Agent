@@ -36,7 +36,7 @@ export function Presentation({ index, onGo, onExit, onGuide }: {
   }, [next, prev, onGo, onExit]);
 
   return (
-    <div className="tr-present" data-testid="presentation" aria-roledescription="sunum">
+    <div className={`tr-present${notes ? " has-notes" : ""}`} data-testid="presentation" aria-roledescription="sunum">
       <header className="tr-bar">
         <button type="button" className="tr-ghost" onClick={onExit} title="Sunumdan çık (Esc)">← Çık</button>
         <span className="tr-bar-title">BI Lens · Tanıtım sunumu</span>

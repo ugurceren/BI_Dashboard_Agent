@@ -21,6 +21,13 @@
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr);
 }
 .tr-slide.art-end { grid-template-columns: minmax(0, 1fr) auto; }
+/* ekran görüntülü slayt: görsel sayfanın çoğunu kaplar, metin dar sütunda (tam ekran uygulama görüntüsü okunabilsin) */
+.tr-slide.has-shot {
+  grid-template-columns: minmax(260px, 0.5fr) minmax(0, 1.5fr); gap: clamp(20px, 2.4vw, 40px);
+  max-width: 1880px; padding-left: clamp(20px, 3vw, 48px); padding-right: clamp(20px, 3vw, 48px);
+}
+.tr-slide.has-shot .tr-text h1 { font-size: clamp(26px, 2.6vw, 44px); }
+.tr-slide.has-shot .tr-bullets li { font-size: clamp(14px, 1.05vw, 17px); }
 @keyframes tr-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 .tr-kicker { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tr-accent, #2563eb); margin-bottom: 10px; }
@@ -33,7 +40,11 @@
 .tr-text code, .tr-article code { font-family: var(--mono, Consolas, monospace); font-size: 0.9em; padding: 1px 5px; border-radius: 5px; background: rgba(127, 127, 127, 0.18); }
 
 .tr-slide-shot { margin: 0; }
-.tr-slide-shot img { border-radius: 14px; border: 1px solid var(--tr-line); box-shadow: 0 30px 80px -30px rgba(96, 165, 250, 0.45); max-height: calc(100vh - 210px); object-fit: contain; }
+.tr-present .tr-slide-shot { display: flex; justify-content: center; min-width: 0; margin: 0; }
+.tr-present .tr-slide-shot .tr-shot-btn { width: auto; max-width: 100%; }
+.tr-present .tr-slide-shot img { border-radius: 14px; border: 1px solid var(--tr-line); box-shadow: 0 30px 80px -30px rgba(96, 165, 250, 0.45);
+  width: auto; max-width: 100%; max-height: calc(100vh - 150px); object-fit: contain; }
+.tr-present.has-notes .tr-slide-shot img { max-height: calc(100vh - 250px); }   /* konuşmacı notu açıkken nota binmesin */
 
 /* şemalar */
 .tr-art { width: 100%; }
@@ -140,7 +151,7 @@
 /* ================================================================ dar ekran, hareket, yazdırma */
 @media (max-width: 900px) {
   .tr-slide, .tr-slide.has-shot, .tr-slide[class*="art-"] { grid-template-columns: minmax(0, 1fr); align-content: start; overflow-y: auto; gap: 20px; }
-  .tr-slide-shot img { max-height: none; }
+  .tr-present .tr-slide-shot img { max-height: none; width: 100%; }
   .tr-guide { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .tr-guide-nav { border-right: 0; border-bottom: 1px solid var(--border); max-height: 40vh; }
   .tr-flow, .tr-shield { grid-template-columns: minmax(0, 1fr); }
