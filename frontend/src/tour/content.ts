@@ -56,7 +56,7 @@ export const SLIDES: Slide[] = [
     id: "akis", kicker: "Nasıl çalışır", title: "Üç faz: İhtiyaç → Veri → Tasarım",
     art: "flow", shot: "02-ihtiyac-model",
     bullets: [
-      "**İhtiyaç:** kullanıcı ne görmek istediğini anlatır; agent KPI, kırılım ve dönemi netleştirir.",
+      "**İhtiyaç:** Kullanıcı ne görmek istediğini anlatır; **gerisini BI Lens üstlenir.** İhtiyacı karşılayacak altyapıyı kurar, sonucu görsele kadar taşıyıp önünüze getirir.",
       "**Veri:** agent veri sözlüğünden tabloları bulur, ilişkileri önerir; **kullanıcı onaylamadan** SQL yazılmaz.",
       "**Tasarım:** dashboard oluşur; değişiklikler sohbetle yapılır, her adım kayıtlı ve geri dönülebilir.",
       "**Hazır sorgu:** elinde SQL olan kullanıcı **sorgu moduna** geçip sorgu sonucunu doğrudan dashboard'a çevirir.",
