@@ -31,6 +31,15 @@ test.describe("Sorgu Çalıştır", () => {
     await expect(page.locator(".qp-ran pre")).toContainText("FROM dbo.FactResellerSales");
   });
 
+  test("yıl ve anahtar kolonları binlik ayraçsız gösterilir", async ({ page }) => {
+    await setSql(page, "SELECT TOP 3 CalendarYear, DateKey, CalendarYear * 1000 AS buyuk_sayi FROM dbo.DimDate ORDER BY DateKey DESC");
+    await page.keyboard.press("Control+Enter");
+    const cells = page.getByTestId("query-result").locator("tbody tr").first().locator("td");
+    await expect(cells.nth(1)).toHaveText(/^\d{4}$/);                            // 2014, "2.014" değil
+    await expect(cells.nth(2)).toHaveText(/^\d{8}$/);                            // DateKey 20141231
+    await expect(cells.nth(3)).toHaveText(/^\d\.\d{3}\.\d{3}$/);                  // ölçü: binlik ayraç sürer
+  });
+
   test("Ctrl+Enter ile çalışır", async ({ page }) => {
     await setSql(page, "SELECT COUNT(*) AS adet FROM dbo.DimProduct");
     await page.keyboard.press("Control+Enter");
