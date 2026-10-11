@@ -10,6 +10,8 @@ export type Art = "flow" | "arch" | "roles" | "security" | "value" | "roadmap" |
 export type Slide = {
   id: string;
   kicker?: string;
+  /** açılış slaytı: kicker büyük, gösterişli marka yazısı olarak çizilir */
+  hero?: boolean;
   title: string;
   lead?: string;
   bullets?: string[];
@@ -34,7 +36,7 @@ export const shotUrl = (name: string) => `${import.meta.env.BASE_URL}tanitim/${n
 // ---------------------------------------------------------------- sunum
 export const SLIDES: Slide[] = [
   {
-    id: "giris", kicker: "BI Lens", title: "Raporu anlatın, BI Lens tasarlasın.",
+    id: "giris", kicker: "BI Lens", hero: true, title: "Raporu anlatın, BI Lens tasarlasın.",
     lead: "Doğal dille rapor tasarlayan, kurumun verisine güvenle bağlanan ve raporları yetkiye göre paylaştıran rapor platformu.",
     shot: "01-giris",
     notes: "Açılış: BI Lens'in üç yüzü var — Vitrin (yayınlanmış raporlar), Tasarım (agent ile rapor üretimi) ve Kontrol Paneli (yönetim). Sunum boyunca bu üçünü gezeceğiz.",
@@ -81,17 +83,6 @@ export const SLIDES: Slide[] = [
       "Yapılamayan istekler açıkça söylenir; sistem \"yaptım\" denip yapılmayan değişikliği engeller.",
     ],
     notes: "Solda konuşma ve agent'ın attığı her adım (araç satırları), sağda canlı dashboard. Her araç adımı tıklanınca ayrıntısı görülebilir.",
-  },
-  {
-    id: "arayuz", kicker: "Çalışma alanı", title: "Sade üst çubuk, net adlar",
-    shot: "17-ust-cubuk",
-    bullets: [
-      "Rapor açıkken yalnız gerekenler: **← Envanter**, rapor adı (tıkla, adlandır), statü.",
-      "**Düzenle | Görüntüle**: sohbetle düzenle ya da raporu son kullanıcı gibi tam sayfa gör.",
-      "**⋯** menüsünde yeniden adlandırma, silme ve başka rapor açma; **Yayınla** her zaman sağda.",
-      "Statüler: Fikir → **Tasarımda** → Test → Canlıda. Gündüz / gece modu sol menünün altında.",
-    ],
-    notes: "Eski üst çubukta 'Tasarım' sözcüğü üç anlamda geçiyordu; şimdi her öğenin tek bir adı ve yeri var. ⋯ menüsü açık gösteriliyor.",
   },
   {
     id: "guvenlik", kicker: "Güvenlik", title: "Kurallar kişide değil, sistemde",

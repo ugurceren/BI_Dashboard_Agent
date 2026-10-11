@@ -71,7 +71,14 @@ export function Presentation({ index, onGo, onExit, onGuide }: {
 function SlideBody({ slide }: { slide: Slide }) {
   const text = (
     <div className="tr-text">
-      {slide.kicker ? <Kicker>{slide.kicker}</Kicker> : null}
+      {slide.kicker && slide.hero ? (
+        <div className="tr-hero-brand" aria-label={slide.kicker}>
+          <span className="tr-hero-mark" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeLinecap="round"><circle cx="7" cy="7" r="5" strokeWidth="1.7" /><path d="M5 9V7.5M7 9V5M9 9V6.5" strokeWidth="1.5" /><path d="M10.8 10.8 14 14" strokeWidth="2" /></svg>
+          </span>
+          <span className="tr-hero-word" aria-hidden="true">{slide.kicker}</span>
+        </div>
+      ) : slide.kicker ? <Kicker>{slide.kicker}</Kicker> : null}
       <h1>{slide.title}</h1>
       {slide.lead ? <p className="tr-lead"><Rich text={slide.lead} /></p> : null}
       {slide.bullets?.length ? <ul className="tr-bullets">{slide.bullets.map((b) => <li key={b}><Rich text={b} /></li>)}</ul> : null}
