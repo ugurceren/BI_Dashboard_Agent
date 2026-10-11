@@ -62,6 +62,17 @@ export const SLIDES: Slide[] = [
     notes: "Ekranda veri fazı: agent tabloları ve yeni ilişki önerisini sunup onay soruyor. Onay olmadan kayıt yok — bu, kontrolün kullanıcıda kaldığını gösterir.",
   },
   {
+    id: "sorgu", kicker: "Hazır sorgu", title: "Elinizdeki SQL'den dashboard'a",
+    shot: "19-sorgu-modu",
+    bullets: [
+      "İhtiyaç / Veri adımında **Sohbet | Sorgu** seçimi: veriyi konuşarak bulmak yerine hazır sorgunuzu yapıştırın.",
+      "Birden çok adlandırılmış sorgu (KPI, trend, detay); **Önizle** ile sonuç anında görünür.",
+      "**Dashboard'a geç**: sorgular veri kümesi olur, tasarım sohbetle sürer. Sorgu Çalıştır ekranından da **Dashboard hazırla** ile gönderilir.",
+      "Aynı güvenlik: yalnız SELECT, yetkili tablolar, kişisel veri koruması; önizlemede çalışan sorgu dashboard'da da çalışır.",
+    ],
+    notes: "Ekranda sorgu modu tam sayfa açık: satış, tarih ve bölge tablolarını birleştiren hazır sorgu önizlenmiş. Analist kendi SQL'ini getirir, tasarımı yine agent'a bırakır.",
+  },
+  {
     id: "tasarim", kicker: "Tasarım", title: "Sohbetle dashboard",
     shot: "03-tasarim",
     bullets: [
@@ -70,6 +81,17 @@ export const SLIDES: Slide[] = [
       "Yapılamayan istekler açıkça söylenir; sistem \"yaptım\" denip yapılmayan değişikliği engeller.",
     ],
     notes: "Solda konuşma ve agent'ın attığı her adım (araç satırları), sağda canlı dashboard. Her araç adımı tıklanınca ayrıntısı görülebilir.",
+  },
+  {
+    id: "arayuz", kicker: "Çalışma alanı", title: "Sade üst çubuk, net adlar",
+    shot: "17-ust-cubuk",
+    bullets: [
+      "Rapor açıkken yalnız gerekenler: **← Envanter**, rapor adı (tıkla, adlandır), statü.",
+      "**Düzenle | Görüntüle**: sohbetle düzenle ya da raporu son kullanıcı gibi tam sayfa gör.",
+      "**⋯** menüsünde yeniden adlandırma, silme ve başka rapor açma; **Yayınla** her zaman sağda.",
+      "Statüler: Fikir → **Tasarımda** → Test → Canlıda. Gündüz / gece modu sol menünün altında.",
+    ],
+    notes: "Eski üst çubukta 'Tasarım' sözcüğü üç anlamda geçiyordu; şimdi her öğenin tek bir adı ve yeri var. ⋯ menüsü açık gösteriliyor.",
   },
   {
     id: "guvenlik", kicker: "Güvenlik", title: "Kurallar kişide değil, sistemde",
@@ -219,6 +241,7 @@ export const GUIDE: GuideSection[] = [
         "**Görüntüle** raporu son kullanıcının göreceği gibi tam sayfa açar; **Düzenle** sohbete döner.",
         "Gündüz / gece modu sol menünün altındadır; sağ üstteki nokta bağlantı durumunu gösterir (üzerine gelince ayrıntı).",
       ] },
+      { kind: "shot", src: "17-ust-cubuk", caption: "Rapor açıkken üst çubuk: ← Envanter, ad, statü; Düzenle | Görüntüle, ⋯ menüsü (açık), Yayınla." },
       { kind: "tip", text: "Hazır bir SQL sorgunuz varsa veriyi konuşarak bulmanız gerekmez: sol paneldeki **Sorgu** moduna geçin (bkz. **Hazır sorguyla rapor**)." },
       { kind: "shot", src: "04-veri", caption: "Veri sekmesi: veri kümeleri, alanları, SQL'i ve önizlemesi." },
       { kind: "warn", text: "Günlük anlık görüntü tablolarında (DataDate) gün seçilmeden toplama yapılmaz; agent 'son gün' kuralını kendisi uygular." },
@@ -234,8 +257,13 @@ export const GUIDE: GuideSection[] = [
         "**Önizle** (Ctrl+Enter) ile sonucu görün: önizlemede çalışan sorgu dashboard'da da aynı kurallarla çalışır.",
         "**Dashboard'a geç** deyin: sorgular veri kümesi olarak kaydedilir, Tasarım fazına geçilir; agent veriyi özetleyip nasıl bir tasarım istediğinizi sorar.",
       ] },
+      { kind: "shot", src: "19-sorgu-modu", caption: "Sorgu modu (tam sayfa): adlandırılmış sorgu, SQL editörü ve önizleme." },
+      { kind: "tip", text: "Sorguyu ayrıca **kaydetmeniz gerekmez**: yazdığınız sorgu raporda taslak olarak kendiliğinden saklanır. Anlamlı bir **ad** verip **Dashboard'a geç** demeniz yeterli." },
       { kind: "list", items: [
         "**Sorgu Çalıştır ekranından:** sorguyu yazıp **Dashboard hazırla** deyin; **yeni rapor** açılır ya da **mevcut bir rapora** eklenir. Rapor tasarım fazındaysa sorgu doğrudan veri kümesi olarak eklenir (aynı adlı varsa güncellenir).",
+      ] },
+      { kind: "shot", src: "18-dashboard-hazirla", caption: "Sorgu Çalıştır → Dashboard hazırla: açıklama, veri kümesi adı ve hedef rapor." },
+      { kind: "list", items: [
         "**Tam sayfa:** İhtiyaç / Veri fazında sol paneli **Tam sayfa** düğmesiyle tüm genişliğe açabilir, **Daralt** ile eski düzene dönebilirsiniz.",
         "Taslak sorgular raporda saklanır; sohbet moduna geçip dönseniz ya da sayfayı yenileseniz de kaybolmaz.",
       ] },
@@ -425,6 +453,8 @@ export const GUIDE: GuideSection[] = [
         ["\"Aynı adımı tekrar tekrar denediğimi fark ettim\"", "İsteği daha somut yazın (görsel adı, alan adı) ya da adımlara bölün."],
         ["Vitrin'de rapor görünmüyor", "Rapor size paylaşılmamış olabilir; rapor sahibinden ya da yöneticinizden isteyin."],
         ["Tasarım kutusu kilitli", "Tasarım yetkiniz yok; yöneticinizden 'Rapor tasarımcısı' rolü isteyin."],
+        ["Sorgu modunda sorguyu ayrıca kaydetmeli miyim (ör. sorgu1 adıyla)?", "Hayır, yazmanız yeterli: sorgu raporda taslak olarak kendiliğinden saklanır (sayfa yenilense de kaybolmaz). **Ad** alanı veri kümesinin adıdır; varsayılanı `sorgu_1`, anlamlı bir ad vermeniz önerilir (ör. `aylik_bolge_satis`). İsterseniz **Önizle**, sonra **Dashboard'a geç**. Sorgu Çalıştır ekranındaysanız **Dashboard hazırla** penceresinde ad verip **Gönder ve aç** deyin."],
+        ["Sorgu adında \"snake_case\" ya da \"Aynı ad birden çok sorguda\" uyarısı", "Ad harfle başlamalı; küçük harf, rakam ve alt çizgi kullanın (Türkçe karakterler sadeleştirilir). Her sorgunun adı farklı olmalı."],
       ] },
     ],
   },

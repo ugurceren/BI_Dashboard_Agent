@@ -148,6 +148,42 @@ async function main() {
   await page.goto("/#/settings"); await shot("15-ayarlar", 2000);
   await page.goto("/#/admin"); await shot("16-yonetim", 2000);
 
+  // sade üst çubuk: ← Envanter · ad · statü · Düzenle | Görüntüle · ⋯ menüsü açık
+  await page.goto(`/#/r/${demo.id}`);
+  await page.getByRole("tab", { name: "Dashboard" }).click();
+  await page.locator("[data-visual-id]").first().waitFor({ timeout: 60_000 });
+  await page.getByRole("button", { name: "Rapor menüsü" }).click(); await shot("17-ust-cubuk", 1500);
+  await page.keyboard.press("Escape");
+
+  // Sorgu Çalıştır → Dashboard hazırla penceresi
+  const QUERY = "SELECT d.CalendarYear AS yil, d.MonthNumberOfYear AS ay, st.SalesTerritoryRegion AS bolge, st.SalesTerritoryCountry AS ulke, "
+    + "SUM(f.SalesAmount) AS satis_tutari, COUNT(DISTINCT f.SalesOrderNumber) AS siparis_sayisi FROM dbo.FactInternetSales f "
+    + "JOIN dbo.DimDate d ON d.DateKey = f.OrderDateKey JOIN dbo.DimSalesTerritory st ON st.SalesTerritoryKey = f.SalesTerritoryKey "
+    + "GROUP BY d.CalendarYear, d.MonthNumberOfYear, st.SalesTerritoryRegion, st.SalesTerritoryCountry";
+  await page.goto("/#/query");
+  await page.getByRole("complementary", { name: "Yetkili nesneler" }).waitFor();
+  const ed2 = page.getByTestId("sql-editor").locator(".cm-content");
+  await ed2.click(); await page.keyboard.press("Control+A"); await page.keyboard.press("Delete");
+  await ed2.pressSequentially(QUERY, { delay: 0 });
+  await page.keyboard.press("Escape");                                           // öneri kutusu kapansın
+  await page.keyboard.press("Control+Enter"); await page.getByTestId("query-result").waitFor();
+  await page.getByRole("button", { name: "Dashboard hazırla" }).click();
+  await page.getByRole("dialog").getByLabel("Açıklama").fill("Aylık bölge ve ülke satışları");
+  await shot("18-dashboard-hazirla", 1000);
+  await page.getByRole("dialog").getByRole("button", { name: "Vazgeç" }).click();
+
+  // sorgu modu: rapor taslak sorguyla açılır, tam sayfa, önizleme
+  const qs = await api("POST", "/api/sessions", {});
+  await api("PUT", `/api/sessions/${qs.id}/title`, { title: "Aylık Bölge Satışları" });
+  await api("PUT", `/api/sessions/${qs.id}/query-drafts`, { mode: "query", drafts: [{ id: "aylik_bolge_satis", title: "Aylık bölge ve ülke satışları", sql: QUERY }] });
+  await page.goto(`/#/r/${qs.id}`);
+  await page.getByTestId("query-mode").waitFor({ timeout: 60_000 });
+  await page.getByRole("button", { name: "Paneli tam sayfa genişlet" }).click();
+  await page.getByRole("button", { name: /^Önizle/ }).click();
+  await page.getByTestId("qm-result").locator("tbody tr").first().waitFor({ timeout: 120_000 });
+  await shot("19-sorgu-modu", 1500);
+  await page.getByRole("button", { name: "Paneli daralt" }).click();
+
   await browser.close();
 }
 
