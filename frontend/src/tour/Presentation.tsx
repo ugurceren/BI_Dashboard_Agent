@@ -73,9 +73,6 @@ function SlideBody({ slide }: { slide: Slide }) {
     <div className="tr-text">
       {slide.kicker && slide.hero ? (
         <div className="tr-hero-brand" aria-label={slide.kicker}>
-          <span className="tr-hero-mark" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeLinecap="round"><circle cx="7" cy="7" r="5" strokeWidth="1.7" /><path d="M5 9V7.5M7 9V5M9 9V6.5" strokeWidth="1.5" /><path d="M10.8 10.8 14 14" strokeWidth="2" /></svg>
-          </span>
           <span className="tr-hero-word" aria-hidden="true">{slide.kicker}</span>
         </div>
       ) : slide.kicker ? <Kicker>{slide.kicker}</Kicker> : null}
