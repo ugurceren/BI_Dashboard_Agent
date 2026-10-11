@@ -111,7 +111,19 @@ class Session(BaseModel):
     query_drafts: list[QueryDraft] = Field(default_factory=list)
 
     def public(self) -> dict[str, Any]:
-        return self.model_dump(exclude={"llm_messages", "user_role", "dataset_profiles", "phase_memory"})
+        out = self.model_dump(exclude={"llm_messages", "user_role", "dataset_profiles", "phase_memory"})
+        # modele gönderilen konuşma geçmişinin büyüklüğü (arayüz "Bağlamı temizle" için gösterir)
+        out["llm_context_chars"] = sum(len(json.dumps(m, ensure_ascii=False)) for m in self.llm_messages)
+        return out
+
+    def reset_llm_context(self) -> int:
+        """Modele gönderilen konuşma geçmişini temizler; kayıtlı gereksinim / dataset / dashboard ve doğrulanmış sorgular
+        (sistem talimatıyla her istekte verilir) korunur. Döngü sayaçları ve araç önbelleği sıfırlanır. Silinen mesaj sayısı."""
+        n = len(self.llm_messages)
+        self.llm_messages = []
+        keep = ("verified_sql", "last_proposal", "skipped")
+        self.phase_memory = {k: v for k, v in self.phase_memory.items() if k in keep}
+        return n
 
     def add(self, item: TranscriptItem) -> TranscriptItem:
         item.phase = self.phase

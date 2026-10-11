@@ -214,3 +214,25 @@ def test_timeout_setting_from_ui_overrides_env(settings, monkeypatch):
     assert eff.llm_timeout_s == 600 and conns.llm_effective(settings)["timeout_s"] == 600
     monkeypatch.setattr(conns, "load_connections", lambda: {"llm": {"base_url": "http://x/v1", "model": "m"}})
     assert conns.llm_settings(settings).llm_timeout_s == settings.llm_timeout_s     # boş: .env / varsayılan
+
+
+
+def test_stream_closed_mid_turn_releases_lock_and_stops_llm(settings, services, monkeypatch):
+    """Tarayıcı akışı kapatınca (sayfa yenilendi) kilit açılmalı, oturum "yanıtlıyor"da kalmamalı, LLM isteği kesilmeli."""
+    monkeypatch.setattr(agent_mod, "HEARTBEAT_AFTER_S", 0.5)
+    llm = BlockingLLM(settings)
+    store = SessionStore(settings.sessions_dir)
+    agent = Agent(llm, services, store)
+    s = store.create("standart")
+    gen = agent.run_turn(s.id, "uzun bir istek")
+    got = []
+    for ev in gen:                      # LLM beklenirken bekleme durumu gelene kadar ilerle
+        got.append(ev)
+        if llm.started.is_set():
+            break
+    gen.close()                         # Starlette istemci kopunca böyle kapatır: RuntimeError olmamalı
+    assert not store.get(s.id).busy
+    assert store.lock(s.id).acquire(blocking=False), "kilit açılmalı"
+    store.lock(s.id).release()
+    later = list(agent.run_turn(s.id, "devam"))
+    assert not any(e.type == "error" for e in later)

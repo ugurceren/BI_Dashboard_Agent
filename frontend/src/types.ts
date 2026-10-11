@@ -251,6 +251,8 @@ export interface SessionState {
   status?: "idea" | "design" | "test" | "live" | null;
   /** İhtiyaç / Veri fazında çalışma modu: sohbet ya da hazır sorgu */
   data_mode?: "chat" | "query";
+  /** modele gönderilen konuşma geçmişinin büyüklüğü (karakter) */
+  llm_context_chars?: number;
   query_drafts?: QueryDraft[];
 }
 

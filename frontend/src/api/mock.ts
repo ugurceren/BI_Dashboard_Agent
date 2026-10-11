@@ -100,7 +100,9 @@ function applyDemo(s: MockSession) {
 const state = (s: MockSession): SessionState => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { updatedAt, data, ...rest } = s;
-  return clone(rest);
+  // mock: modele giden geçmiş yok; büyüklük sohbet mesajlarından tahmin edilir (temizlenince 0)
+  const ctx = rest.llm_context_chars ?? rest.transcript.reduce((n, t) => n + (t.content?.length ?? 0) + 40, 0);
+  return clone({ ...rest, llm_context_chars: ctx });
 };
 
 /** mock: filtre anahtarı → dataset alan adı (gerçek backend bunu ilişkilerden çözer) */
@@ -285,6 +287,12 @@ export const mockApi: Api = {
     return state(s);
   },
   async cancelTurn() { return { ok: true, running: false }; },
+  async resetContext(id) {
+    const s = get(id);
+    s.transcript.push(item("system", "Model bağlamı temizlendi. Kayıtlı gereksinim, veri ve dashboard korunuyor; model önceki konuşmayı hatırlamaz.", s.phase));
+    s.llm_context_chars = 0;
+    return state(s);
+  },
   async setPhase(id, phase) {
     const s = get(id);
     s.phase = phase;

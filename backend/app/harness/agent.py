@@ -218,7 +218,8 @@ class Agent:
             yield Event("done", {})
             return
         s: Session | None = None
-        self._cancel[sid] = threading.Event()
+        stop = self._cancel[sid] = threading.Event()
+        closed = False   # istemci akışı kapattı (sayfa yenilendi / bağlantı koptu): artık olay gönderilemez
         try:
             s = self.store.get(sid)
             s.busy = True
@@ -241,18 +242,28 @@ class Agent:
             if s:
                 yield self._emit(s, TranscriptItem(role="system", content=f"⚠️ {e}"))
             yield Event("error", {"message": str(e)})
+        except GeneratorExit:
+            # akış kapandı: bekleyen LLM isteği kesilir (sunucu üretimi bırakır). finally içinde yield EDİLMEMELİ —
+            # edilirse Python temizliği yarıda bırakır, kilit açılmaz ve rapor "yanıtlıyor" durumunda takılı kalırdı
+            closed = True
+            stop.set()
+            log.info("Akış kapandı, tur sonlandırıldı (%s)", sid)
+            raise
         except Exception as e:  # noqa: BLE001
             log.exception("Agent hatası")
             yield Event("error", {"message": f"Beklenmeyen hata: {type(e).__name__}: {e}"})
         finally:
+            # önce temizlik (her durumda), sonra — akış açıksa — son olaylar
             if s:
                 s.busy = False
                 self.store.save(s)
-                yield Event("state", s.public())
             self._actors.pop(sid, None)
             self._cancel.pop(sid, None)
             lock.release()
-            yield Event("done", {})
+            if not closed:
+                if s:
+                    yield Event("state", s.public())
+                yield Event("done", {})
 
     # ------------------------------------------------------------------ iç
     def _emit(self, s: Session, item: TranscriptItem) -> Event:

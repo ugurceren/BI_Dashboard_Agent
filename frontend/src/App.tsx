@@ -469,6 +469,18 @@ export default function App() {
     api.cancelTurn(state.id).catch((e) => showToast(`Durdurulamadı: ${errMsg(e)}`));
   };
 
+  // ---- model bağlamını temizle: modele gönderilen konuşma geçmişi sıfırlanır (sohbet ve kayıtlı durum kalır) ----
+  const resetContext = async () => {
+    if (!state) return;
+    if (!window.confirm("Model bağlamı temizlensin mi?\n\nModel bu fazdaki önceki konuşmayı unutur; sohbet geçmişi, kayıtlı gereksinim, "
+      + "veri ve dashboard korunur. Yanıtlar yavaşladığında ya da model aynı şeyi tekrarladığında işe yarar.")) return;
+    try {
+      setState(await api.resetContext(state.id));
+    } catch (e) {
+      showToast(`Bağlam temizlenemedi: ${errMsg(e)}`);
+    }
+  };
+
   // ---- sohbet / sorgu modu ----
   // hızlı geçişlerde cevaplar sırasız gelebilir: yalnız son isteğin cevabı uygulanır (eskisi paneli geri çevirip sıfırlıyordu)
   const modeSeq = useRef(0);
@@ -519,6 +531,7 @@ export default function App() {
   const preDesign = !!state && state.phase !== "design";
   const queryMode = preDesign && state?.data_mode === "query";
   const chatFull = chatFullPref && preDesign;
+  const ctxK = Math.max(1, Math.round((state?.llm_context_chars ?? 0) / 3 / 1000));   // ~3 karakter / token
   const items = useMemo(() => {
     const base = state?.transcript ?? [];
     const all = [...base, ...localItems];
@@ -648,15 +661,21 @@ export default function App() {
           <div className="chat-head">
             <PhaseStepper phase={state?.phase ?? "requirements"} disabled={busy || !state} onBack={backToPhase}
               reachable={{ data: !!state?.requirements, design: !!state?.datasets?.length }} />
-            {preDesign ? (
+            {state ? (
               <div className="chat-tools">
-                <div className="chat-mode" role="group" aria-label="Çalışma modu">
+                {preDesign ? <div className="chat-mode" role="group" aria-label="Çalışma modu">
                   <button type="button" className={!queryMode ? "is-on" : undefined} aria-pressed={!queryMode} disabled={!state || busy}
                     onClick={() => void setDataMode("chat")} title="Veriyi agent ile konuşarak belirleyin">Sohbet</button>
                   <button type="button" className={queryMode ? "is-on" : undefined} aria-pressed={queryMode} disabled={!state || busy}
                     onClick={() => void setDataMode("query")} title="Hazır SQL sorgunuzu yapıştırın; sonucu ile dashboard hazırlanır">Sorgu</button>
-                </div>
-                <button type="button" className="btn btn-ghost btn-sm chat-expand" onClick={toggleChatFull} aria-pressed={chatFull}
+                </div> : null}
+                <button type="button" className="btn btn-ghost btn-sm chat-ctx" onClick={() => void resetContext()}
+                  disabled={busy || !state.llm_context_chars} aria-label="Model bağlamını temizle"
+                  title={`Model bağlamını temizle — modele gönderilen konuşma geçmişi: ~${ctxK} bin token. Yanıtlar yavaşladığında ya da model takıldığında kullanın; kayıtlı gereksinim, veri ve dashboard korunur.`}>
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2.5 13.5 6.5 7 13H3.5v-3.5zM6 13h7.5M5.2 8.3l4 4" /></svg>
+                  <span className="chat-ctx-size">{state.llm_context_chars ? `~${ctxK} bin` : "boş"}</span>
+                </button>
+                {preDesign ? <button type="button" className="btn btn-ghost btn-sm chat-expand" onClick={toggleChatFull} aria-pressed={chatFull}
                   aria-label={chatFull ? "Paneli daralt" : "Paneli tam sayfa genişlet"}
                   title={chatFull ? "Sağ paneli geri getir (eski düzen)" : "Tam sayfa genişlet"}>
                   <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -664,7 +683,7 @@ export default function App() {
                       fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <span className="btn-label">{chatFull ? "Daralt" : "Tam sayfa"}</span>
-                </button>
+                </button> : null}
               </div>
             ) : null}
           </div>

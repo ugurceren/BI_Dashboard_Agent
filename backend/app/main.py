@@ -525,6 +525,28 @@ def cancel_turn(sid: str, request: Request) -> dict[str, Any]:
     return {"ok": True, "running": state.agent.cancel(sid)}
 
 
+@app.post("/api/sessions/{sid}/reset-context")
+def reset_context(sid: str, request: Request) -> dict[str, Any]:
+    """Model bağlamını temizle: modele gönderilen konuşma geçmişi sıfırlanır (istekler küçülür, model eski isteklere
+    takılmaz); sohbet geçmişi ve kayıtlı gereksinim / veri / dashboard korunur."""
+    _, ident = _own_session(request, sid)
+    lock = state.store.lock(sid)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, "Agent şu an yanıtlıyor; önce Durdur'a basın ya da yanıtın bitmesini bekleyin.")
+    try:
+        s = _session(sid)
+        chars = sum(len(json.dumps(m, ensure_ascii=False)) for m in s.llm_messages)
+        n = s.reset_llm_context()
+        s.add(TranscriptItem(role="system", content="Model bağlamı temizlendi. Kayıtlı gereksinim, veri ve dashboard korunuyor; "
+                                                   "model önceki konuşmayı hatırlamaz."))
+        state.store.save(s)
+        Audit(get_settings().audit_log).write(event="context_reset", session=sid, user=ident.username, phase=s.phase,
+                                              messages=n, chars=chars)
+        return s.public()
+    finally:
+        lock.release()
+
+
 class TitleIn(BaseModel):
     title: str
     overwrite: bool = False   # aynı isimde başka rapor varsa üstüne yaz (o rapor silinir)

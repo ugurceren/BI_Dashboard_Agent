@@ -293,6 +293,7 @@ export const GUIDE: GuideSection[] = [
       ] },
       { kind: "warn", text: "Desteklenmeyen istekler (ör. \"yazı tipini 40 punto yap\") uygulanmaz ve bu açıkça söylenir; en yakın desteklenen seçenek önerilir." },
       { kind: "tip", text: "Yanıt uzun sürüyorsa sohbet kutusunda \"Model yanıt üretiyor… N sn\" görünür. Beklemek istemezseniz gönder düğmesinin yerindeki **Durdur** (■) ile yanıtı kesin: model üretmeyi bırakır, o ana kadar kaydedilenler korunur ve yeni mesaj yazabilirsiniz." },
+      { kind: "tip", text: "Uzun bir oturumda yanıtlar yavaşlarsa ya da model aynı şeyi tekrarlarsa sohbet panelinin sağ üstündeki **Model bağlamını temizle** düğmesine basın (yanında modele giden geçmişin büyüklüğü yazar, ör. \"~12 bin\"). Model bu fazdaki önceki konuşmayı unutur; sohbet geçmişi, kayıtlı gereksinim, veri ve dashboard korunur." },
       { kind: "list", items: [
         "**Grafik kuralları:** 8'den fazla dilimli pasta sıralı çubuğa çevrilir; çok kategorili çubuk yatay olur, 20'den fazlasında ilk 15 gösterilir; zaman ekseni sıralanmaz; farklı birimler (tutar + adet) üst üste yığılmaz.",
         "Kural uygulandığında agent bunu size söyler.",
@@ -457,6 +458,7 @@ export const GUIDE: GuideSection[] = [
         ["Vitrin'de rapor görünmüyor", "Rapor size paylaşılmamış olabilir; rapor sahibinden ya da yöneticinizden isteyin."],
         ["Tasarım kutusu kilitli", "Tasarım yetkiniz yok; yöneticinizden 'Rapor tasarımcısı' rolü isteyin."],
         ["\"LLM sunucusu … sn içinde yanıt vermedi (zaman aşımı)\"", "Model yanıtı bu sürede bitiremedi (büyük dashboard ya da uzun tablo). İsteği küçük adımlara bölün (ör. önce KPI kartları, sonra grafikler) ya da yöneticiniz Bağlantı Ayarları → **Yanıt Bekleme Süresi**'ni artırsın (yerel modelde 600)."],
+        ["Yanıtlar giderek yavaşlıyor ya da model aynı adımı tekrarlıyor", "Sohbet panelinin sağ üstündeki **Model bağlamını temizle** ile modele giden konuşma geçmişini sıfırlayın; kayıtlı gereksinim, veri ve dashboard kaybolmaz."],
         ["Yanıt çok uzun sürüyor, beklemek istemiyorum", "Sohbet kutusundaki **Durdur** (■) düğmesine basın: istek kesilir, model üretmeyi bırakır; kaydedilmiş adımlar korunur."],
         ["Sorgu modunda sorguyu ayrıca kaydetmeli miyim (ör. sorgu1 adıyla)?", "Hayır, yazmanız yeterli: sorgu raporda taslak olarak kendiliğinden saklanır (sayfa yenilense de kaybolmaz). **Ad** alanı veri kümesinin adıdır; varsayılanı `sorgu_1`, anlamlı bir ad vermeniz önerilir (ör. `aylik_bolge_satis`). İsterseniz **Önizle**, sonra **Dashboard'a geç**. Sorgu Çalıştır ekranındaysanız **Dashboard hazırla** penceresinde ad verip **Gönder ve aç** deyin."],
         ["Sorgu adında \"snake_case\" ya da \"Aynı ad birden çok sorguda\" uyarısı", "Ad harfle başlamalı; küçük harf, rakam ve alt çizgi kullanın (Türkçe karakterler sadeleştirilir). Her sorgunun adı farklı olmalı."],
