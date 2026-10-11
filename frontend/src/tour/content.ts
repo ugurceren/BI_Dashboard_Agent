@@ -294,6 +294,7 @@ export const GUIDE: GuideSection[] = [
       { kind: "warn", text: "Desteklenmeyen istekler (ör. \"yazı tipini 40 punto yap\") uygulanmaz ve bu açıkça söylenir; en yakın desteklenen seçenek önerilir." },
       { kind: "tip", text: "Yanıt uzun sürüyorsa sohbet kutusunda \"Model yanıt üretiyor… N sn\" görünür. Beklemek istemezseniz gönder düğmesinin yerindeki **Durdur** (■) ile yanıtı kesin: model üretmeyi bırakır, o ana kadar kaydedilenler korunur ve yeni mesaj yazabilirsiniz." },
       { kind: "tip", text: "Uzun bir oturumda yanıtlar yavaşlarsa ya da model aynı şeyi tekrarlarsa sohbet panelinin sağ üstündeki **Model bağlamını temizle** düğmesine basın (yanında modele giden geçmişin büyüklüğü yazar, ör. \"~12 bin\"). Model bu fazdaki önceki konuşmayı unutur; sohbet geçmişi, kayıtlı gereksinim, veri ve dashboard korunur." },
+      { kind: "shot", src: "20-baglam-temizle", caption: "Sohbet panelinin sağ üstünde Model bağlamını temizle (turuncu çerçeve); yanında modele giden geçmişin büyüklüğü yazar." },
       { kind: "list", items: [
         "**Grafik kuralları:** 8'den fazla dilimli pasta sıralı çubuğa çevrilir; çok kategorili çubuk yatay olur, 20'den fazlasında ilk 15 gösterilir; zaman ekseni sıralanmaz; farklı birimler (tutar + adet) üst üste yığılmaz.",
         "Kural uygulandığında agent bunu size söyler.",

@@ -105,6 +105,18 @@ async function main() {
   dbgPage = page;
   const shot = async (name, ms) => { await settle(page, ms); await page.screenshot({ path: path.join(OUT, `${name}.jpg`), type: "jpeg", quality: 80 }); console.log("✓", name); };
 
+  // sohbet panelinde "Model bağlamını temizle" düğmesi (vurgulu): üst çubuk, sohbet başlığı ve dashboard'un başı
+  const baglamShot = async () => {
+    await page.goto(`/#/r/${demo.id}`);
+    await page.getByRole("tab", { name: "Dashboard" }).click();
+    await page.locator("[data-visual-id]").first().waitFor({ timeout: 120_000 });
+    await page.addStyleTag({ content: ".chat-ctx { outline: 2px solid #f59e0b; outline-offset: 3px; color: var(--text) !important; }" });
+    await settle(page, 1500);
+    await page.screenshot({ path: path.join(OUT, "20-baglam-temizle.jpg"), type: "jpeg", quality: 85, clip: { x: 0, y: 0, width: 960, height: 420 } });
+    console.log("✓", "20-baglam-temizle");
+  };
+  if (process.argv.includes("--yalniz-baglam")) { await baglamShot(); await browser.close(); return; }
+
   await page.goto("/#/giris"); await shot("01-giris", 2000);
   if (process.argv.includes("--yalniz-giris")) { await browser.close(); return; }   // yalnız giriş sayfası görselini yenile
 
@@ -184,6 +196,8 @@ async function main() {
   await page.getByTestId("qm-result").locator("tbody tr").first().waitFor({ timeout: 120_000 });
   await shot("19-sorgu-modu", 1500);
   await page.getByRole("button", { name: "Paneli daralt" }).click();
+
+  await baglamShot();
 
   await browser.close();
 }
