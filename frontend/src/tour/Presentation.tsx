@@ -124,18 +124,45 @@ function ArtView({ art }: { art: Art }) {
     );
   }
   if (art === "arch") {
+    const I = ({ d }: { d: string }) => (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
+    );
+    const ICON = {
+      browser: "M3 5h18v14H3zM3 9h18M6.5 7h.01M9 7h.01",
+      db: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+      book: "M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h10M9 8h5",
+      chip: "M7 7h10v10H7zM10 10h4v4h-4zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4",
+      meta: "M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7zM9 12l2 2 4-4",
+      lock: "M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5zM12 15v2",
+    };
+    const node = (cls: string, icon: string, title: string, sub: string) => (
+      <div className={`tr-node ${cls}`}>
+        <span className="tr-node-ico"><I d={icon} /></span>
+        <span className="tr-node-text"><strong>{title}</strong><small>{sub}</small></span>
+      </div>
+    );
     return (
-      <div className="tr-art tr-arch" aria-label="Mimari şema">
-        <div className="tr-arch-row"><div className="tr-box">Tarayıcı<small>Vitrin · Tasarım · Kontrol Paneli</small></div></div>
-        <div className="tr-arch-arrow">↓ <small>IIS + Windows kimliği (sunucu modu)</small></div>
-        <div className="tr-arch-row"><div className="tr-box is-core">BI Lens<small>FastAPI + React · agent, SQL doğrulayıcı, yetki</small></div></div>
-        <div className="tr-arch-arrow">↓</div>
-        <div className="tr-arch-row tr-arch-3">
-          <div className="tr-box">SQL Server<small>rapor verisi (salt-okunur)</small></div>
-          <div className="tr-box">Veri sözlüğü<small>tablo, kolon, ilişki</small></div>
-          <div className="tr-box">Dil modeli<small>kurum içi sunucu</small></div>
+      <div className="tr-art tr-arch2" aria-label="Mimari şema: tarayıcı, BI Lens, SQL Server, veri sözlüğü, dil modeli ve meta veritabanı; hepsi kurum ağı içinde">
+        <div className="tr-zone-label"><I d={ICON.lock} /> Kurum ağı · veri dışarı çıkmaz</div>
+        {node("is-client", ICON.browser, "Tarayıcı", "Vitrin · Tasarım · Kontrol Paneli")}
+        <div className="tr-link-v" aria-hidden="true"><i /><span>IIS + Windows kimliği</span></div>
+        <div className="tr-core">
+          <span className="tr-core-mark" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeLinecap="round"><circle cx="7" cy="7" r="5" strokeWidth="1.7" /><path d="M5 9V7.5M7 9V5M9 9V6.5" strokeWidth="1.5" /><path d="M10.8 10.8 14 14" strokeWidth="2" /></svg>
+          </span>
+          <span className="tr-core-text"><strong>BI Lens</strong><small>FastAPI + React</small></span>
+          <span className="tr-core-pills"><b>Agent</b><b>SQL doğrulayıcı</b><b>Yetki</b></span>
         </div>
-        <div className="tr-arch-row"><div className="tr-box is-muted">Meta veritabanı<small>roller, yayınlar, denetim</small></div></div>
+        <svg className="tr-fan" viewBox="0 0 300 44" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M150 0 C150 22 50 22 50 44" /><path d="M150 0 L150 44" /><path d="M150 0 C150 22 250 22 250 44" />
+        </svg>
+        <div className="tr-row3">
+          {node("is-data", ICON.db, "SQL Server", "rapor verisi · read-only")}
+          {node("is-dict", ICON.book, "Veri sözlüğü", "tablo · kolon · ilişki")}
+          {node("is-llm", ICON.chip, "Dil modeli", "kurum içi sunucu")}
+        </div>
+        <div className="tr-link-v is-short" aria-hidden="true"><i /></div>
+        {node("is-meta", ICON.meta, "Meta veritabanı", "roller · yayınlar · denetim")}
       </div>
     );
   }
@@ -147,9 +174,5 @@ function ArtView({ art }: { art: Art }) {
       </div>
     );
   }
-  return (
-    <div className="tr-art tr-end" aria-hidden="true">
-      <svg viewBox="0 0 16 16" width="96" height="96" fill="none" stroke="currentColor" strokeLinecap="round"><circle cx="7" cy="7" r="5" strokeWidth="1.2" /><path d="M5 9V7.5M7 9V5M9 9V6.5" strokeWidth="1.1" /><path d="M10.8 10.8 14 14" strokeWidth="1.5" /></svg>
-    </div>
-  );
+  return null;
 }

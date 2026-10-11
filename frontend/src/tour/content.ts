@@ -5,7 +5,7 @@ export type Role = "herkes" | "tasarimci" | "yonetici";
 
 export const ROLE_LABEL: Record<Role, string> = { herkes: "Herkes", tasarimci: "Rapor tasarımcısı", yonetici: "Yönetici" };
 
-export type Art = "flow" | "arch" | "roles" | "security" | "value" | "roadmap" | "end";
+export type Art = "flow" | "arch" | "roles" | "security" | "value" | "roadmap";
 
 export type Slide = {
   id: string;
@@ -154,12 +154,6 @@ export const SLIDES: Slide[] = [
       "**Yaygınlaştırma:** tasarımcı eğitimi, onaylı sözlüğün genişletilmesi, rapor envanterinin taşınması.",
     ],
     notes: "Sonraki adımlar: pilot birim, sunucu kurulumu, AD entegrasyonu, eğitim.",
-  },
-  {
-    id: "son", kicker: "Teşekkürler", title: "Sorular?",
-    art: "end",
-    lead: "Kullanım kılavuzu her zaman açılış sayfasından ve uygulamanın sol menüsündeki Yardım'dan açılır.",
-    notes: "Kapanış: canlı demo istenirse açılış sayfasından Tasarım'a geçip 'Demo dashboard yükle' ile hızlı bir örnek gösterilebilir.",
   },
 ];
 
