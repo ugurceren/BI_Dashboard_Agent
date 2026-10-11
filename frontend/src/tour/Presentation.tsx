@@ -106,7 +106,7 @@ function ArtView({ art }: { art: Art }) {
     );
   }
   if (art === "security") {
-    const items = [["SQL", "Yalnız okuma, her sorgu doğrulanır"], ["PII", "Kişisel veri rolüne göre gizli"], ["T-1", "Veri tarihi kuralları"], ["LOG", "Denetim kaydı"], ["LLM", "Kurum içinde"]];
+    const items = [["LLM", "Kurum içinde"], ["SQL", "Read-only, her sorgu doğrulanır"], ["PII", "Kişisel veri rolüne göre gizli"], ["LOG", "Denetim kaydı"]];
     return (
       <div className="tr-art tr-shield" aria-hidden="true">
         {items.map(([k, d]) => <div key={k} className="tr-shield-item"><b>{k}</b><span>{d}</span></div>)}

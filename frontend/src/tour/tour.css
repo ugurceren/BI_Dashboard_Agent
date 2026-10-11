@@ -21,6 +21,7 @@
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr);
 }
 .tr-slide.art-end { grid-template-columns: minmax(0, 1fr) auto; }
+.tr-slide.art-roles, .tr-slide.art-arch { grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.45fr); }   /* tablo / şema geniş sütunda */
 /* ekran görüntülü slayt: görsel sayfanın çoğunu kaplar, metin dar sütunda (tam ekran uygulama görüntüsü okunabilsin) */
 .tr-slide.has-shot {
   grid-template-columns: minmax(260px, 0.5fr) minmax(0, 1.5fr); gap: clamp(20px, 2.4vw, 40px);
@@ -64,22 +65,23 @@
   background: rgba(96, 165, 250, 0.15); color: #93c5fd; box-shadow: 0 0 18px rgba(96, 165, 250, 0.25); }
 .tr-shield { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .tr-shield-item b { font: 700 13px var(--mono, Consolas, monospace); color: #4ade80; letter-spacing: 0.08em; }
-.tr-shield-item:last-child { grid-column: 1 / -1; }
+.tr-shield-item:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .tr-roles table, .tr-table { width: 100%; border-collapse: collapse; }
-.tr-roles table { font-size: 15px; background: var(--tr-card); border: 1px solid var(--tr-line); border-radius: 16px; overflow: hidden; }
-.tr-roles th, .tr-roles td { padding: 14px 16px; border-bottom: 1px solid var(--tr-line); text-align: left; }
-.tr-roles th { color: var(--tr-muted); font-weight: 600; font-size: 13px; }
+.tr-roles table { font-size: clamp(15px, 1.35vw, 21px); background: var(--tr-card); border: 1px solid var(--tr-line); border-radius: 18px; overflow: hidden; }
+.tr-roles th, .tr-roles td { padding: clamp(14px, 1.25vw, 22px) clamp(16px, 1.4vw, 26px); border-bottom: 1px solid var(--tr-line); text-align: left; }
+.tr-roles th { color: var(--tr-muted); font-weight: 600; font-size: clamp(13px, 1.05vw, 17px); }
 .tr-roles td.is-yes { color: #4ade80; font-weight: 700; text-align: center; }
 .tr-roles tr:last-child td { border-bottom: 0; color: var(--tr-muted); }
-.tr-arch { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.tr-arch-row { display: flex; gap: 12px; width: 100%; justify-content: center; }
-.tr-arch-3 > .tr-box { flex: 1; }
-.tr-box { background: var(--tr-card); border: 1px solid var(--tr-line); border-radius: 14px; padding: 14px 18px; text-align: center; font-weight: 650; min-width: 220px; display: flex; flex-direction: column; gap: 4px; }
-.tr-box small { color: var(--tr-muted); font-weight: 400; font-size: 12.5px; }
+.tr-arch { display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 0.9vw, 14px); }
+.tr-arch-row { display: flex; gap: clamp(12px, 1.1vw, 18px); width: 100%; justify-content: center; }
+.tr-arch-3 > .tr-box { flex: 1; min-width: 0; }
+.tr-box { background: var(--tr-card); border: 1px solid var(--tr-line); border-radius: 16px; padding: clamp(14px, 1.3vw, 22px) clamp(18px, 1.6vw, 28px);
+  text-align: center; font-weight: 650; font-size: clamp(15px, 1.4vw, 22px); min-width: clamp(220px, 22vw, 380px); display: flex; flex-direction: column; gap: 6px; }
+.tr-box small { color: var(--tr-muted); font-weight: 400; font-size: clamp(12.5px, 1.05vw, 16px); }
 .tr-box.is-core { border-color: rgba(96, 165, 250, 0.6); box-shadow: 0 0 30px -6px rgba(96, 165, 250, 0.5); }
 .tr-box.is-muted { opacity: 0.8; border-style: dashed; }
-.tr-arch-arrow { color: var(--tr-muted); font-size: 18px; }
-.tr-arch-arrow small { font-size: 12px; }
+.tr-arch-arrow { color: var(--tr-muted); font-size: clamp(18px, 1.7vw, 28px); }
+.tr-arch-arrow small { font-size: clamp(12px, 1vw, 15px); }
 .tr-road { display: flex; flex-direction: column; gap: 12px; }
 .tr-end { color: #93c5fd; filter: drop-shadow(0 0 30px rgba(96, 165, 250, 0.5)); }
 
