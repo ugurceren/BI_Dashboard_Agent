@@ -67,7 +67,11 @@ def test_settings_endpoints_save_and_mask_password(settings, services, conn_file
     assert "PWD={s3cret}" in conns.build_odbc(conns.load_connections()["data"])
     c.put("/api/settings/connections", json={**body, "data": {**body["data"], "password": None}})
     assert "PWD={s3cret}" in conns.build_odbc(conns.load_connections()["data"])
-    assert c.delete("/api/settings/connections").status_code == 200 and not conn_file.exists()
+    assert c.delete("/api/settings/connections").status_code == 200
+    left = conns.load_connections() or {}      # bölümler silinir; raporların bağlı olduğu kaynaklar arşivde kalır
+    assert "data" not in left and "dictionary" not in left
+    assert any(a["label"] == r"SRV\BI · AW" for a in left.get("sources", {}).values())
+    assert "s3cret" not in conn_file.read_text(encoding="utf-8")
 
 
 def test_settings_forbidden_for_remote_non_admin(settings, services, conn_file):
@@ -285,12 +289,12 @@ def test_llm_settings_saved_encrypted_and_sections_independent(settings, service
     assert c.put("/api/settings/connections", json=db).status_code == 200
     assert "llm" in conns.load_connections() and "data" in conns.load_connections()
     c.delete("/api/settings/connections")
-    assert set(conns.load_connections()) == {"llm"}
+    assert set(conns.load_connections()) - {"sources"} == {"llm"}     # sources: raporların bağlı olduğu kaynak arşivi
     exp = c.get("/api/settings/connections/export").text
     assert "sk-gizli" not in exp and '"qwen-32b"' in exp
     c.delete("/api/settings/llm")
     from app.config import get_settings
-    assert not conn_file.exists() and m.state.gateway.s.llm_model == get_settings().llm_model   # .env ayarına döndü
+    assert set(conns.load_connections() or {}) <= {"sources"} and m.state.gateway.s.llm_model == get_settings().llm_model   # .env ayarına döndü
 
 
 def test_catalog_loaded_even_if_dictionary_fails(settings, monkeypatch, conn_file):
@@ -353,7 +357,7 @@ def test_sections_saved_and_reset_independently(settings, services, conn_file, m
     r = c.put("/api/settings/connections/dictionary", json={"dictionary": {"kind": "sqlserver", "same_as_data": True, "database": "BI_Meta"}})
     assert r.status_code == 200
     cfg = conns.load_connections()
-    assert set(cfg) == {"dictionary"} and "server" not in cfg["dictionary"]          # sunucu kopyalanmaz
+    assert set(cfg) - {"sources"} == {"dictionary"} and "server" not in cfg["dictionary"]          # sunucu kopyalanmaz
     odbc = conns.dictionary_odbc(settings.model_copy(update={"sqlserver_odbc": env}))
     assert "SERVER=PASIFIK" in odbc and "DATABASE=BI_Meta" in odbc
     e = c.get("/api/settings/connections").json()
@@ -363,6 +367,6 @@ def test_sections_saved_and_reset_independently(settings, services, conn_file, m
     assert r"SERVER=YENI\BI" in conns.dictionary_odbc(settings) and "DATABASE=BI_Meta" in conns.dictionary_odbc(settings)
     # 3) bölüm sıfırlama diğerine dokunmaz
     assert c.delete("/api/settings/connections/data").status_code == 200
-    assert set(conns.load_connections()) == {"dictionary"}
+    assert set(conns.load_connections()) - {"sources"} == {"dictionary"}
     assert c.delete("/api/settings/connections/dictionary").status_code == 200
-    assert not conn_file.exists()
+    assert set(conns.load_connections() or {}) <= {"sources"}

@@ -3,10 +3,11 @@
 // Kartlar küçültülüp açılabilir, tam / yarım genişliğe alınabilir.
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../api/client";
-import type { CatalogMatch, SourceInfo, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole, LlmSettings } from "../types";
+import type { CatalogMatch, SourceInfo, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, DictKind, DictRole, DataSourceInfo, LlmSettings } from "../types";
 import { LlmSettingsCard } from "./LlmSettingsCard";
 import { SettingsCardHead, useCardLayout } from "./SettingsCardHead";
 import { PlatformDbCard } from "./PlatformDbCard";
+import { DataSourcesCard } from "./DataSourcesCard";
 import "./settings.css";
 
 type Target = "data" | "dictionary";
@@ -74,6 +75,8 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const [llmImport, setLlmImport] = useState<Partial<LlmSettings> | null>(null);
+  const [srcs, setSrcs] = useState<DataSourceInfo[] | null>(null);
+  const loadSources = () => { api.listSources().then(setSrcs, () => setSrcs([])); };
 
   const load = async (only?: Target) => {
     setBusy("load");
@@ -86,7 +89,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
     } catch (e) { setLoadError(errText(e)); }
     setBusy(null);
   };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); loadSources(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loadError) return <div className="settings"><div className="st-alert is-bad"><b>Ayarlar alınamadı</b><p>{loadError}</p></div></div>;
   if (!cfg || !data || !dict) return <div className="settings"><div className="panel-empty"><span className="spinner" /><p>Yükleniyor…</p></div></div>;
@@ -170,6 +173,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       setMsg(t, r.ok ? { ok: true, text: `Kaydedildi ve uygulandı. Veri sözlüğünde ${r.tables} tablo yüklendi.` }
         : { ok: false, text: `Kaydedildi ama bağlantıda sorun var: ${r.error}` });
       await load(t);
+      loadSources();
       onSaved?.();
     } catch (e) { setMsg(t, { ok: false, text: errText(e) }); }
     setBusy(null);
@@ -208,6 +212,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
       setMsg(t, r.ok ? { ok: true, text: t === "data" ? ".env ayarına dönüldü." : "dictionary.toml ayarına dönüldü." }
         : { ok: false, text: `Dönüldü ama bağlantıda sorun var: ${r.error}` });
       await load(t);
+      loadSources();
       onSaved?.();
     } catch (e) { setMsg(t, { ok: false, text: errText(e) }); }
     setBusy(null);
@@ -225,6 +230,21 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
             {busy === `save-${t}` ? <span className="spinner" /> : null} {t === "data" ? "Veri kaynağını kaydet ve uygula" : "Sözlüğü kaydet ve uygula"}
           </button>
         </div>
+      </div>
+    );
+  };
+  /** Veri kaynağı başka sunucu / veritabanına çevriliyorsa: mevcut raporlar eski kaynağa bağlı kalır. */
+  const sourceNote = () => {
+    const act = srcs?.find((x) => x.active);
+    const norm = (v: string[] | undefined) => (v ?? []).map((x) => x.toLowerCase()).sort().join(",");
+    const changed = data.server.trim().toLowerCase() !== (cfg.data.server ?? "").trim().toLowerCase()
+      || data.database.trim().toLowerCase() !== (cfg.data.database ?? "").trim().toLowerCase()
+      || norm(data.extra_databases) !== norm(cfg.data.extra_databases);
+    if (!act || !changed || act.reports + act.published === 0) return null;
+    return (
+      <div className="st-result st-source-note" role="note">
+        Mevcut <b>{act.reports} rapor</b>{act.published ? <> ({act.published} tanesi Vitrin'de yayında)</> : null} şu anki kaynağa
+        (<b>{act.label}</b>) bağlı kalacak ve verisini oradan almaya devam edecek. Yeni kaynak yalnız bundan sonra oluşturulan raporlarda kullanılır.
       </div>
     );
   };
@@ -435,6 +455,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           {connFields("data", data)}
           {dataDbField()}
           {testBox("data")}
+          {sourceNote()}
           {cardFoot("data", !!data.database.trim())}
           </>}
         </section>
@@ -590,6 +611,7 @@ export function SettingsPage({ api, onSaved }: { api: Api; onSaved?: () => void 
           </>}
         </section>
         <LlmSettingsCard api={api} imported={llmImport} onSaved={onSaved} layout={layout.llm} onLayout={(x) => setLayout("llm", x)} />
+        <DataSourcesCard api={api} sources={srcs} onChanged={loadSources} />
         <PlatformDbCard api={api} />
       </div>
 

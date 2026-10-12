@@ -254,6 +254,43 @@ export interface SessionState {
   /** modele gönderilen konuşma geçmişinin büyüklüğü (karakter) */
   llm_context_chars?: number;
   query_drafts?: QueryDraft[];
+  /** raporun sabitlendiği veri kaynağı (ilk veri kümesi kaydedilirken etkin bağlantı) */
+  data_source?: string | null;
+  data_source_label?: string | null;
+}
+
+/** Bağlantı Ayarları → Kayıtlı veri kaynakları (raporların bağlı olduğu kaynaklar). */
+export interface DataSourceInfo {
+  id: string;
+  label: string;
+  active: boolean;
+  archived_at: string | null;
+  auth: "windows" | "sql" | "env";
+  username: string;
+  has_password: boolean;
+  /** bu kaynağa bağlı tasarım oturumu sayısı */
+  reports: number;
+  /** Vitrin'de yayında olan rapor sayısı */
+  published: number;
+  /** yayın (Vitrin) hesabı: tanımlıysa yayınlanmış raporların verisi bununla okunur */
+  publish: PublishAccount;
+  /** backend'in çalıştığı Windows hesabı (Windows hizmet hesabı seçeneğinde SQL Server'a bu bağlanır) */
+  process_account?: string;
+}
+
+export interface PublishAccount {
+  auth: "none" | "sql" | "windows";
+  username?: string;
+  has_password?: boolean;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+
+export interface PublishAccountTest {
+  ok: boolean;
+  login: string | null;
+  databases: { database: string; ok: boolean; readable?: number; total?: number; error?: string }[];
+  warnings: string[];
 }
 
 /** Sorgu modundaki sorgu: kaydedilince bu id ile veri kümesi olur. */
@@ -298,7 +335,7 @@ export interface Health {
   ok: boolean;
   llm: { reachable: boolean; model: string; base_url: string; error?: string; context_tokens?: number };
   vision: { configured: boolean; model: string | null };
-  data: { ok: boolean; dialect: string; error?: string };
+  data: { ok: boolean; dialect: string; error?: string; source?: { id: string | null; label: string | null } };
   dictionary?: { tables: number; error?: string };
 }
 

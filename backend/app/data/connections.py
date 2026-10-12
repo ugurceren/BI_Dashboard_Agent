@@ -14,6 +14,9 @@ Sürücü her zaman otomatik seçilir (odbc.best_sql_server_driver: 18 → 17 �
 from __future__ import annotations
 
 import base64
+import contextlib
+import contextvars
+import hashlib
 import json
 import logging
 import os
@@ -21,8 +24,9 @@ import re
 import socket
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from app.config import BACKEND_DIR, Settings, get_settings, load_toml
 from app.data.odbc import best_sql_server_driver, installed_drivers
@@ -117,7 +121,24 @@ def parse_odbc(conn: str) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ dosya
+# Arşivlenmiş bir veri kaynağının servisleri kurulurken load_connections() o kaynağın ayarlarını döndürür
+# (build_services / DataDictionary.load değişmeden başka kaynak için çalışır). Yalnız bu bağlamda geçerlidir.
+_override: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("bi_connections_override", default=None)
+
+
+@contextlib.contextmanager
+def override_connections(cfg: dict[str, Any]) -> Iterator[None]:
+    token = _override.set(cfg)
+    try:
+        yield
+    finally:
+        _override.reset(token)
+
+
 def load_connections() -> dict[str, Any] | None:
+    ov = _override.get()
+    if ov is not None:
+        return ov
     try:
         return json.loads(CONNECTIONS_FILE.read_text(encoding="utf-8")) if CONNECTIONS_FILE.exists() else None
     except (OSError, json.JSONDecodeError) as e:
@@ -130,6 +151,8 @@ def save_connections(cfg: dict[str, Any]) -> None:
     Değeri None olan bölüm silinir; dosyada bölüm kalmazsa dosya silinir."""
     with _lock:
         cur = load_connections() or {}
+        if "data" in cfg or "dictionary" in cfg:
+            _archive_active(cur)        # raporlar bu kaynağa bağlı kalabilsin: değişmeden önceki hali saklanır
         for k, v in cfg.items():
             if v is None:
                 cur.pop(k, None)
@@ -206,6 +229,9 @@ def dictionary_conn_fields(cfg: dict[str, Any], settings: Settings | None = None
     d = dict(cfg.get("dictionary") or {})
     if (d.get("kind") or "sqlserver") == "sqlserver" and d.get("same_as_data", True):
         db = d.get("database") or DEFAULT_DICTIONARY_DB
+        if cfg.get("data") and cfg["data"].get("odbc_enc"):     # arşivlenmiş .env kaynağı
+            env = unprotect(cfg["data"]["odbc_enc"])
+            return {**parse_odbc(env), "database": db, "odbc": _replace_db(env, db)}
         if cfg.get("data"):
             return {**cfg["data"], "database": db}
         env = (settings or get_settings()).sqlserver_odbc
@@ -219,9 +245,14 @@ def dictionary_sources() -> dict[str, list[str]] | None:
     return sd[1] if sd else None
 
 
+def _data_section_odbc(d: dict[str, Any]) -> str:
+    """Veri bölümü: alanlardan ya da (arşivlenmiş .env kaynağı) şifreli tam bağlantı cümlesinden."""
+    return unprotect(d["odbc_enc"]) if d.get("odbc_enc") else build_odbc(d)
+
+
 def data_odbc(settings: Settings) -> str:
     cfg = load_connections()
-    return build_odbc(cfg["data"]) if cfg and cfg.get("data") else settings.sqlserver_odbc
+    return _data_section_odbc(cfg["data"]) if cfg and cfg.get("data") else settings.sqlserver_odbc
 
 
 def _db_list(v: Any) -> list[str]:
@@ -238,7 +269,10 @@ def extra_databases(settings: Settings) -> list[str]:
     """Veri kaynağının ek veritabanları (aynı sunucu): arayüz (connections.json data.extra_databases) ya da .env
     SQLSERVER_EXTRA_DATABASES. Birincil veritabanı (DATABASE=) listede olsa bile çıkarılır."""
     cfg = load_connections()
-    if cfg and cfg.get("data"):
+    if cfg and cfg.get("data") and cfg["data"].get("odbc_enc"):
+        extras = _db_list(cfg["data"].get("extra_databases"))
+        primary = parse_odbc(unprotect(cfg["data"]["odbc_enc"])).get("database") or ""
+    elif cfg and cfg.get("data"):
         extras, primary = _db_list(cfg["data"].get("extra_databases")), cfg["data"].get("database") or ""
     else:
         extras, primary = _db_list(settings.sqlserver_extra_databases), parse_odbc(settings.sqlserver_odbc).get("database") or ""
@@ -306,7 +340,7 @@ def dictionary_odbc(settings: Settings) -> str | None:
 
 
 def _public(d: dict[str, Any]) -> dict[str, Any]:
-    out = {k: v for k, v in d.items() if k not in ("password", "password_enc", "odbc")}
+    out = {k: v for k, v in d.items() if k not in ("password", "password_enc", "odbc", "odbc_enc")}
     out["has_password"] = bool(d.get("password_enc"))
     return out
 
@@ -424,3 +458,200 @@ def meta_public(settings: Settings) -> dict[str, Any]:
     if settings.meta_odbc:
         return {"source": "env", **parse_odbc(settings.meta_odbc)}
     return {"source": "default", "server": "", "database": "BI_Lens_Meta", "auth": "windows"}
+
+
+# ------------------------------------------------------------------ veri kaynağı kimliği ve arşiv
+# Her rapor, veri kümeleri kaydedildiğinde etkin veri kaynağına "damgalanır" (Session.data_source). Bağlantı ayarı
+# sonradan başka sunucu / veritabanına çevrilse de rapor kendi kaynağından okur: değişiklikten önceki ayar burada saklanır.
+def _source_parts(data: dict[str, Any] | None, settings: Settings) -> tuple[str, str, list[str]]:
+    if data and data.get("odbc_enc"):
+        p = parse_odbc(unprotect(data["odbc_enc"]))
+        return p.get("server") or "", p.get("database") or "", _db_list(data.get("extra_databases"))
+    if data:
+        return data.get("server") or "", data.get("database") or "", _db_list(data.get("extra_databases"))
+    p = parse_odbc(settings.sqlserver_odbc)
+    return p.get("server") or "", p.get("database") or "", _db_list(settings.sqlserver_extra_databases)
+
+
+def source_id_of(data: dict[str, Any] | None, settings: Settings | None = None) -> str:
+    """Kaynak kimliği: sunucu + veritabanı + ek veritabanları (kimlik bilgileri dahil değil; aynı yere dönülürse aynı)."""
+    srv, db, extras = _source_parts(data, settings or get_settings())
+    key = "|".join([srv.strip().lower(), db.strip().lower(), ",".join(sorted(x.lower() for x in extras))])
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+
+
+def source_label_of(data: dict[str, Any] | None, settings: Settings | None = None) -> str:
+    srv, db, _ = _source_parts(data, settings or get_settings())
+    return f"{srv or '?'} · {db or '?'}"
+
+
+def active_source_id(settings: Settings | None = None) -> str:
+    cfg = load_connections() or {}
+    return source_id_of(cfg.get("data"), settings)
+
+
+def _archive_active(cur: dict[str, Any]) -> None:
+    """Etkin veri kaynağının (veri + sözlük ayarı) kopyası sources'a yazılır. .env kaynağında bağlantı cümlesi şifreli saklanır."""
+    settings = get_settings()
+    data = cur.get("data")
+    if not data:
+        if not settings.sqlserver_odbc:
+            return
+        data = {"odbc_enc": protect(settings.sqlserver_odbc), "extra_databases": _db_list(settings.sqlserver_extra_databases)}
+    sid = source_id_of(data, settings)
+    sources = dict(cur.get("sources") or {})
+    sources[sid] = {"label": source_label_of(data, settings), "data": data, "dictionary": cur.get("dictionary"),
+                    "archived_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    cur["sources"] = sources
+
+
+def archived_source(sid: str) -> dict[str, Any] | None:
+    return ((load_connections() or {}).get("sources") or {}).get(sid)
+
+
+def source_config(sid: str) -> dict[str, Any] | None:
+    """override_connections için: geçerli ayarlar + o kaynağın veri ve sözlük bölümleri."""
+    arch = archived_source(sid)
+    if not arch:
+        return None
+    cur = {k: v for k, v in (load_connections() or {}).items() if k not in ("data", "dictionary", "sources")}
+    cur["data"] = arch["data"]
+    if arch.get("dictionary"):
+        cur["dictionary"] = arch["dictionary"]
+    return cur
+
+
+def list_sources(settings: Settings | None = None) -> list[dict[str, Any]]:
+    """Kayıtlı kaynaklar (etkin olan dahil), şifresiz."""
+    settings = settings or get_settings()
+    cfg = load_connections() or {}
+    active = source_id_of(cfg.get("data"), settings)
+    out: dict[str, dict[str, Any]] = {}
+    for sid, a in (cfg.get("sources") or {}).items():
+        d = a.get("data") or {}
+        out[sid] = {"id": sid, "label": a.get("label") or source_label_of(d, settings), "active": sid == active,
+                    "archived_at": a.get("archived_at"), "auth": "env" if d.get("odbc_enc") else (d.get("auth") or "windows"),
+                    "username": d.get("username") or "", "has_password": bool(d.get("password_enc") or d.get("odbc_enc"))}
+    if active not in out:
+        out[active] = {"id": active, "label": source_label_of(cfg.get("data"), settings), "active": True, "archived_at": None,
+                       "auth": (cfg.get("data") or {}).get("auth") or ("env" if not cfg.get("data") else "windows"),
+                       "username": (cfg.get("data") or {}).get("username") or "", "has_password": True}
+    for sid, x in out.items():
+        x["publish"] = publish_account_public(sid)
+    return sorted(out.values(), key=lambda x: (not x["active"], x["label"].lower()))
+
+
+def update_source_credentials(sid: str, username: str | None, password: str | None) -> bool:
+    """Arşivlenmiş kaynağın SQL kullanıcı / şifresini güncelle (şifre değişince raporlar okumaya devam etsin)."""
+    with _lock:
+        cur = load_connections() or {}
+        arch = (cur.get("sources") or {}).get(sid)
+        if not arch or arch["data"].get("odbc_enc"):
+            return False
+        d = dict(arch["data"])
+        if username is not None:
+            d["username"] = username
+            d["auth"] = "sql" if username else "windows"      # kullanıcı adı boş: Windows oturumu
+            if not username:
+                d.pop("password_enc", None)
+        if password and d["auth"] == "sql":
+            d["password_enc"] = protect(password)
+        arch["data"] = d
+        tmp = CONNECTIONS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(CONNECTIONS_FILE)
+        return True
+
+
+def delete_source(sid: str) -> bool:
+    with _lock:
+        cur = load_connections() or {}
+        if sid not in (cur.get("sources") or {}):
+            return False
+        cur["sources"].pop(sid)
+        if not cur["sources"]:
+            cur.pop("sources")
+        (cur.get("publish_accounts") or {}).pop(sid, None)
+        if "publish_accounts" in cur and not cur["publish_accounts"]:
+            cur.pop("publish_accounts")
+        tmp = CONNECTIONS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(CONNECTIONS_FILE)
+        return True
+
+
+# ------------------------------------------------------------------ yayın (Vitrin) hesabı
+# Yayınlanmış raporların verisi, kaynağına tanımlanmışsa geniş okuma yetkili ayrı bir servis hesabıyla okunur (tasarım,
+# sohbet, Sorgu Çalıştır her zaman normal bağlantıyla). İzleyicinin ne göreceğini yine BI Lens'in rol katmanı belirler.
+# Kayıt kaynak kimliğine göre tutulur (connections.json → publish_accounts): veri kartı kaydedilince kaybolmaz,
+# .env kaynağında ve arşivlenmiş kaynaklarda da çalışır.
+_CRED_KEYS = re.compile(r"(?i)(?:^|;)\s*(?:uid|user id|pwd|password|trusted_connection|integrated security)\s*=\s*(?:\{(?:[^}]|\}\})*\}|[^;]*)")
+
+
+def with_credentials(odbc: str, acc: dict[str, Any]) -> str:
+    """Bağlantı cümlesinin kimlik bilgisini değiştirir (sunucu / veritabanı / şifreleme aynı kalır)."""
+    base = _CRED_KEYS.sub("", odbc or "").strip(";")
+    if acc.get("auth") == "sql":
+        pwd = acc.get("password")
+        if pwd is None:
+            pwd = unprotect(acc.get("password_enc") or "")
+        cred = f"UID={_braced(acc.get('username') or '')};PWD={{{pwd.replace('}', '}}')}}}"
+    else:
+        cred = "Trusted_Connection=yes"
+    return f"{base};{cred};"
+
+
+def process_account() -> str:
+    """Backend'in çalıştığı Windows hesabı (Windows kimlik doğrulamasında SQL Server'a bu hesap bağlanır)."""
+    dom, user = os.environ.get("USERDOMAIN", ""), os.environ.get("USERNAME", "")
+    return f"{dom}\\{user}" if dom else user
+
+
+def publish_account(sid: str | None) -> dict[str, Any] | None:
+    acc = ((load_connections() or {}).get("publish_accounts") or {}).get(sid or "")
+    return acc if acc and acc.get("auth") in ("sql", "windows") else None
+
+
+def publish_account_public(sid: str | None) -> dict[str, Any]:
+    acc = publish_account(sid)
+    if not acc:
+        return {"auth": "none"}
+    return {"auth": acc["auth"], "username": acc.get("username") or "", "has_password": bool(acc.get("password_enc")),
+            "updated_at": acc.get("updated_at"), "updated_by": acc.get("updated_by")}
+
+
+def publish_odbc(sid: str | None, settings: Settings) -> str | None:
+    """Kaynağın yayın hesabıyla bağlantı cümlesi; tanımlı değilse None (normal bağlantı kullanılır)."""
+    acc = publish_account(sid)
+    return with_credentials(data_odbc(settings), acc) if acc else None
+
+
+def save_publish_account(sid: str, acc: dict[str, Any] | None, by: str = "") -> None:
+    """acc None ya da auth 'none' → kaldırılır. SQL şifresi boş gelirse kayıtlı şifre korunur."""
+    with _lock:
+        cur = load_connections() or {}
+        accounts = dict(cur.get("publish_accounts") or {})
+        if not acc or acc.get("auth") not in ("sql", "windows"):
+            accounts.pop(sid, None)
+        else:
+            old = accounts.get(sid) or {}
+            new: dict[str, Any] = {"auth": acc["auth"], "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                   "updated_by": by}
+            if acc["auth"] == "sql":
+                new["username"] = acc.get("username") or ""
+                if acc.get("password"):
+                    new["password_enc"] = protect(acc["password"])
+                elif old.get("auth") == "sql" and old.get("username") == new["username"] and old.get("password_enc"):
+                    new["password_enc"] = old["password_enc"]
+            accounts[sid] = new
+        if accounts:
+            cur["publish_accounts"] = accounts
+        else:
+            cur.pop("publish_accounts", None)
+        if not cur:
+            CONNECTIONS_FILE.unlink(missing_ok=True)
+            return
+        CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CONNECTIONS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(CONNECTIONS_FILE)

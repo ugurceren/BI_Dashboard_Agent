@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -9,6 +10,7 @@ import os
 import re
 import threading
 import time
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -31,7 +33,7 @@ from pydantic import BaseModel, ValidationError, field_validator
 from sqlglot import exp
 
 from app.config import BACKEND_DIR, get_settings, load_toml
-from app.data.connector import QueryError, create_connector
+from app.data.connector import QueryError, SqlServerConnector, create_connector
 from app.data.model_filters import ModelFilter, ModelFilterEngine, with_nolock
 from app.data.views import ViewRegistry, build_view_script, safe_view_name, select_from_view, view_columns
 from app.data.validator import RolePolicy, SqlValidator
@@ -83,26 +85,31 @@ class _BrokenConnector:
 state = AppState()
 
 
-def build_services() -> Services:
+def build_services(archived: bool = False) -> Services:
     """Servisler. Veritabanı / sözlük erişilemezse uygulama yine açılır (boş sözlükle); hata state.startup_error'da
-    tutulur ve arayüzde gösterilir — kullanıcı Bağlantı Ayarları'ndan düzeltebilir."""
+    tutulur ve arayüzde gösterilir — kullanıcı Bağlantı Ayarları'ndan düzeltebilir.
+    archived: arşivlenmiş bir veri kaynağı için (conns.override_connections içinde); hata Services.unavailable'a yazılır."""
     settings = get_settings()
-    state.startup_error = None
+    error: str | None = None
+    broken = False
     try:
         connector = create_connector(settings)
     except Exception as e:  # noqa: BLE001
         log.error("Veri bağlantısı kurulamadı: %s", e)
-        state.startup_error = f"Veri bağlantısı: {e}"
+        error, broken = f"Veri bağlantısı: {e}", True
         connector = _BrokenConnector(str(e))
     dictionary = DataDictionary(settings, connector)
     dictionary.extra_databases = conns.extra_databases(settings)   # aynı sunucudaki ek veritabanları (ör. EDW)
+    if archived:   # sonraki katalog okumaları da bu kaynağın sunucusuna (etkin bağlantı ayarına değil)
+        base_odbc, timeout = conns.data_odbc(settings), settings.query_timeout_s
+        dictionary.extra_connector = lambda db: SqlServerConnector(conns._replace_db(base_odbc, db), timeout)
     try:
         dictionary.load()
     except Exception as e:  # noqa: BLE001
         from app.data.odbc import friendly_error
         msg = friendly_error(str(e))
         log.error("Veri sözlüğü yüklenemedi: %s", msg)
-        state.startup_error = (state.startup_error + " | " if state.startup_error else "") + f"Veri sözlüğü: {msg}"
+        error = (error + " | " if error else "") + f"Veri sözlüğü: {msg}"
         # sözlük olmasa da veritabanındaki yetkili tablo / view'lar görünsün ve sorgulanabilsin
         try:
             dictionary._merge_catalog()
@@ -113,7 +120,98 @@ def build_services() -> Services:
     policy_cfg = load_toml(settings.policy_config)
     policies = {name: RolePolicy(name=name, **cfg) for name, cfg in policy_cfg.get("roles", {}).items()}
     validator = SqlValidator(dictionary, connector.dialect, policy_cfg.get("sql", {}).get("denied_functions", []))
-    return Services(settings, dictionary, connector, validator, policies)
+    data = (conns.load_connections() or {}).get("data")
+    svc = Services(settings, dictionary, connector, validator, policies,
+                   source_id=conns.source_id_of(data, settings), source_label=conns.source_label_of(data, settings))
+    pub = conns.publish_odbc(svc.source_id, settings)
+    if pub:
+        try:
+            svc.publish_connector = SqlServerConnector(pub, settings.query_timeout_s)
+        except Exception as e:  # noqa: BLE001
+            log.error("Yayın hesabı bağlantısı kurulamadı (%s): %s", svc.source_label, e)
+    if archived:
+        if broken or not dictionary.tables:
+            svc.unavailable = (f"Raporun veri kaynağına ({svc.source_label}) ulaşılamadı: {error or 'tablo bulunamadı'}. "
+                               "Bağlantı Ayarları → Kayıtlı veri kaynakları bölümünden kontrol edin.")
+    else:
+        state.startup_error = error
+    return svc
+
+
+# --------------------------------------------------------------------------- raporun sabitlendiği veri kaynağı
+_SOURCES_MAX = 4               # aynı anda açık tutulan arşivlenmiş kaynak servisi
+_SOURCE_RETRY_S = 60           # ulaşılamayan kaynak bu süre sonra yeniden denenir
+_sources: "OrderedDict[str, tuple[float, Services]]" = OrderedDict()
+_sources_lock = threading.Lock()
+
+
+def services_for(source_id: str | None) -> Services:
+    """Raporun veri kaynağının servisleri: etkin kaynaksa (ya da damgasızsa) state.services; değilse arşivdeki
+    ayarlarla kurulur ve önbellekte tutulur. Bağlantı ayarı sonradan değişse de rapor kendi kaynağından okur."""
+    act = state.services
+    if not source_id or source_id == act.source_id:
+        return act
+    with _sources_lock:
+        hit = _sources.get(source_id)
+        if hit and not (hit[1].unavailable and time.time() - hit[0] > _SOURCE_RETRY_S):
+            _sources.move_to_end(source_id)
+            return hit[1]
+        cfg = conns.source_config(source_id)
+        if cfg is None:
+            svc = Services(act.settings, DataDictionary(act.settings, act.connector), act.connector, act.validator,
+                           act.policies, source_id=source_id, source_label=source_id,
+                           unavailable="Raporun veri kaynağı kayıtlı değil (silinmiş olabilir); rapor yeniden veri seçilerek "
+                                       "güncellenmeli ya da kaynak Bağlantı Ayarları'ndan yeniden tanımlanmalı.")
+        else:
+            with conns.override_connections(cfg):
+                svc = build_services(archived=True)
+            svc.source_id = source_id     # kimlik arşivdeki anahtardır (aynı sunucu / veritabanı)
+        _sources[source_id] = (time.time(), svc)
+        while len(_sources) > _SOURCES_MAX:
+            _sources.popitem(last=False)
+        return svc
+
+
+def peek_services(source_id: str | None) -> Services | None:
+    """Kurmadan: etkin kaynak ya da önbellekteki arşiv kaynağı (liste sayfaları kaynağa bağlanmayı beklemesin)."""
+    if not source_id or source_id == state.services.source_id:
+        return state.services
+    with _sources_lock:
+        hit = _sources.get(source_id)
+    return hit[1] if hit else None
+
+
+def _forget_source(source_id: str | None = None) -> None:
+    with _sources_lock:
+        if source_id is None:
+            _sources.clear()
+        else:
+            _sources.pop(source_id, None)
+
+
+def _svc(s) -> Services:
+    """Rapor (tasarım oturumu ya da yayınlanmış sürüm) için veri servisleri. Yayınlanmış sürüm (Vitrin) kaynağın yayın
+    hesabı tanımlıysa onunla okunur; tasarım, sohbet ve Sorgu Çalıştır her zaman normal bağlantıyla."""
+    svc = services_for(getattr(s, "data_source", None))
+    if isinstance(s, _Snapshot) and svc.publish_connector is not None:
+        return dataclasses.replace(svc, connector=svc.publish_connector, account="publish")
+    return svc
+
+
+def _stamp_legacy_sessions() -> int:
+    """Kaynak damgası olmayan, veri kümesi olan eski raporlar etkin kaynağa damgalanır (bugüne kadar onunla yapıldılar)."""
+    n = 0
+    for item in state.store.list():
+        try:
+            with state.store.lock(item["id"]):
+                s = state.store.get(item["id"])
+                if s.datasets and not s.data_source:
+                    s.data_source, s.data_source_label = state.services.source_id, state.services.source_label
+                    state.store.save(s)
+                    n += 1
+        except (KeyError, OSError, ValueError):
+            continue
+    return n
 
 
 def build_meta() -> MetaStore | None:
@@ -149,7 +247,10 @@ async def lifespan(_: FastAPI):
     removed = state.store.dedupe_titles()
     if removed:
         log.info("Aynı başlıklı %d eski rapor oturumu kaldırıldı (aynı isimle tek rapor).", removed)
-    state.agent = Agent(state.gateway, state.services, state.store)
+    state.agent = Agent(state.gateway, state.services, state.store, services_for)
+    stamped = _stamp_legacy_sessions()
+    if stamped:
+        log.info("%d rapor etkin veri kaynağına sabitlendi (%s).", stamped, state.services.source_label)
     state.meta = build_meta()
     log.info("Sözlük: %d tablo, %d metrik | LLM: %s @ %s | vision: %s", len(state.services.dictionary.tables),
              len(state.services.dictionary.metrics), state.gateway.s.llm_model, state.gateway.s.llm_base_url,
@@ -173,6 +274,7 @@ def _session(sid: str):
 def health() -> dict[str, Any]:
     s = get_settings()
     data: dict[str, Any] = {"ok": True, "dialect": state.services.connector.dialect}
+    source = {"id": state.services.source_id, "label": state.services.source_label}   # etkin veri kaynağı
     try:
         state.services.connector.ping()
     except Exception as e:  # noqa: BLE001
@@ -185,7 +287,8 @@ def health() -> dict[str, Any]:
         from app.data.odbc import friendly_error
         data["error"] = friendly_error(data.get("error", ""))[:400]
     return {"ok": llm["reachable"] and data["ok"], "llm": llm,
-            "vision": {"configured": bool(state.gateway.s.vision_model), "model": state.gateway.s.vision_model}, "data": data,
+            "vision": {"configured": bool(state.gateway.s.vision_model), "model": state.gateway.s.vision_model},
+            "data": {**data, "source": source},
             "dictionary": dic}
 
 
@@ -337,13 +440,16 @@ def my_access(request: Request) -> dict[str, Any]:
             s = state.store.get(item["id"])
         except KeyError:
             continue
+        svc = peek_services(s.data_source)    # rapor eski bir kaynağa bağlıysa onun sözlüğüyle (açılmadıysa bağlanılmaz)
         for d in s.datasets:
-            v = state.services.validator.validate(d.sql, pol)
+            v = svc.validator.validate(d.sql, svc.policy(ident.role)) if svc and not svc.unavailable else None
             doms = _report_domains(_source_tables([d.model_dump()]), kinds)
             objects.append({"type": "dataset", "id": f"{s.id}.{d.id}", "name": d.id, "business_name": "", "description": d.description,
                             "subject_area": doms[0] if doms else "Diğer", "report_id": s.id, "report_title": s.title,
-                            "fields": len(d.fields), "view": d.view, "tables": v.tables, "accessible": v.ok,
-                            "reason": None if v.ok else "; ".join(v.errors)[:200]})
+                            "fields": len(d.fields), "view": d.view, "tables": v.tables if v else [], "accessible": bool(v and v.ok),
+                            "reason": (svc.unavailable if svc else f"Rapor başka bir veri kaynağına ({s.data_source_label}) bağlı; "
+                                       "erişim rapor açılınca denetlenir.") if v is None else (None if v.ok else "; ".join(v.errors)[:200]),
+                            **({"data_source": s.data_source_label} if svc is not state.services else {})})
     objects.sort(key=lambda o: (o["subject_area"], o["name"].lower()))
     return {"user": ident.public(), "role": ident.role,
             "policy": {"allowed_schemas": pol.allowed_schemas, "denied_tables": pol.denied_tables,
@@ -440,6 +546,8 @@ def query_schema(request: Request) -> dict[str, Any]:
             s = state.store.get(item["id"])
         except KeyError:
             continue
+        if s.data_source and s.data_source != state.services.source_id:
+            continue    # başka veri kaynağına bağlı raporun SQL'i etkin kaynakta çalışmaz
         for d in s.datasets:
             if state.services.validator.validate(d.sql, pol).ok:
                 doms = _report_domains(_source_tables([d.model_dump()]), kinds)
@@ -676,7 +784,7 @@ def query_preview(sid: str, body: QueryIn, request: Request) -> dict[str, Any]:
     sql = (body.sql or "").strip()
     if len(sql) > 20000:
         raise HTTPException(413, "Sorgu çok uzun (en çok 20.000 karakter).")
-    ctx = ToolContext(s.model_copy(update={"user_role": ident.role}), state.services)   # oturum nesnesi değiştirilmez
+    ctx = ToolContext(s.model_copy(update={"user_role": ident.role}), _svc(s))   # oturum nesnesi değiştirilmez
     res, errors, tables, warnings = _run_validated(ctx, sql, QUERY_PREVIEW_ROWS)
     Audit(get_settings().audit_log).write(event="query_preview", session=sid, user=ident.username, role=ident.role,
                                           sql=sql[:4000], ok=not errors, errors=errors or None, tables=tables)
@@ -705,7 +813,8 @@ def datasets_from_query(sid: str, body: FromQueryIn, request: Request) -> Any:
     with state.store.lock(sid):
         s = _session(sid)
         s.user_role = ident.role   # güncel rol (rolü geri alınan kullanıcı eski yetkiyle kaydedemesin)
-        ctx = ToolContext(s, state.services)
+        svc = _svc(s)
+        ctx = ToolContext(s, svc)
         built, errors = [], []
         for d in items:
             ds, prof, errs = _build_dataset(ctx, {"id": d.id.strip(), "sql": d.sql, "description": d.title.strip()}, user_sql=True)
@@ -731,7 +840,7 @@ def datasets_from_query(sid: str, body: FromQueryIn, request: Request) -> Any:
         add_join_relationships(ctx)
         s.query_drafts = [QueryDraft(**d.model_dump()) for d in body.datasets]
         names = ", ".join(ds.id for ds, _ in built)
-        tables = sorted({t for ds, _ in built for t in state.services.validator.validate(ds.sql, state.services.policy(ident.role)).tables})
+        tables = sorted({t for ds, _ in built for t in svc.validator.validate(ds.sql, svc.policy(ident.role)).tables})
         if s.phase != "design":
             s.set_phase("design")
             s.add(TranscriptItem(role="system", content=f"Sorgu modundan {len(built)} veri kümesi kaydedildi ({names}); tasarım fazına geçildi."))
@@ -757,12 +866,12 @@ def put_spec(sid: str, request: Request, spec: dict[str, Any] = Body(...)) -> An
         for raw in spec.get("datasets") or []:
             known = next((d for d in s.datasets if d.id == raw.get("id")), None)
             if not known or known.sql.strip() != str(raw.get("sql", "")).strip():
-                ds, prof, errs = _build_dataset(ToolContext(s, state.services), raw)
+                ds, prof, errs = _build_dataset(ToolContext(s, _svc(s)), raw)
                 if errs:
                     return JSONResponse({"detail": errs}, status_code=422)
                 s.datasets = [d for d in s.datasets if d.id != ds.id] + [ds]
                 s.dataset_profiles[ds.id] = prof
-        new_spec, errs, _ = _validate_spec(ToolContext(s, state.services), spec)
+        new_spec, errs, _ = _validate_spec(ToolContext(s, _svc(s)), spec)
         if errs:
             return JSONResponse({"detail": errs}, status_code=422)
         s.set_spec(new_spec)
@@ -776,7 +885,7 @@ def load_demo(sid: str, request: Request) -> Any:
     with state.store.lock(sid):
         s = _session(sid)
         raw = json.loads(get_settings().demo_spec.read_text(encoding="utf-8"))
-        ctx = ToolContext(s, state.services)
+        ctx = ToolContext(s, _svc(s))
         built, profiles = [], {}
         for d in raw["datasets"]:
             ds, prof, errs = _build_dataset(ctx, d)
@@ -817,18 +926,22 @@ _cache_lock = threading.Lock()
 CACHE_TTL_S = 120
 
 
-def _dataset_payload(sql: str, role: str) -> dict[str, Any]:
-    key = hashlib.sha1(f"{role}|{sql}".encode()).hexdigest()
+def _dataset_payload(sql: str, role: str, svc: Services | None = None) -> dict[str, Any]:
+    """svc: raporun veri kaynağının servisleri (varsayılan etkin kaynak). Önbellek kaynağa göre ayrılır."""
+    svc = svc or state.services
+    if svc.unavailable:   # kaynağa ulaşılamıyor: "yetkiniz yok" değil, okunur hata
+        return {"columns": [], "rows": [], "error": svc.unavailable}
+    key = hashlib.sha1(f"{svc.source_id}|{svc.account}|{role}|{sql}".encode()).hexdigest()
     with _cache_lock:
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < CACHE_TTL_S:
             return hit[1]
-    pol = state.services.policy(role)
-    v = state.services.validator.validate(sql, pol)
+    pol = svc.policy(role)
+    v = svc.validator.validate(sql, pol, ignore_db_perms=svc.account == "publish")
     if not v.ok:   # rolün izin vermediği veri (şema / tablo / kişisel veri): görsel "yetkiniz yok" gösterir
         return {"columns": [], "rows": [], "error": "; ".join(v.errors), "denied": True}
     try:
-        r = state.services.connector.execute(v.sql, pol.max_rows)
+        r = svc.connector.execute(v.sql, pol.max_rows)
     except QueryError as e:
         return {"columns": [], "rows": [], "error": str(e)[:300]}
     payload = {"columns": r.columns, "rows": r.rows, **({"truncated": True} if r.truncated else {})}
@@ -849,8 +962,9 @@ def _all_datasets(s) -> dict[str, Any]:
 def _engine(s=None) -> ModelFilterEngine:
     """Filtre motoru; rapor verilirse o rapora özel (onaylı) ilişkiler de kullanılır."""
     from app.dictionary.model_rels import report_relationships
-    extra = report_relationships(state.services.dictionary, getattr(s, "model_relationships", None)) if s is not None else []
-    return ModelFilterEngine(state.services.dictionary, state.services.connector.dialect, extra)
+    svc = _svc(s) if s is not None else state.services
+    extra = report_relationships(svc.dictionary, getattr(s, "model_relationships", None)) if s is not None else []
+    return ModelFilterEngine(svc.dictionary, svc.connector.dialect, extra)
 
 
 def _bindings(s) -> dict[str, dict[str, str]]:
@@ -876,17 +990,19 @@ def _filter_defs(s, bindings: dict[str, dict[str, str]] | None = None) -> list[d
 _options_cache: dict[str, tuple[float, list[Any]]] = {}
 
 
-def _filter_options(key: str, role: str) -> list[Any]:
-    hit = _options_cache.get(f"{role}|{key}")
+def _filter_options(key: str, role: str, svc: Services | None = None) -> list[Any]:
+    svc = svc or state.services
+    ck = f"{svc.source_id}|{svc.account}|{role}|{key}"
+    hit = _options_cache.get(ck)
     if hit and time.time() - hit[0] < CACHE_TTL_S * 5:
         return hit[1]
     table, _, column = key.rpartition(".")
-    dd = state.services.dictionary
+    dd = svc.dictionary
     t = dd.tables.get(table)
     col = next((c for c in t.columns if c.name == column), None) if t else None
     if not t or not col:
         return []
-    dialect = state.services.connector.dialect
+    dialect = svc.connector.dialect
     c = exp.column(col.display_name or column)
     where = c.is_(exp.null()).not_()
     if t.snapshot_date:   # günlük anlık görüntü: seçenekler son günden (takvimle çoğaltılmış view'ın tamamı taranmaz)
@@ -896,12 +1012,12 @@ def _filter_options(key: str, role: str) -> list[Any]:
             .from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd)).where(recent_bound(d.copy()))
         where = exp.and_(where, exp.EQ(this=d.copy(), expression=exp.Subquery(this=last)))
     sql = exp.select(c).distinct().from_(with_nolock(exp.to_table(t.display_name or table, dialect=dialect), dd)).where(where)         .order_by(c).limit(500).sql(dialect=dialect)
-    payload = _dataset_payload(sql, role)  # validator: izinli şema + PII kontrolü burada da geçerli
+    payload = _dataset_payload(sql, role, svc)  # validator: izinli şema + PII kontrolü burada da geçerli
     values = [r[0] for r in payload.get("rows", [])]
     if payload.get("error"):   # hata (ör. zaman aşımı) önbelleğe alınmaz: boş liste 10 dk takılı kalmasın
         log.warning("Filtre seçenekleri alınamadı (%s): %s", key, str(payload["error"])[:200])
         return values
-    _options_cache[f"{role}|{key}"] = (time.time(), values)
+    _options_cache[ck] = (time.time(), values)
     return values
 
 
@@ -909,9 +1025,12 @@ AS_OF_KEY = "__as_of__"   # dashboard seçimi: günlük anlık görüntülerde '
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _dashboard_data(s, selections: list[dict[str, Any]] | None = None, role: str | None = None) -> dict[str, Any]:
     """selections: [{key: 'şema.tablo.kolon', values: [...], exclude: [dataset_id, ...]}];
-    key '__as_of__' → günlük anlık görüntülerin veri tarihi (boşsa son gün)."""
+    key '__as_of__' → günlük anlık görüntülerin veri tarihi (boşsa son gün).
+    Veri raporun sabitlendiği kaynaktan, izleyicinin (role verilirse onun) güncel veri rolüyle okunur."""
+    svc = _svc(s)
+    role = role or s.user_role
     eng = _engine(s)
     out: dict[str, Any] = {}
     applied: dict[str, list[str]] = {}
@@ -960,7 +1079,7 @@ def _dashboard_data(s, selections: list[dict[str, Any]] | None = None) -> dict[s
                     log.warning("View kaynağına filtre uygulanamadı (%s): %s", did, e)
         if dated:
             applied.setdefault(did, []).append(AS_OF_KEY)
-        out[did] = _dataset_payload(sql, s.user_role)
+        out[did] = _dataset_payload(sql, role, svc)
     return {"datasets": out, "applied": applied, **({"as_of": as_of} if as_of else {})}
 
 
@@ -975,14 +1094,15 @@ def _data_date_info(s, role: str) -> dict[str, Any] | None:
     if not tables:
         return None
     main = max(set(tables), key=tables.count)
-    dd = state.services.dictionary
+    svc = _svc(s)
+    dd = svc.dictionary
     t = dd.tables[main]
-    key = f"{role}|asof|{main}"
+    key = f"{svc.source_id}|{svc.account}|{role}|asof|{main}"
     hit = _options_cache.get(key)
     if hit and time.time() - hit[0] < CACHE_TTL_S * 5:
         lo, hi = hit[1]
     else:
-        dialect = state.services.connector.dialect
+        dialect = svc.connector.dialect
         # yalnız son gün okunur (T-1 veri ambarı: son 2 gün; yoksa 31 gün) — tüm geçmişin MIN'i taranmaz,
         # seçicinin alt sınırı boş kalır (kullanıcı geçmiş bir günü yine seçebilir)
         from app.data.snapshot_guard import recent_bound
@@ -992,7 +1112,7 @@ def _data_date_info(s, role: str) -> dict[str, Any] | None:
             sql = exp.select(exp.Max(this=c).as_("max_d")) \
                 .from_(with_nolock(exp.to_table(t.display_name or main, dialect=dialect), dd)) \
                 .where(recent_bound(c.copy(), days)).sql(dialect=dialect)
-            rows = _dataset_payload(sql, role).get("rows") or []
+            rows = _dataset_payload(sql, role, svc).get("rows") or []
             hi = str(rows[0][0])[:10] if rows and rows[0][0] else None
             if hi:
                 break
@@ -1004,7 +1124,8 @@ def _data_date_info(s, role: str) -> dict[str, Any] | None:
 
 @app.get("/api/sessions/{sid}/dashboard-data")
 def dashboard_data(sid: str, request: Request) -> dict[str, Any]:
-    return _dashboard_data(_own_session(request, sid)[0])
+    s, ident = _own_session(request, sid)
+    return _dashboard_data(s, role=ident.role)
 
 
 class SelectionIn(BaseModel):
@@ -1020,19 +1141,21 @@ class DashboardQuery(BaseModel):
 @app.post("/api/sessions/{sid}/dashboard-data")
 def dashboard_data_filtered(sid: str, body: DashboardQuery, request: Request) -> dict[str, Any]:
     """Model filtreleriyle dashboard verisi: seçimler ilişkiler üzerinden her dataset'e yayılır."""
-    return _dashboard_data(_own_session(request, sid)[0], [sel.model_dump() for sel in body.selections])
+    s, ident = _own_session(request, sid)
+    return _dashboard_data(s, [sel.model_dump() for sel in body.selections], role=ident.role)
 
 
 @app.get("/api/sessions/{sid}/filters")
 def dashboard_filters(sid: str, request: Request) -> dict[str, Any]:
     """Dilimleyici tanımları + seçenekleri ve dataset alanlarının model kökenleri."""
-    s = _own_session(request, sid)[0]
+    s, ident = _own_session(request, sid)
     bindings = _bindings(s)
     defs = _filter_defs(s, bindings)
+    svc = _svc(s)
     for f in defs:
-        f["options"] = _filter_options(f["key"], s.user_role) if f["key"] else []
+        f["options"] = _filter_options(f["key"], ident.role, svc) if f["key"] else []
     try:
-        data_date = _data_date_info(s, s.user_role)
+        data_date = _data_date_info(s, ident.role)
     except Exception as e:  # noqa: BLE001 — tarih seçicisi olmadan da dashboard çalışsın
         log.warning("Veri tarihi aralığı alınamadı: %s", e)
         data_date = None
@@ -1041,13 +1164,13 @@ def dashboard_filters(sid: str, request: Request) -> dict[str, Any]:
 
 @app.get("/api/sessions/{sid}/export/html")
 def export_html(sid: str, request: Request) -> HTMLResponse:
-    s = _own_session(request, sid)[0]
+    s, ident = _own_session(request, sid)
     if not s.spec:
         raise HTTPException(409, "Henüz dashboard yok.")
     viewer = get_settings().viewer_html
     if not viewer.exists():
         raise HTTPException(503, "Viewer derlenmemiş: frontend klasöründe `npm run build:viewer` çalıştırın.")
-    data = _dashboard_data(s)
+    data = _dashboard_data(s, role=ident.role)
     data["bindings"] = _bindings(s)
     data["filter_keys"] = {f["id"]: f["key"] for f in _filter_defs(s, data["bindings"])}
     payload = json.dumps({"spec": s.spec.model_dump(exclude_none=True), "data": data},
@@ -1075,12 +1198,13 @@ def _find_dataset(s, did: str):
 @app.post("/api/sessions/{sid}/datasets/{did}/view-script")
 def dataset_view_script(sid: str, did: str, body: ViewIn, request: Request) -> dict[str, Any]:
     """Dataset için inceleme amaçlı CREATE OR ALTER VIEW scripti üretir (çalıştırmaz)."""
-    s = _own_session(request, sid)[0]
+    s, ident = _own_session(request, sid)
     ds = _find_dataset(s, did)
     settings = get_settings()
     name = (body.name or safe_view_name(did)).strip()
     source_sql = ds.original_sql or ds.sql
-    v = state.services.validator.validate(source_sql, state.services.policy(s.user_role))
+    svc = _svc(s)
+    v = svc.validator.validate(source_sql, svc.policy(ident.role))   # çağıranın güncel rolü
     if not v.ok:
         raise HTTPException(422, "; ".join(v.errors))
     vs = build_view_script(schema=settings.view_schema, name=name, dataset_id=did, description=ds.description,
@@ -1090,7 +1214,7 @@ def dataset_view_script(sid: str, did: str, body: ViewIn, request: Request) -> d
     settings.view_scripts_dir.mkdir(parents=True, exist_ok=True)
     path = settings.view_scripts_dir / f"{settings.view_schema}.{name}.sql"
     path.write_text(vs.script, encoding="utf-8")
-    exists = view_columns(state.services.connector, settings.view_schema, name) is not None
+    exists = view_columns(svc.connector, settings.view_schema, name) is not None
     return {"view": vs.name, "script": vs.script, "file": str(path), "exists": exists}
 
 
@@ -1103,7 +1227,8 @@ def dataset_use_view(sid: str, did: str, body: ViewIn, request: Request) -> Any:
     with state.store.lock(sid):
         s = _session(sid)
         ds = _find_dataset(s, did)
-        cols = view_columns(state.services.connector, settings.view_schema, name)
+        svc = _svc(s)
+        cols = view_columns(svc.connector, settings.view_schema, name)
         if cols is None:
             raise HTTPException(409, f"{settings.view_schema}.{name} veritabanında bulunamadı. Scripti çalıştırdınız mı?")
         want = [f.name for f in ds.fields]
@@ -1119,7 +1244,7 @@ def dataset_use_view(sid: str, did: str, body: ViewIn, request: Request) -> Any:
                  "columns": [{"name": f.name, "label": f.label, "type": f.type, "format": f.format,
                               "lineage": lineage.get(f.name)} for f in ds.fields]}
         ViewRegistry(settings.views_registry).upsert(entry)
-        state.services.dictionary.add_view(entry)
+        svc.dictionary.add_view(entry)
         # hangi filtreler view'a geçince artık uygulanamıyor?
         filters = [f for f in _filter_defs(s) if f["key"]]
         new_sql = select_from_view(settings.view_schema, name, want)
@@ -1155,16 +1280,17 @@ def dictionary_search(request: Request, q: str = "") -> list[dict[str, Any]]:
 def dictionary_model(request: Request, session: str | None = None) -> dict[str, Any]:
     """İlişkisel model; session verilirse o rapordaki dataset'lerin kullandığı tablolar da işaretlenir."""
     _need(request, "builder")
-    model = state.services.dictionary.model()
+    s = _own_session(request, session)[0] if session else None
+    svc = _svc(s) if s is not None else state.services     # rapor eski bir kaynağa bağlıysa o kaynağın modeli
+    model = svc.dictionary.model()
     used: dict[str, list[str]] = {}
     if session:
-        s = _own_session(request, session)[0]
         datasets = {d.id: d for d in s.datasets}
         if s.spec:
             datasets.update({d.id: d for d in s.spec.datasets})
-        pol = state.services.policy(s.user_role)
+        pol = svc.policy(s.user_role)
         for d in datasets.values():
-            for t in state.services.validator.validate(d.sql, pol).tables:
+            for t in svc.validator.validate(d.sql, pol).tables:
                 used.setdefault(t, []).append(d.id)
     if session and s.datasets and not s.joins_derived:
         # eski raporlar: dataset JOIN'lerinden rapora özel ilişkiler bir kez çıkarılır (Model sekmesi + filtreler)
@@ -1174,12 +1300,12 @@ def dictionary_model(request: Request, session: str | None = None) -> dict[str, 
             try:
                 s = _session(session)
                 if not s.joins_derived:
-                    add_join_relationships(ToolContext(s, state.services))
+                    add_join_relationships(ToolContext(s, svc))
                     state.store.save(s)
             finally:
                 lock.release()
     if session:
-        dd = state.services.dictionary
+        dd = svc.dictionary
         disp = lambda t, c: next((x.display_name for x in dd.tables[t].columns if x.name == c and x.display_name), c)  # noqa: E731
         from app.dictionary.model_rels import report_relationships
         for r in report_relationships(dd, s.model_relationships):
@@ -1190,7 +1316,7 @@ def dictionary_model(request: Request, session: str | None = None) -> dict[str, 
                                            "source": "sql" if r.id.startswith("join:") else "report",
                                            "description": r.description})
     model["used_tables"] = used
-    model["dialect"] = state.services.connector.dialect
+    model["dialect"] = svc.connector.dialect
     return model
 
 
@@ -1920,9 +2046,168 @@ def reset_connections(request: Request) -> dict[str, Any]:
     return {"ok": state.startup_error is None, "error": state.startup_error}
 
 
+# --------------------------------------------------------------------------- kayıtlı veri kaynakları
+def _source_usage() -> dict[str, dict[str, int]]:
+    """Kaynak → {reports: tasarım oturumu sayısı, published: Vitrin'de yayında olan rapor sayısı}."""
+    use: dict[str, dict[str, int]] = {}
+    for item in state.store.list():
+        if item.get("data_source"):
+            use.setdefault(item["data_source"], {"reports": 0, "published": 0})["reports"] += 1
+    if state.meta is not None:
+        for rep in state.meta.reports("active"):
+            ver = state.meta.version(rep["report_id"])
+            src = _snapshot(ver, "standart").data_source if ver else None
+            if src:
+                use.setdefault(src, {"reports": 0, "published": 0})["published"] += 1
+    return use
+
+
+@app.get("/api/settings/sources")
+def list_data_sources(request: Request) -> list[dict[str, Any]]:
+    """Raporların bağlı olduğu veri kaynakları: etkin olan + bağlantı değiştirilirken arşivlenenler (şifresiz)."""
+    _require_settings_access(request)
+    use = _source_usage()
+    return [{**x, **use.get(x["id"], {"reports": 0, "published": 0}), "process_account": conns.process_account()}
+            for x in conns.list_sources(get_settings())]
+
+
+class SourceCredIn(BaseModel):
+    username: str | None = None
+    password: str | None = None
+
+
+@app.put("/api/settings/sources/{source_id}/credentials")
+def update_source_credentials(source_id: str, body: SourceCredIn, request: Request) -> dict[str, Any]:
+    """Arşivlenmiş kaynağın SQL kullanıcı / şifresi (değiştiyse eski raporlar okumaya devam etsin)."""
+    ident = _require_settings_access(request)
+    if source_id == state.services.source_id:
+        raise HTTPException(409, "Etkin veri kaynağının kimlik bilgileri Veri kaynağı kartından değiştirilir.")
+    if not conns.update_source_credentials(source_id, body.username, body.password):
+        raise HTTPException(404, "Kayıtlı veri kaynağı bulunamadı (ya da .env bağlantısı: kimlik bilgisi .env'den gelir).")
+    _forget_source(source_id)
+    svc = services_for(source_id)
+    _audit(ident, "data_source_credentials", None, source=source_id)
+    return {"ok": not svc.unavailable, "error": svc.unavailable, "tables": len(svc.dictionary.tables)}
+
+
+@app.delete("/api/settings/sources/{source_id}")
+def delete_data_source(source_id: str, request: Request) -> dict[str, Any]:
+    """Hiçbir rapor kullanmıyorsa arşivlenmiş kaynağı siler."""
+    ident = _require_settings_access(request)
+    if source_id == state.services.source_id:
+        raise HTTPException(409, "Etkin veri kaynağı silinemez.")
+    use = _source_usage().get(source_id)
+    if use and (use["reports"] or use["published"]):
+        raise HTTPException(409, f"Bu kaynağa bağlı {use['reports']} rapor ve {use['published']} yayın var; önce onları silin "
+                                 "ya da veri kümelerini yeniden oluşturun.")
+    if not conns.delete_source(source_id):
+        raise HTTPException(404, "Kayıtlı veri kaynağı bulunamadı.")
+    _forget_source(source_id)
+    _audit(ident, "data_source_delete", None, source=source_id)
+    return {"ok": True}
+
+
+class PublishAccountIn(BaseModel):
+    auth: str = "none"               # none | sql | windows
+    username: str = ""
+    password: str | None = None      # None / boş → kayıtlı şifre korunur
+
+
+def _source_odbc(source_id: str) -> tuple[str, list[str]]:
+    """Kaynağın normal bağlantı cümlesi ve ek veritabanları (etkin ya da arşivlenmiş)."""
+    settings = get_settings()
+    if source_id == state.services.source_id:
+        return conns.data_odbc(settings), conns.extra_databases(settings)
+    cfg = conns.source_config(source_id)
+    if cfg is None:
+        raise HTTPException(404, "Kayıtlı veri kaynağı bulunamadı.")
+    with conns.override_connections(cfg):
+        return conns.data_odbc(settings), conns.extra_databases(settings)
+
+
+def _publish_acc(source_id: str, body: PublishAccountIn) -> dict[str, Any]:
+    if body.auth not in ("none", "sql", "windows"):
+        raise HTTPException(400, "Kimlik doğrulama none, sql ya da windows olmalı.")
+    acc: dict[str, Any] = {"auth": body.auth, "username": body.username.strip()}
+    if body.auth == "sql":
+        if not acc["username"]:
+            raise HTTPException(400, "SQL kullanıcı adı gerekli.")
+        saved = conns.publish_account(source_id) or {}
+        if body.password:
+            acc["password"] = body.password
+        elif saved.get("auth") == "sql" and saved.get("username") == acc["username"] and saved.get("password_enc"):
+            acc["password_enc"] = saved["password_enc"]
+        else:
+            raise HTTPException(400, "Şifre gerekli.")
+    return acc
+
+
+_PUBLISH_CHECK = ("SELECT SUSER_SNAME(), DB_NAME(), IS_SRVROLEMEMBER('sysadmin'), IS_ROLEMEMBER('db_owner'), "
+                  "IS_ROLEMEMBER('db_datawriter'), IS_ROLEMEMBER('db_ddladmin'), "
+                  "(SELECT COUNT(*) FROM sys.objects o WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 AND "
+                  "HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT') = 1), "
+                  "(SELECT COUNT(*) FROM sys.objects o WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0)")
+
+
+def _check_publish_account(odbc: str, primary: str, extras: list[str]) -> dict[str, Any]:
+    dbs: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    login = None
+    for db in [primary, *extras]:
+        try:
+            con = SqlServerConnector(odbc if db == primary else conns._replace_db(odbc, db), 15)
+            r = con.execute(_PUBLISH_CHECK, 1).rows[0]
+        except Exception as e:  # noqa: BLE001
+            dbs.append({"database": db, "ok": False, "error": friendly_error(str(e))[:300]})
+            continue
+        login, name, sysadmin, owner, writer, ddl, readable, total = r
+        dbs.append({"database": name, "ok": True, "readable": int(readable or 0), "total": int(total or 0)})
+        if sysadmin == 1:
+            warnings.append("Hesap sunucuda sysadmin: yalnız okuma yetkisi (db_datareader) önerilir.")
+        elif owner == 1 or writer == 1 or ddl == 1:
+            warnings.append(f"{name}: hesap yazma / değiştirme yetkili (db_owner / db_datawriter / db_ddladmin); "
+                            "yalnız okuma yetkisi önerilir.")
+        if total and (readable or 0) < total:
+            warnings.append(f"{name}: {total - (readable or 0)} tablo / view bu hesapla okunamıyor.")
+    return {"ok": bool(dbs) and all(d["ok"] for d in dbs), "login": login, "databases": dbs,
+            "warnings": list(dict.fromkeys(warnings))}
+
+
+@app.post("/api/settings/sources/{source_id}/publish-account/test")
+def test_publish_account(source_id: str, body: PublishAccountIn, request: Request) -> dict[str, Any]:
+    """Yayın hesabıyla kaynağın her veritabanına bağlanır: okunabilen nesne sayısı ve yazma / yönetim yetkisi uyarıları."""
+    _require_settings_access(request)
+    if body.auth == "none":
+        raise HTTPException(400, "Test için SQL kullanıcısı ya da Windows hizmet hesabı seçin.")
+    base, extras = _source_odbc(source_id)
+    odbc = conns.with_credentials(base, _publish_acc(source_id, body))
+    return _check_publish_account(odbc, conns.parse_odbc(base).get("database") or "", extras)
+
+
+@app.put("/api/settings/sources/{source_id}/publish-account")
+def save_publish_account(source_id: str, body: PublishAccountIn, request: Request) -> dict[str, Any]:
+    """Kaynağın yayın (Vitrin) hesabı; auth 'none' → kaldırılır (Vitrin normal bağlantıyla okur)."""
+    ident = _require_settings_access(request)
+    _source_odbc(source_id)        # kaynak var mı
+    acc = None if body.auth == "none" else _publish_acc(source_id, body)
+    conns.save_publish_account(source_id, acc, ident.username)
+    if source_id == state.services.source_id:
+        pub = conns.publish_odbc(source_id, get_settings())
+        state.services.publish_connector = SqlServerConnector(pub, get_settings().query_timeout_s) if pub else None
+    else:
+        _forget_source(source_id)
+    with _cache_lock:
+        _cache.clear()
+    _options_cache.clear()
+    _audit(ident, "data_source_publish_account", None, source=source_id, auth=body.auth,
+           sql_user=body.username if body.auth == "sql" else None)
+    return {"ok": True, "publish": conns.publish_account_public(source_id)}
+
+
 def _rebuild_services() -> None:
     state.services = build_services()
     state.agent.services = state.services
+    _forget_source()     # arşivdeki kaynaklar (kimlik bilgisi / sözlük ayarı değişmiş olabilir) yeniden kurulur
 
 
 @app.exception_handler(ValidationError)
@@ -1935,14 +2220,24 @@ class _Snapshot:
     """Yayınlanmış sürüm: dashboard verisi fonksiyonları tasarım oturumu gibi kullanır (spec + dataset'ler + rol).
     Rol, raporu AÇAN kullanıcının veri rolüdür (yayınlayanınki değil)."""
 
-    def __init__(self, spec: ReportSpec, datasets: list[Dataset], role: str, model_relationships: list | None = None):
+    def __init__(self, spec: ReportSpec, datasets: list[Dataset], role: str, model_relationships: list | None = None,
+                 data_source: str | None = None):
         self.spec, self.datasets, self.user_role = spec, datasets, role
         self.model_relationships = model_relationships or []
+        self.data_source = data_source
 
 
 def _snapshot(version: dict[str, Any], role: str) -> _Snapshot:
+    """Veri kaynağı: sürüme yazılan; eski sürümlerde bağlı tasarım oturumununki; o da yoksa etkin kaynak."""
+    src = (version.get("data_source") or {}).get("id")
+    if not src and state.meta is not None:
+        rep = state.meta.report(version["report_id"])
+        try:
+            src = state.store.get(rep["session_id"]).data_source if rep and rep.get("session_id") else None
+        except KeyError:
+            src = None
     return _Snapshot(ReportSpec.model_validate(version["spec"]),
-                     [Dataset.model_validate(d) for d in version["datasets"]], role, version.get("model_relationships"))
+                     [Dataset.model_validate(d) for d in version["datasets"]], role, version.get("model_relationships"), src)
 
 
 def _public_spec(spec: ReportSpec) -> dict[str, Any]:
@@ -2036,7 +2331,8 @@ def publish_session(sid: str, body: PublishIn, request: Request) -> dict[str, An
     meta = _meta()
     if not s.spec:
         raise HTTPException(409, "Yayınlamak için önce dashboard oluşturun.")
-    kinds = state.services.dictionary._table_kinds()
+    svc = _svc(s)
+    kinds = svc.dictionary._table_kinds()
     from app.harness.session import _source_tables
     domains = _report_domains(_source_tables([d.model_dump() for d in s.datasets]), kinds)
     prev = meta.report_by_session(sid)
@@ -2046,7 +2342,8 @@ def publish_session(sid: str, body: PublishIn, request: Request) -> dict[str, An
                                                    else (prev or {}).get("description")),
                        domains=domains, spec=s.spec.model_dump(mode="json"),
                        datasets=[d.model_dump(mode="json") for d in s.datasets], notes=body.notes, by=ident.username,
-                       model_relationships=s.model_relationships)
+                       model_relationships=s.model_relationships,
+                       data_source={"id": svc.source_id, "label": svc.source_label} if s.data_source else None)
     if body.grants is not None:
         meta.set_grants(rep["report_id"], [g.model_dump() for g in body.grants], ident.username)
     with state.store.lock(sid):
@@ -2147,7 +2444,7 @@ def vitrin_report(report_id: str, request: Request) -> dict[str, Any]:
     bindings = _bindings(snap)
     defs = _filter_defs(snap, bindings)
     for f in defs:
-        f["options"] = _filter_options(f["key"], ident.role) if f["key"] else []
+        f["options"] = _filter_options(f["key"], ident.role, _svc(snap)) if f["key"] else []
     try:
         data_date = _data_date_info(snap, ident.role)
     except Exception as e:  # noqa: BLE001

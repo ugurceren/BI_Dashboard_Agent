@@ -109,6 +109,10 @@ class Session(BaseModel):
     # İhtiyaç / Veri fazında çalışma modu: sohbet (agent veriyi bulur) ya da sorgu (kullanıcının hazır SQL'i)
     data_mode: Literal["chat", "query"] = "chat"
     query_drafts: list[QueryDraft] = Field(default_factory=list)
+    # Raporun veri kaynağı: ilk veri kümesi kaydedilirken etkin bağlantı. Bağlantı ayarı sonradan değişse de rapor
+    # verisini (güncel olarak) bu kaynaktan okur; doğrulama da bu kaynağın sözlüğü ve izleyicinin güncel rolüyle yapılır.
+    data_source: str | None = None
+    data_source_label: str | None = None
 
     def public(self) -> dict[str, Any]:
         out = self.model_dump(exclude={"llm_messages", "user_role", "dataset_profiles", "phase_memory"})
@@ -178,6 +182,7 @@ def _summary(d: dict[str, Any]) -> dict[str, Any]:
         "subtitle": spec.get("subtitle"), "business_goal": req.get("business_goal"), "audience": req.get("audience"),
         "kpis": req.get("kpis") or [], "dimensions": req.get("dimensions") or [], "time_range": req.get("time_range"),
         "visual_count": len(visuals), "dataset_count": len(d.get("datasets") or []),
+        "data_source": d.get("data_source"), "data_source_label": d.get("data_source_label"),
         "visual_types": sorted({v.get("type") for v in visuals if v.get("type")}),
         "kpi_titles": [v.get("title") for v in visuals if v.get("type") == "kpi"][:6],
         "filters": [f.get("label") for f in spec.get("filters") or []],

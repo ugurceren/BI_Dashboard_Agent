@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from app.harness.phases import system_prompt
 from app.harness.rules import phase_rules
@@ -177,9 +177,11 @@ def _remember_sql(s: Session, args: dict[str, Any], content: Any) -> None:
 
 
 class Agent:
-    def __init__(self, gateway: LLMGateway, services: Services, store: SessionStore):
+    def __init__(self, gateway: LLMGateway, services: Services, store: SessionStore,
+                 services_for: Callable[[str | None], Services] | None = None):
         self.llm = gateway
         self.services = services
+        self.services_for = services_for   # raporun sabitlendiği veri kaynağının servisleri (yoksa etkin kaynak)
         self.store = store
         self.audit = Audit(services.settings.audit_log)
         self._actors: dict[str, str | None] = {}   # oturum → şu an mesajı işlenen kullanıcı (denetim kaydı)
@@ -296,14 +298,15 @@ class Agent:
         claim_nudges = 0
         loop_nudged = False
         start_version, start_datasets = s.spec_version, len(s.datasets)
+        svc = self.services_for(s.data_source) if self.services_for else self.services
         for step in range(self.services.settings.max_agent_steps):
             if stop.is_set():
                 raise TurnStopped()
             yield Event("status", {"text": "Düşünüyor…" if step == 0 else "Devam ediyor…"})
             tools = tools_for(s.phase)
             remaining = self.services.settings.max_agent_steps - step
-            sys_prompt = system_prompt(s, self.services.connector.dialect, steps_left=remaining,
-                                       rules=_safe_rules(self.services, s))
+            sys_prompt = system_prompt(s, svc.connector.dialect, steps_left=remaining,
+                                       rules=_safe_rules(svc, s))
             schemas = [t.schema() for t in tools]
             budget, max_out = self._budget(sys_prompt, schemas)
             t0 = time.perf_counter()
@@ -493,7 +496,8 @@ class Agent:
                 if tool.status:
                     yield Event("status", {"text": tool.status})
                 try:
-                    result = tool.handler(ToolContext(s, self.services), call.arguments)
+                    svc = self.services_for(s.data_source) if self.services_for else self.services
+                    result = tool.handler(ToolContext(s, svc), call.arguments)
                 except Exception as e:  # noqa: BLE001
                     log.exception("Araç hatası: %s", call.name)
                     result = ToolResult(False, {"error": f"Araç çalışırken hata: {type(e).__name__}: {e}"}, "Araç hatası")

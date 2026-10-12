@@ -158,14 +158,29 @@ interface SessionState {
   busy: boolean;
   data_mode: "chat" | "query";  // İhtiyaç / Veri fazında çalışma modu: sohbet ya da hazır sorgu
   query_drafts: { id: string; title: string; sql: string }[];   // sorgu modundaki taslaklar (henüz dataset değil)
+  data_source: string | null;        // raporun sabitlendiği veri kaynağı (ilk dataset kaydında etkin bağlantı)
+  data_source_label: string | null;  // "SUNUCU · VERİTABANI"
 }
 ```
+
+**Veri kaynağına sabitleme.** Rapor, ilk dataset'i kaydedilirken etkin veri bağlantısının kimliğine (`sha1(sunucu|veritabanı|ek
+veritabanları)[:12]`) damgalanır. Bağlantı ayarı sonradan değişse de raporun tüm veri çağrıları (dashboard verisi, filtre seçenekleri,
+sorgu önizlemesi, agent araçları, Vitrin) bu kaynağın bağlantısı ve sözlüğüyle çalışır; veri kaynağı / sözlük ayarı kaydedilmeden önce
+etkin kaynak `connections.json → sources` altında arşivlenir. Doğrulama her çağrıda izleyicinin **güncel** veri rolüyle yapılır
+(tasarım oturumunda çağıranın rolü, Vitrin'de açanın rolü). Kaynağa ulaşılamazsa dataset `{ error }` döner (`denied` değil).
+Yayınlanan sürüm kaynağı `datasets_json.data_source = { id, label }` olarak saklar.
+
+**Yayın hesabı.** Kaynağa bir yayın hesabı tanımlıysa (`connections.json → publish_accounts[kaynak]`; SQL kullanıcısı ya da
+backend'in Windows hizmet hesabı) Vitrin uçları (`/api/vitrin/{id}`, `/data`, `/export/html`) sorguları bu hesapla çalıştırır;
+tasarım oturumu, agent ve Sorgu Çalıştır her zaman normal bağlantıyla. Rol kuralları aynen uygulanır; yalnız normal hesabın
+katalogdaki nesne yetkisi (`can_select`) aranmaz. Önbellek hesaba göre ayrılır. `GET /api/settings/sources` her kaynak için
+`publish: { auth, username?, has_password?, updated_at?, updated_by? }` ve `process_account` döner.
 
 ## 3. Uç noktalar
 
 | Metot | Yol | Gövde | Yanıt |
 |---|---|---|---|
-| GET | `/api/health` | – | `{ ok, llm: { reachable, model, base_url, error? }, vision: { configured, model }, data: { ok, dialect } }` |
+| GET | `/api/health` | – | `{ ok, llm: { reachable, model, base_url, error? }, vision: { configured, model }, data: { ok, dialect, source: { id, label } } }` (`source`: etkin veri kaynağı) |
 | GET | `/api/sessions` | – | `[{ id, title, phase, updatedAt }]` |
 | POST | `/api/sessions` | `{}` | `SessionState` |
 | GET | `/api/sessions/{id}` | – | `SessionState` |
@@ -185,6 +200,11 @@ interface SessionState {
 | GET | `/api/dictionary/model?session=` | – | İlişkisel model (tablolar, kolonlar, ilişkiler: kardinalite, rol, aktif) + raporda kullanılan tablolar |
 | GET | `/api/dictionary/search?q=...` | – | `[{ table, business_name, description, score, columns: [{ name, business_name, role }] }]` |
 | GET | `/api/sessions/{id}/export/html` | – | Tek dosyalık, bağımsız HTML dashboard (indir) |
+| GET | `/api/settings/sources` | – | `[{ id, label, active, archived_at, auth: "windows" \| "sql" \| "env", username, has_password, reports, published }]` — raporların bağlı olduğu veri kaynakları (yönetici) |
+| PUT | `/api/settings/sources/{id}/credentials` | `{ username?, password? }` | `{ ok, error, tables }` — arşivlenmiş kaynağın SQL kimlik bilgisi; etkin kaynakta `409`. Denetim: `data_source_credentials` |
+| DELETE | `/api/settings/sources/{id}` | – | `{ ok }`; bağlı rapor / yayın varsa ya da etkin kaynaksa `409`. Denetim: `data_source_delete` |
+| POST | `/api/settings/sources/{id}/publish-account/test` | `{ auth: "sql" \| "windows", username?, password? }` | `{ ok, login, databases: [{ database, ok, readable?, total?, error? }], warnings: string[] }` — yayın hesabıyla kaynağın her veritabanına bağlanır; sysadmin / db_owner / db_datawriter / db_ddladmin ve okunamayan nesneler uyarı olarak döner |
+| PUT | `/api/settings/sources/{id}/publish-account` | `{ auth: "none" \| "sql" \| "windows", username?, password? }` | `{ ok, publish }` — kaynağın yayın (Vitrin) hesabı; `none` kaldırır, boş şifre kayıtlı şifreyi korur. Denetim: `data_source_publish_account` |
 
 ### SSE (`POST /messages`)
 

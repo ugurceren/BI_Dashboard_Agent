@@ -170,7 +170,7 @@ def test_dashboard_data_and_filters_with_as_of(snap, monkeypatch):
     sess = SimpleNamespace(datasets=[Dataset(id="kpi", sql=KPI), Dataset(id="urun", sql="SELECT EnglishProductName FROM dbo.DimProduct")],
                            spec=None, user_role="standart")
     seen = []
-    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role: seen.append(sql) or {"columns": ["max_d"], "rows": [["2026-10-04"]]})
+    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role, svc=None: seen.append(sql) or {"columns": ["max_d"], "rows": [["2026-10-04"]]})
     m._options_cache.clear()
     info = m._data_date_info(sess, "standart")
     assert info["column"] == "DataDate" and info["min"] is None and info["max"] == "2026-10-04"
@@ -191,6 +191,6 @@ def test_filter_options_on_snapshot_read_latest_day(snap, monkeypatch):
     monkeypatch.setattr(m.state, "services", snap, raising=False)
     m._options_cache.clear()
     seen = []
-    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role: seen.append(sql) or {"rows": [["Ankara"]]})
+    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role, svc=None: seen.append(sql) or {"rows": [["Ankara"]]})
     assert m._filter_options("clt.vguarantee.branch", "standart") == ["Ankara"]
     assert "MAX(DataDate)" in seen[0] and snap.validator.validate(seen[0], POL).ok

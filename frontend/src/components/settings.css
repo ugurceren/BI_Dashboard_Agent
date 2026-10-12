@@ -145,3 +145,17 @@
 .st-db-tag { font-size: 10px; font-weight: 650; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff; }
 .st-db-make { border: 0; background: none; padding: 0 2px; cursor: pointer; color: var(--muted); font-size: 11px; }
 .st-db-make:hover { color: var(--accent); }
+
+/* Kayıtlı veri kaynakları (raporların sabitlendiği kaynaklar) */
+.st-sources { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.st-source { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.st-source.is-active { border-color: var(--accent); background: var(--accent-soft); }
+.st-source-main { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; overflow-wrap: anywhere; }
+.st-source-cred { flex-basis: 100%; align-items: end; }
+.st-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); }
+.st-badge.is-ok { background: rgba(16, 185, 129, .14); color: var(--ok); }
+.st-source-note { background: var(--accent-soft); border: 1px solid var(--border); }
+.st-badge.is-pub { background: var(--accent-soft); color: var(--accent); }
+.st-pub { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.st-pub .st-seg { flex-wrap: wrap; }

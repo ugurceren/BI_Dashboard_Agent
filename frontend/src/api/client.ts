@@ -1,5 +1,5 @@
 // Backend API istemcisi (docs/CONTRACT.md) + SSE ayrıştırıcı.
-import type { AccessInfo, AdminOverview, AuditEvent, Grant, PlatformRole, PlatformSettings, Publication, VitrinCard, VitrinReport, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, QueryDraft, ConnectionSettings, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult, SuggestionsResponse } from "../types";
+import type { AccessInfo, AdminOverview, AuditEvent, Grant, PlatformRole, PlatformSettings, Publication, VitrinCard, VitrinReport, DashboardData, DataModel, DictionaryHit, FiltersResponse, Health, Me, Selection, UseViewResult, ViewScriptResult, Phase, ReportSpec, SessionState, SessionSummary, StreamEvent, QuerySchema, QueryRunResult, QueryDraft, ConnectionSettings, DataSourceInfo, PublishAccount, PublishAccountTest, ConnFields, ConnTestResult, DictCandidates, LlmSettings, LlmTestResult, SuggestionsResponse } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -34,6 +34,13 @@ export interface Api {
   saveDataConnection(data: ConnFields): Promise<{ ok: boolean; error: string | null; tables: number }>;
   saveDictionaryConnection(dictionary: ConnFields, data: ConnFields): Promise<{ ok: boolean; error: string | null; tables: number }>;
   resetConnectionSection(section: "data" | "dictionary"): Promise<{ ok: boolean; error: string | null }>;
+  /** raporların bağlı olduğu veri kaynakları (etkin + arşivlenmiş) */
+  listSources(): Promise<DataSourceInfo[]>;
+  updateSourceCredentials(id: string, username: string | null, password: string | null): Promise<{ ok: boolean; error: string | null; tables: number }>;
+  deleteSource(id: string): Promise<{ ok: boolean }>;
+  /** kaynağın yayın (Vitrin) hesabı: test ve kayıt (auth "none" → kaldırılır) */
+  testPublishAccount(id: string, acc: { auth: PublishAccount["auth"]; username: string; password: string | null }): Promise<PublishAccountTest>;
+  savePublishAccount(id: string, acc: { auth: PublishAccount["auth"]; username: string; password: string | null }): Promise<{ ok: boolean; publish: PublishAccount }>;
   dictionaryTables(data: ConnFields, dictionary: ConnFields): Promise<DictCandidates>;
   uploadDictionaryExcel(file: File): Promise<{ ok: boolean; path: string; tables: DictCandidates["tables"] }>;
   dictionaryTemplateUrl(layout?: "multi" | "single"): string;
@@ -197,6 +204,11 @@ export const httpApi: Api = {
   saveDataConnection: (data) => req<{ ok: boolean; error: string | null; tables: number }>("/api/settings/connections/data", { method: "PUT", body: JSON.stringify({ data }) }),
   saveDictionaryConnection: (dictionary, data) => req<{ ok: boolean; error: string | null; tables: number }>("/api/settings/connections/dictionary", { method: "PUT", body: JSON.stringify({ dictionary, data }) }),
   resetConnectionSection: (section) => req<{ ok: boolean; error: string | null }>(`/api/settings/connections/${section}`, { method: "DELETE" }),
+  listSources: () => req<DataSourceInfo[]>("/api/settings/sources"),
+  updateSourceCredentials: (id, username, password) => req<{ ok: boolean; error: string | null; tables: number }>(`/api/settings/sources/${encodeURIComponent(id)}/credentials`, { method: "PUT", body: JSON.stringify({ username, password }) }),
+  deleteSource: (id) => req<{ ok: boolean }>(`/api/settings/sources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  testPublishAccount: (id, acc) => req<PublishAccountTest>(`/api/settings/sources/${encodeURIComponent(id)}/publish-account/test`, { method: "POST", body: JSON.stringify(acc) }),
+  savePublishAccount: (id, acc) => req<{ ok: boolean; publish: PublishAccount }>(`/api/settings/sources/${encodeURIComponent(id)}/publish-account`, { method: "PUT", body: JSON.stringify(acc) }),
   uploadDictionaryExcel: async (file) => {
     const res = await fetch(`/api/settings/dictionary/upload?filename=${encodeURIComponent(file.name)}`, {
       method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" },

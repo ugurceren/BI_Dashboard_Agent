@@ -714,6 +714,7 @@ export default function App() {
           setTab={setTab}
           onSpecApplied={(s) => setState(s)}
           onReloadData={() => state && void loadData(state.id, selectionList)}
+          activeSource={health?.data?.source?.id ?? null}
           model={filterInfo ? {
             filters: filterInfo.filters, bindings: filterInfo.bindings, applied: data?.applied ?? {},
             selections, onSelections: setSelections, cross, onCross: setCross, dataDate: filterInfo.data_date,

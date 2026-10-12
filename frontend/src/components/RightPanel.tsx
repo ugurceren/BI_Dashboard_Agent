@@ -10,7 +10,7 @@ import type { ModelFiltering } from "../dashboard/DashboardRenderer";
 
 export type Tab = "dashboard" | "data" | "model" | "spec";
 
-export function RightPanel({ api, state, data, dataLoading, dataError, tab, setTab, onSpecApplied, onReloadData, model }: {
+export function RightPanel({ api, state, data, dataLoading, dataError, tab, setTab, onSpecApplied, onReloadData, model, activeSource }: {
   api: Api;
   state: SessionState | null;
   data: DashboardData | null;
@@ -22,6 +22,8 @@ export function RightPanel({ api, state, data, dataLoading, dataError, tab, setT
   onReloadData: () => void;
   /** model filtreleri (Power BI tarzı); yoksa istemci tarafı filtre */
   model?: ModelFiltering;
+  /** etkin veri kaynağının kimliği (sağlık bilgisinden); rapor başka kaynağa bağlıysa Veri sekmesinde not */
+  activeSource?: string | null;
 }) {
   const spec = state?.spec ?? null;
   const datasetCount = useMemo(() => mergeDatasets(state).length, [state]);
@@ -56,7 +58,7 @@ export function RightPanel({ api, state, data, dataLoading, dataError, tab, setT
         {tab === "dashboard" ? (
           <DashboardTab spec={spec} data={data} loading={dataLoading} error={dataError} phase={state?.phase} model={model} />
         ) : tab === "data" ? (
-          <DataTab api={api} state={state} data={data} onSession={onSpecApplied} />
+          <DataTab api={api} state={state} data={data} onSession={onSpecApplied} activeSource={activeSource ?? null} />
         ) : tab === "model" ? (
           <ModelTab api={api} state={state} />
         ) : (
@@ -119,10 +121,21 @@ function DashboardTab({ spec, data, loading, error, phase, model }: {
 
 // ---------- Veri ----------
 
-function DataTab({ api, state, data, onSession }: { api: Api; state: SessionState | null; data: DashboardData | null; onSession: (s: SessionState) => void }) {
+function DataTab({ api, state, data, onSession, activeSource }: {
+  api: Api; state: SessionState | null; data: DashboardData | null; onSession: (s: SessionState) => void; activeSource: string | null;
+}) {
   const datasets = useMemo(() => mergeDatasets(state), [state]);
+  const pinned = state?.data_source ?? null;
+  const old = !!pinned && !!activeSource && pinned !== activeSource;
   return (
     <div className="data-tab">
+      {pinned ? (
+        <div className={`ds-source${old ? " is-old" : ""}`} role="note">
+          <span>Veri kaynağı: <b>{state?.data_source_label ?? pinned}</b></span>
+          {old ? <span className="muted small">Bu rapor eski veri kaynağına bağlı: bağlantı ayarı değişti ama rapor verisini (güncel olarak)
+            kendi kaynağından okumaya devam ediyor. Yeni veri kümeleri ve sohbetteki sorgular da bu kaynakta çalışır.</span> : null}
+        </div>
+      ) : null}
       <DictionarySearch api={api} />
       {datasets.length === 0 ? (
         <div className="panel-empty small-empty">

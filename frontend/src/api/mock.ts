@@ -102,8 +102,13 @@ const state = (s: MockSession): SessionState => {
   const { updatedAt, data, ...rest } = s;
   // mock: modele giden geçmiş yok; büyüklük sohbet mesajlarından tahmin edilir (temizlenince 0)
   const ctx = rest.llm_context_chars ?? rest.transcript.reduce((n, t) => n + (t.content?.length ?? 0) + 40, 0);
-  return clone({ ...rest, llm_context_chars: ctx });
+  // mock: veri kümesi olan rapor etkin kaynağa sabitlenir (gerçek backend ilk kayıtta damgalar)
+  const src = rest.datasets.length ? { data_source: MOCK_SOURCE.id, data_source_label: MOCK_SOURCE.label } : {};
+  return clone({ ...rest, ...src, llm_context_chars: ctx });
 };
+let mockPublish: import("../types").PublishAccount = { auth: "none" };
+const MOCK_SVC = "KURUM\\svc_bilens$";
+const MOCK_SOURCE = { id: "a1b2c3d4e5f6", label: "localhost · AdventureWorksDW2025" };
 
 /** mock: filtre anahtarı → dataset alan adı (gerçek backend bunu ilişkilerden çözer) */
 function mockFilterFields(s: MockSession): Record<string, string> {
@@ -152,7 +157,7 @@ export const mockApi: Api = {
       ok: true,
       llm: { reachable: true, model: "mock-llm", base_url: "mock://" },
       vision: { configured: true, model: "mock-vision" },
-      data: { ok: true, dialect: "tsql" },
+      data: { ok: true, dialect: "tsql", source: MOCK_SOURCE },
     };
   },
   async listSessions(): Promise<SessionSummary[]> {
@@ -189,6 +194,24 @@ export const mockApi: Api = {
   async saveDataConnection() { return { ok: true, error: null, tables: 0 }; },
   async saveDictionaryConnection() { return { ok: true, error: null, tables: 0 }; },
   async resetConnectionSection() { return { ok: true, error: null }; },
+  async listSources() {
+    return [
+      { ...MOCK_SOURCE, active: true, archived_at: null, auth: "env" as const, username: "", has_password: true, reports: sessions.size, published: 0,
+        publish: mockPublish, process_account: MOCK_SVC },
+      { id: "0f9e8d7c6b5a", label: "ESKI-SRV · EDWDM", active: false, archived_at: "2026-09-30T08:15:00+00:00", auth: "sql" as const,
+        username: "bi_ro", has_password: true, reports: 2, published: 1, publish: { auth: "none" as const }, process_account: MOCK_SVC },
+    ];
+  },
+  async updateSourceCredentials() { return { ok: true, error: null, tables: 24 }; },
+  async deleteSource() { return { ok: true }; },
+  async testPublishAccount(_id, acc) {
+    await sleep(300);
+    return { ok: true, login: acc.auth === "sql" ? acc.username : MOCK_SVC, databases: [{ database: "AdventureWorksDW2025", ok: true, readable: 42, total: 42 }], warnings: [] };
+  },
+  async savePublishAccount(_id, acc) {
+    mockPublish = acc.auth === "none" ? { auth: "none" } : { auth: acc.auth, username: acc.username, has_password: acc.auth === "sql", updated_at: new Date().toISOString(), updated_by: "KURUM\\demo" };
+    return { ok: true, publish: mockPublish };
+  },
   async uploadDictionaryExcel(file) { return { ok: true, path: "C:/" + file.name, tables: [] }; },
   dictionaryTemplateUrl() { return "#"; },
   connectionsExportUrl() { return "#"; },

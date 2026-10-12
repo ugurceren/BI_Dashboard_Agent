@@ -81,9 +81,12 @@ class SqlValidator:
         self.join_guard = JoinGuard(dictionary)
         self.snapshot_guard = SnapshotGuard(dictionary)
 
-    def validate(self, sql: str, policy: RolePolicy, *, strict_joins: bool = True, autofix: bool = True) -> ValidationResult:
+    def validate(self, sql: str, policy: RolePolicy, *, strict_joins: bool = True, autofix: bool = True,
+                 ignore_db_perms: bool = False) -> ValidationResult:
         """strict_joins=False: JOIN çoğalma hataları uyarıya düşer (kullanıcının kendi sorgu ekranı).
-        autofix=False: SQL olduğu gibi çalışır (COUNT DISTINCT / FLOAT bölme düzeltmeleri yapılmaz)."""
+        autofix=False: SQL olduğu gibi çalışır (COUNT DISTINCT / FLOAT bölme düzeltmeleri yapılmaz).
+        ignore_db_perms=True: normal bağlantı hesabının nesne yetkisi (katalogdaki SELECT) aranmaz — yayın hesabıyla
+        okunan Vitrin sorguları için; rol kuralları (şema, tablo, kişisel veri) aynen uygulanır."""
         sql = (sql or "").strip().rstrip(";").strip()
         if not sql:
             return ValidationResult(False, ["SQL boş."])
@@ -139,7 +142,7 @@ class SqlValidator:
                 errors.append(f"'{full}' veri sözlüğünde yok. Önce search_dictionary ile doğru tabloyu bulun.")
                 continue
             dt = self.dictionary.tables.get(full)
-            if dt is not None and dt.can_select is False:  # veritabanı yetkisi (HAS_PERMS_BY_NAME) — katalogdan
+            if dt is not None and dt.can_select is False and not ignore_db_perms:  # bağlanan hesabın yetkisi (HAS_PERMS_BY_NAME)
                 errors.append(f"'{full}': veritabanında bu nesne için SELECT yetkiniz yok.")
                 continue
             if dt is not None and dt.in_db is False:

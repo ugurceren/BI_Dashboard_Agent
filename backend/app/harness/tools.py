@@ -30,6 +30,11 @@ class Services:
     connector: Connector
     validator: SqlValidator
     policies: dict[str, RolePolicy]
+    source_id: str | None = None        # veri kaynağı kimliği (connections.source_id_of); raporlar buna damgalanır
+    source_label: str | None = None     # "SUNUCU · VERİTABANI"
+    unavailable: str | None = None      # arşivlenmiş kaynağa ulaşılamıyorsa okunur hata (veri "yetkisiz" sayılmaz)
+    publish_connector: Connector | None = None   # yayın (Vitrin) hesabı: tanımlıysa yayınlanmış raporlar bununla okunur
+    account: str = ""                   # "publish": bu servis kopyası yayın hesabıyla okuyor (önbellek ayrı tutulur)
 
     def policy(self, role: str) -> RolePolicy:
         # tanımsız rol (ör. eski kayıtlardaki ad) varsayılan "standart" role düşer
@@ -280,6 +285,8 @@ def _build_dataset(ctx: ToolContext, raw: dict[str, Any], user_sql: bool = False
     prof["sample_rows"] = _rows_preview(res, 5)
     if warnings:
         prof["join_warnings"] = warnings
+    if ctx.services.source_id and not ctx.session.data_source:   # rapor ilk veri kümesinin kaynağına sabitlenir
+        ctx.session.data_source, ctx.session.data_source_label = ctx.services.source_id, ctx.services.source_label
     return ds, prof, []
 
 

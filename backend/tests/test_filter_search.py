@@ -116,7 +116,7 @@ def test_ignore_filters_only_when_set(views, monkeypatch):
     from app.spec.models import ReportSpec
     m.state.services = views
     sent = []
-    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role: sent.append(sql) or {"columns": [], "rows": []})
+    monkeypatch.setattr(m, "_dataset_payload", lambda sql, role, svc=None: sent.append(sql) or {"columns": [], "rows": []})
     ds = [{"id": "a", "sql": "SELECT SUM(c.Limit) AS l FROM CLT.vCard c WHERE c.CustomerPartyId > 0", "fields": [{"name": "l", "type": "number"}]},
           {"id": "b", "sql": "SELECT SUM(c.Limit) AS l2 FROM CLT.vCard c WHERE c.CustomerPartyId > 0", "fields": [{"name": "l2", "type": "number"}]}]
     spec = ReportSpec.model_validate({"title": "T", "datasets": ds, "visuals": [
