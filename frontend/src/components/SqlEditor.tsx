@@ -8,6 +8,7 @@ import { sql as sqlLang, MSSQL } from "@codemirror/lang-sql";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import { buildCompletion } from "../lib/sqlComplete";
+import { formatSql } from "../lib/sqlFormat";
 import type { QuerySchema } from "../types";
 
 const highlight = HighlightStyle.define([
@@ -44,6 +45,27 @@ export interface SqlEditorHandle {
   insert(text: string): void;
   replaceAll(text: string): void;
   focus(): void;
+  /** SQL'i biçimlendirir (seçim varsa yalnız seçimi; Ctrl+Z ile geri alınır). Hata mesajı ya da null. */
+  format(): string | null;
+}
+
+/** Editördeki SQL'i (seçim varsa yalnız seçimi) biçimlendirir; tek değişiklik olarak uygulanır (geri alınabilir). */
+function formatIn(v: EditorView): string | null {
+  const sel = v.state.selection.main;
+  const from = sel.empty ? 0 : sel.from;
+  const to = sel.empty ? v.state.doc.length : sel.to;
+  const src = v.state.sliceDoc(from, to);
+  if (!src.trim()) return null;
+  let out: string;
+  try {
+    out = formatSql(src);
+  } catch (e) {
+    return `Sorgu biçimlendirilemedi (sözdizimi tanınmadı): ${(e instanceof Error ? e.message : String(e)).split("\n")[0].slice(0, 160)}`;
+  }
+  if (!sel.empty) out = out.replace(/\n$/, "");
+  if (out !== src) v.dispatch({ changes: { from, to, insert: out }, selection: { anchor: from, head: from + out.length }, userEvent: "input.format" });
+  v.focus();
+  return null;
 }
 
 export const SqlEditor = forwardRef<SqlEditorHandle, {
@@ -52,16 +74,20 @@ export const SqlEditor = forwardRef<SqlEditorHandle, {
   value: string;
   onChange?: (text: string) => void;
   onRun?: () => void;
+  /** Shift+Alt+F ile biçimlendirme sonucu (hata mesajı ya da null) */
+  onFormat?: (error: string | null) => void;
   placeholderText?: string;
   className?: string;
   testId?: string;
-}>(function SqlEditor({ schema, value, onChange, onRun, placeholderText = "SELECT … FROM dbo.Tablo", className, testId }, ref) {
+}>(function SqlEditor({ schema, value, onChange, onRun, onFormat, placeholderText = "SELECT … FROM dbo.Tablo", className, testId }, ref) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const changeRef = useRef(onChange);
   changeRef.current = onChange;
   const runRef = useRef(onRun);
   runRef.current = onRun;
+  const formatRef = useRef(onFormat);
+  formatRef.current = onFormat;
   // güncel belge: şema gelince editör yeniden kurulurken yazılmış metin korunur (ilk değer yalnız ilk kurulumda)
   const docRef = useRef(value);
   // editörün kendi bildirdiği son metin: dışarıdan gelen value bununla aynıysa belgeye yeniden yazılmaz
@@ -80,6 +106,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, {
           Prec.highest(keymap.of([
             { key: "Mod-Enter", run: () => { runRef.current?.(); return true; } },
             { key: "F5", run: () => { runRef.current?.(); return true; }, preventDefault: true },
+            { key: "Shift-Alt-f", run: (v) => { formatRef.current?.(formatIn(v)); return true; }, preventDefault: true },
           ])),
           basicSetup,
           lang,
@@ -133,6 +160,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, {
       v.focus();
     },
     focus: () => view.current?.focus(),
+    format: () => (view.current ? formatIn(view.current) : null),
   }), []);
 
   return <div className={className} ref={host} data-testid={testId} />;

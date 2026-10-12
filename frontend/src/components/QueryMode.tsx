@@ -40,6 +40,7 @@ export function QueryMode({ api, state, disabled, onState, onSubmitted }: {
   const [active, setActive] = useState(drafts[0]?.key ?? "");
   const [results, setResults] = useState<Record<string, { result: QueryRunResult; ranSql: string }>>({});
   const [running, setRunning] = useState(false);
+  const [fmtErr, setFmtErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const editor = useRef<SqlEditorHandle>(null);
@@ -153,12 +154,15 @@ export function QueryMode({ api, state, disabled, onState, onSubmitted }: {
           {slug && slug !== cur.id ? <div className="qm-hint muted small">Kaydedilecek ad: <code>{slug}</code></div> : null}
           <SqlEditor ref={editor} key={cur.key} schema={schema} value={cur.sql} className="qm-editor" testId="qm-editor"
             placeholderText="Hazır sorgunuzu yapıştırın: SELECT … FROM …"
-            onChange={(t) => patch(cur.key, { sql: t })} onRun={() => void preview()} />
+            onChange={(t) => { patch(cur.key, { sql: t }); if (fmtErr) setFmtErr(null); }} onRun={() => void preview()} onFormat={setFmtErr} />
           <div className="qm-toolbar">
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => void preview()} disabled={disabled || running || !cur.sql.trim()} title="Önizle (Ctrl+Enter / F5)">
               {running ? <span className="spinner" /> : null}Önizle
             </button>
-            <span className="muted small">Ctrl+Enter · ilk 200 satır · salt-okunur</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFmtErr(editor.current?.format() ?? null)} disabled={disabled || !cur.sql.trim()}
+              title="SQL'i biçimlendir (Shift+Alt+F). Seçili metin varsa yalnızca o; Ctrl+Z ile geri alınır.">Biçimlendir</button>
+            {fmtErr ? <span className="qp-fmt-err small" role="alert" title={fmtErr}>{fmtErr}</span>
+              : <span className="muted small">Ctrl+Enter · Shift+Alt+F: biçimlendir · ilk 200 satır · salt-okunur</span>}
           </div>
           <div className="qm-results">
             <QueryResultView result={res?.result ?? null} ranSql={res?.ranSql} testId="qm-result"

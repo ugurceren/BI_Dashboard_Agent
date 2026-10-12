@@ -34,6 +34,7 @@ export function QueryPage({ api, theme, onOpenReport }: { api: Api; theme: strin
   const [collapsed, setCollapsedState] = useState(() => lsRead(LS_EXPLORER) === "1");
   const setCollapsed = (v: boolean) => { setCollapsedState(v); lsWrite(LS_EXPLORER, v ? "1" : "0"); };
   const [running, setRunning] = useState(false);
+  const [fmtErr, setFmtErr] = useState<string | null>(null);
   const [result, setResult] = useState<QueryRunResult | null>(null);
   const [ranSql, setRanSql] = useState("");
   const editor = useRef<SqlEditorHandle>(null);
@@ -236,7 +237,12 @@ export function QueryPage({ api, theme, onOpenReport }: { api: Api; theme: strin
           <button type="button" className="btn btn-primary btn-sm" onClick={() => void run()} disabled={running || !schema} title="Çalıştır (Ctrl+Enter / F5)">
             {running ? <span className="spinner" /> : <Ico d="M5 3.5 12 8l-7 4.5z" />}Çalıştır
           </button>
-          <span className="qp-hint muted small">Ctrl+Enter · F5 · Ctrl+Space: öneriler · Seçili metin varsa yalnızca o çalışır</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFmtErr(editor.current?.format() ?? null)}
+            title="SQL'i biçimlendir: girinti, satır düzeni, büyük harf anahtar kelimeler (Shift+Alt+F). Seçili metin varsa yalnızca o; Ctrl+Z ile geri alınır.">
+            <Ico d="M2.5 4h11M2.5 8h7M5 12h8.5" />Biçimlendir
+          </button>
+          {fmtErr ? <span className="qp-fmt-err small" role="alert" title={fmtErr}>{fmtErr}</span>
+            : <span className="qp-hint muted small">Ctrl+Enter · F5 · Ctrl+Space: öneriler · Shift+Alt+F: biçimlendir · Seçili metin varsa yalnızca o çalışır</span>}
           <button type="button" className="btn btn-secondary btn-sm" disabled={!schema}
             onClick={() => { const t = editor.current?.runText() ?? ""; if (t) setSending(t); }}
             title="Bu sorgunun sonucuyla dashboard hazırla: yeni rapor açılır ya da mevcut bir rapora veri kümesi olarak eklenir">
@@ -248,7 +254,7 @@ export function QueryPage({ api, theme, onOpenReport }: { api: Api; theme: strin
           </span>
         </div>
         <SqlEditor ref={editor} schema={schema} value={initialSql} className="qp-editor" testId="sql-editor"
-          onRun={() => void run()} onChange={(t) => lsWrite(LS_SQL, t)} />
+          onRun={() => void run()} onFormat={setFmtErr} onChange={(t) => { lsWrite(LS_SQL, t); if (fmtErr) setFmtErr(null); }} />
 
         <div className="qp-results">
           <QueryResultView result={result} ranSql={ranSql} actions={

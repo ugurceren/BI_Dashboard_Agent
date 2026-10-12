@@ -30,7 +30,8 @@
     "echarts": "^6.1.0",
     "marked": "^18.0.14",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "sql-formatter": "^15.9.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

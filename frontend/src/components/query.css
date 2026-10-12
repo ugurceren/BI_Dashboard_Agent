@@ -106,3 +106,4 @@
 .qp-kind.k-table { background: #4c8dff; }
 .qp-kind.k-view { background: #8b5cf6; }
 .qp-undoc { font-size: 10px; font-weight: 600; border: 1px dashed var(--border-strong); border-radius: 999px; padding: 0 6px; }
+.qp-fmt-err { min-width: 0; flex: 0 1 auto; color: var(--bad); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

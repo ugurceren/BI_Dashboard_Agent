@@ -379,6 +379,7 @@ export const GUIDE: GuideSection[] = [
       { kind: "list", items: [
         "Soldaki ağaçta yalnız **yetkili** tablo ve view'lar görünür; tıklayınca SELECT editöre eklenir.",
         "Çalıştırmak için **Ctrl+Enter**. Yazma sorguları ve yetkiniz olmayan kişisel veri kolonları reddedilir.",
+        "**Biçimlendir** (Shift+Alt+F) sorguyu girintili ve okunur hale getirir (anahtar kelimeler büyük harf); seçili metin varsa yalnız onu. Sorgunun anlamı değişmez, Ctrl+Z ile geri alınır. Aynı düğme rapordaki sorgu modunda da var.",
         "Çalıştırılan SQL (NOLOCK, satır sınırı eklenmiş hali) sonuçla birlikte gösterilir.",
         "**Dashboard hazırla:** sorgunun sonucuyla yeni rapor açın ya da mevcut rapora ekleyin (bkz. **Hazır sorguyla rapor**).",
       ] },
